@@ -4193,7 +4193,13 @@ impl Hardware {
         let writable = r[REG_DEPTH_STENCIL_WRITE] != 0;
         let depth_test = mask & 1 != 0;
         let depth_write = writable && mask & (1 << 12) != 0;
-        let stencil_test = draw.depth.is_some_and(|(_, bytes)| bytes == 4) && r[REG_STENCIL_TEST] & 1 != 0;
+        // the stencil's operations apply with its test's bit clear too, the
+        // test then passing always, see Stencil::read
+        let stencil_test = draw.depth.is_some_and(|(_, bytes)| bytes == 4) && super::Stencil::read(r, writable).is_some();
+        let stencil_compare = match r[REG_STENCIL_TEST] & 1 {
+            0 => r[REG_STENCIL_TEST] & !0x70 | 0x10,
+            _ => r[REG_STENCIL_TEST],
+        };
         // only the bits compile_pipeline reads, so draws that differ
         // elsewhere share a pipeline
         let blend = (r[REG_COLOR_OPERATION] & 0x100 != 0).then_some(r[REG_BLEND_FUNC] & 0xFFFF_0707);
@@ -4321,7 +4327,7 @@ impl Hardware {
             depth_compare: if depth_test { COMPARES[((mask >> 4) & 7) as usize] } else { vk::CompareOp::ALWAYS },
             depth_write: depth.is_some() && depth_write,
             stencil_test,
-            stencil: (r[REG_STENCIL_TEST], r[REG_STENCIL_OP]),
+            stencil: (stencil_compare, r[REG_STENCIL_OP]),
             writable,
             blend_constants: r[REG_BLEND_COLOR].to_le_bytes().map(|c| c as f32 / 255.0),
             blend,
