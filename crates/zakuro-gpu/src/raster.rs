@@ -1414,7 +1414,7 @@ pub(crate) struct DrawnTexture {
 /// texture unit 0's configuration and backing data for one draw call.
 struct BoundTexture {
     /// the texture decoded, row by row from the top, none when it is drawn
-    /// unless it reaches past the rows drawn.
+    /// unless it reaches past the rows drawn. its smaller sizes follow.
     texels: Arc<[[u8; 4]]>,
     drawn: Option<DrawnTexture>,
     /// bilinear rather than point sampling when magnifying.
@@ -1427,6 +1427,82 @@ struct BoundTexture {
     /// the texture pack's picture for it, which the host's GPU draws with
     /// in its place once it has been read.
     replacement: Option<Arc<crate::pack::Material>>,
+    /// how many sizes the texels hold, each half the last.
+    levels: u32,
+    lod: Lod,
+}
+
+/// how a unit goes between a texture's sizes, from GPUREG_TEXUNITi_LOD and
+/// the filters in GPUREG_TEXUNITi_PARAM: the level of detail the rate the
+/// coordinates change across the screen gives, plus the bias, kept between
+/// the smallest and largest level the unit allows, 0 being the largest
+/// size and each step up half the last.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Lod {
+    /// in 256ths.
+    bias: i16,
+    min: u8,
+    max: u8,
+    /// bilinear rather than point sampling when minifying.
+    linear: bool,
+    /// blends the two sizes about the level rather than taking the nearer.
+    between: bool,
+}
+
+impl Lod {
+    /// the unit's, for a texture of levels sizes.
+    fn read(registers: &[u32], base: usize, levels: u32) -> Lod {
+        let config = registers[base + 2];
+        let lod = registers[base + 3];
+        let max = ((lod >> 16) & 0xF).min(levels - 1);
+        Lod {
+            // 13 bits with the sign, 8 of them a fraction
+            bias: ((lod << 19) as i32 >> 19) as i16,
+            min: ((lod >> 24) & 0xF).min(max) as u8,
+            max: max as u8,
+            linear: config & 0x4 != 0,
+            between: config & (1 << 24) != 0,
+        }
+    }
+}
+
+/// how many sizes a unit's texture has: as many as the largest level of
+/// detail GPUREG_TEXUNITi_LOD allows, each half the last, down to 8 texels
+/// a side, the tiles' size.
+fn level_count(registers: &[u32], base: usize, width: u32, height: u32) -> u32 {
+    let largest = (registers[base + 3] >> 16) & 0xF;
+    1 + largest.min(width.trailing_zeros().min(height.trailing_zeros()).saturating_sub(3))
+}
+
+/// one of a texture's sizes: its width and height, and where it starts in
+/// the texture's bytes and in its texels.
+#[derive(Clone, Copy, Debug)]
+struct Level {
+    width: u32,
+    height: u32,
+    bytes: usize,
+    texels: usize,
+}
+
+/// a texture's sizes, the largest first, one after the other in memory as
+/// in the decoded texels.
+fn texture_levels(format: TextureFormat, width: u32, height: u32, levels: u32) -> impl Iterator<Item = Level> {
+    let bits = format.bits_per_pixel() as u64;
+    (0..levels).scan((0, 0), move |(bytes, texels), level| {
+        let (width, height) = (width >> level, height >> level);
+        let found = Level { width, height, bytes: *bytes, texels: *texels };
+        *bytes += (width as u64 * height as u64 * bits).div_ceil(8) as usize;
+        *texels += (width * height) as usize;
+        Some(found)
+    })
+}
+
+/// how many bytes a texture's sizes take in memory.
+fn texture_bytes(format: TextureFormat, width: u32, height: u32, levels: u32) -> usize {
+    let bits = format.bits_per_pixel() as u64;
+    texture_levels(format, width, height, levels)
+        .last()
+        .map_or(0, |last| last.bytes + (last.width as u64 * last.height as u64 * bits).div_ceil(8) as usize)
 }
 
 /// what a draw does for frame interpolation, see crate::interpolation.
@@ -1595,7 +1671,8 @@ pub struct TextureCache {
     threaded_lookup: Option<bool>,
 }
 
-type TextureKey = (u32, TextureFormat, u32, u32);
+/// address, format, width, height and how many sizes.
+type TextureKey = (u32, TextureFormat, u32, u32, u32);
 
 /// a texture's texels, and the texture pack's picture replacing it.
 type Found = (Arc<[[u8; 4]]>, Option<Arc<crate::pack::Material>>);
@@ -1685,7 +1762,7 @@ impl TextureCache {
 
     fn decoded(&mut self, key: TextureKey, data: &[u8]) -> Found {
         let _timed = crate::timed(1);
-        let (_, format, width, height) = key;
+        let (_, format, width, height, levels) = key;
         let hash = fingerprint(data);
         let checked = (self.list, self.written.len());
         let threaded = *self.threaded_lookup.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.async_pack_lookup));
@@ -1696,23 +1773,29 @@ impl TextureCache {
                 // into a copy, as the old texels may still be uploading
                 let mut copy: Arc<[[u8; 4]]> = Arc::from(&decoded.texels[..]);
                 let texels = Arc::get_mut(&mut copy).expect("a copy no one else holds");
-                let tile = data.len() / (width * height / 64) as usize;
-                let tiles = decoded.bytes.chunks(tile).zip(data.chunks(tile)).enumerate();
-                for (index, (_, new)) in tiles.filter(|(_, (old, new))| old != new) {
-                    let (tile_x, tile_y) = (index as u32 % (width / 8) * 8, index as u32 / (width / 8) * 8);
-                    // a tile is stored as a texture of its own 8x8 texels
-                    let whole = new.len() == (format.bits_per_pixel() * 8) as usize;
-                    let same = (self.fast == Some(true) && whole).then(||crate::texture::decode_texture(new, format, 8, 8)).flatten();
-                    if let Some(same) = same {
-                        for (row, line) in same.chunks_exact(8).enumerate() {
-                            let start = ((tile_y as usize + row) * width as usize) + tile_x as usize;
-                            texels[start..start + 8].copy_from_slice(line);
+                let tile = 64 * format.bits_per_pixel() as usize / 8;
+                for level in texture_levels(format, width, height, levels) {
+                    let span = level.bytes..level.bytes + (level.width * level.height) as usize * tile / 64;
+                    let (old, new) = (&decoded.bytes[span.clone()], &data[span]);
+                    let tiles = old.chunks(tile).zip(new.chunks(tile)).enumerate();
+                    for (index, (_, bytes)) in tiles.filter(|(_, (old, new))| old != new) {
+                        let columns = level.width / 8;
+                        let (tile_x, tile_y) = (index as u32 % columns * 8, index as u32 / columns * 8);
+                        // a tile is stored as a texture of its own 8x8 texels
+                        let whole = bytes.len() == tile;
+                        let same = (self.fast == Some(true) && whole).then(|| crate::texture::decode_texture(bytes, format, 8, 8)).flatten();
+                        if let Some(same) = same {
+                            for (row, line) in same.chunks_exact(8).enumerate() {
+                                let start = level.texels + (tile_y as usize + row) * level.width as usize + tile_x as usize;
+                                texels[start..start + 8].copy_from_slice(line);
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    for y in tile_y..tile_y + 8 {
-                        for x in tile_x..tile_x + 8 {
-                            texels[(y * width + x) as usize] = crate::texture::sample_texel(data, format, width, x, y);
+                        for y in tile_y..tile_y + 8 {
+                            for x in tile_x..tile_x + 8 {
+                                texels[level.texels + (y * level.width + x) as usize] =
+                                    crate::texture::sample_texel(new, format, level.width, x, y);
+                            }
                         }
                     }
                 }
@@ -1726,26 +1809,33 @@ impl TextureCache {
                 return (decoded.texels.clone(), found(&decoded.replacement));
             }
         }
-        let count = (width * height) as usize;
+        let fast = *self.fast.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.fast_texture_decode));
+        // each size on its own, those not made of 8x8 tiles texel by texel
+        let mut texels: Vec<[u8; 4]> = Vec::new();
+        for level in texture_levels(format, width, height, levels) {
+            let data = &data[level.bytes..];
+            let blocks = if fast && matches!(format, TextureFormat::Etc1 | TextureFormat::Etc1A4) {
+                crate::texture::decode_etc1_texture(data, format, level.width, level.height)
+            } else if fast {
+                crate::texture::decode_texture(data, format, level.width, level.height)
+            } else {
+                None
+            };
+            match blocks {
+                Some(blocks) => texels.extend_from_slice(&blocks),
+                None => texels.extend(
+                    (0..level.height)
+                        .flat_map(|y| (0..level.width).map(move |x| (x, y)))
+                        .map(|(x, y)| crate::texture::sample_texel(data, format, level.width, x, y)),
+                ),
+            }
+        }
+        let texels: Arc<[[u8; 4]]> = texels.into();
+        let count = texels.len();
         if self.texels + count > CACHED_TEXELS {
             self.entries.clear();
             self.texels = 0;
         }
-        let fast = *self.fast.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.fast_texture_decode));
-        let blocks = if fast && matches!(format, TextureFormat::Etc1 | TextureFormat::Etc1A4) {
-            crate::texture::decode_etc1_texture(data, format, width, height)
-        } else if fast {
-            crate::texture::decode_texture(data, format, width, height)
-        } else {
-            None
-        };
-        let texels: Arc<[[u8; 4]]> = match blocks {
-            Some(texels) => texels.into(),
-            None => (0..height)
-                .flat_map(|y| (0..width).map(move |x| (x, y)))
-                .map(|(x, y)| crate::texture::sample_texel(data, format, width, x, y))
-                .collect(),
-        };
         let replacement = lookup(&self.pack, threaded, &mut self.rows, data, &texels, key);
         let decoded = Decoded { hash, bytes: data.to_vec(), texels: texels.clone(), checked, replacement: replacement.clone(), watch: None };
         let replacement = found(&replacement);
@@ -1785,7 +1875,9 @@ fn picture_for(
     key: TextureKey,
     rows: &mut Vec<u8>,
 ) -> Option<Arc<crate::pack::Material>> {
-    let (_, format, width, height) = key;
+    // packs know textures by their largest size alone
+    let (_, format, width, height, _) = key;
+    let (data, texels) = (&data[..texture_bytes(format, width, height, 1)], &texels[..(width * height) as usize]);
     if crate::pack::recording() {
         crate::pack::record(data, texels, format, width, height);
     }
@@ -1850,26 +1942,56 @@ impl Wrap {
 }
 
 impl BoundTexture {
-    fn texel(&self, x: i32, y: i32) -> [f32; 4] {
+    /// a texel of one of the sizes, 0 the largest.
+    fn texel(&self, level: u32, x: i32, y: i32) -> [f32; 4] {
+        let (width, height) = (self.width >> level, self.height >> level);
         let outside = |wrap: Wrap, coordinate: i32, size: u32| {
             wrap == Wrap::ClampToBorder && !(0..size as i32).contains(&coordinate)
         };
-        if outside(self.wrap_s, x, self.width) || outside(self.wrap_t, y, self.height) {
+        if outside(self.wrap_s, x, width) || outside(self.wrap_t, y, height) {
             return self.border;
         }
-        let x = self.wrap_s.apply(x, self.width);
-        let y = self.wrap_t.apply(y, self.height);
-        self.texels[(y * self.width + x) as usize].map(|c| c as f32 / 255.0)
+        let x = self.wrap_s.apply(x, width);
+        let y = self.wrap_t.apply(y, height);
+        let start: u32 = (0..level).map(|level| (self.width >> level) * (self.height >> level)).sum();
+        self.texels[(start + y * width + x) as usize].map(|c| c as f32 / 255.0)
     }
 
-    /// samples at (u, v), filtering the way the unit is configured.
+    /// samples at (u, v), magnifying the way the unit is configured.
     fn sample(&self, u: f32, v: f32) -> [f32; 4] {
-        // PICA texture coordinates have v=0 at the bottom row.
-        let fx = u * self.width as f32;
-        let fy = (1.0 - v) * self.height as f32;
+        self.sample_level(0, u, v, self.linear)
+    }
 
-        if !self.linear {
-            return self.texel(fx.floor() as i32, fy.floor() as i32);
+    /// samples at (u, v) where the coordinates change by about 2^level
+    /// texels from one pixel to the next, as Vulkan picks and filters the
+    /// sizes, see Lod.
+    fn sample_at(&self, u: f32, v: f32, level: f32) -> [f32; 4] {
+        let lod = self.lod;
+        let level = (level + lod.bias as f32 / 256.0).clamp(lod.min as f32, lod.max as f32);
+        // magnified, or no rate to tell
+        if !(level > 0.0) {
+            return self.sample(u, v);
+        }
+        if !lod.between {
+            // the nearer size, the larger one halfway
+            let nearest = ((level + 0.5).ceil() - 1.0) as u32;
+            return self.sample_level(nearest, u, v, lod.linear);
+        }
+        let larger = level.floor() as u32;
+        let smaller = (larger + 1).min(lod.max as u32);
+        let blend = level - larger as f32;
+        let (a, b) = (self.sample_level(larger, u, v, lod.linear), self.sample_level(smaller, u, v, lod.linear));
+        std::array::from_fn(|i| a[i] + (b[i] - a[i]) * blend)
+    }
+
+    /// samples one of the sizes at (u, v), filtering it or not.
+    fn sample_level(&self, level: u32, u: f32, v: f32, linear: bool) -> [f32; 4] {
+        // PICA texture coordinates have v=0 at the bottom row.
+        let fx = u * (self.width >> level) as f32;
+        let fy = (1.0 - v) * (self.height >> level) as f32;
+
+        if !linear {
+            return self.texel(level, fx.floor() as i32, fy.floor() as i32);
         }
 
         // texel centers sit at half-integer positions.
@@ -1881,10 +2003,10 @@ impl BoundTexture {
         let ty = fy - y0;
         let (x0, y0) = (x0 as i32, y0 as i32);
 
-        let a = self.texel(x0, y0);
-        let b = self.texel(x0 + 1, y0);
-        let c = self.texel(x0, y0 + 1);
-        let d = self.texel(x0 + 1, y0 + 1);
+        let a = self.texel(level, x0, y0);
+        let b = self.texel(level, x0 + 1, y0);
+        let c = self.texel(level, x0, y0 + 1);
+        let d = self.texel(level, x0 + 1, y0 + 1);
         std::array::from_fn(|i| {
             let top = a[i] + (b[i] - a[i]) * tx;
             let bottom = c[i] + (d[i] - c[i]) * tx;
@@ -1913,6 +2035,8 @@ fn empty_texture() -> BoundTexture {
         height: 1,
         border: [0.0; 4],
         replacement: None,
+        levels: 1,
+        lod: Lod::default(),
     }
 }
 
@@ -1949,10 +2073,11 @@ fn bind_texture<M: GpuMemory>(
 
     let addr = memory.translate(address);
     log::trace!("texture unit {unit}: 0x{address:08X} -> 0x{addr:08X}, {width}x{height} {format:?}");
-    let bits = (width as u64) * (height as u64) * format.bits_per_pixel() as u64;
-    let size = bits.div_ceil(8) as usize;
+    // a buffer drawn into has the one size
+    let levels = if drawn.is_some() { 1 } else { level_count(registers, base, width, height) };
+    let size = texture_bytes(format, width, height, levels);
 
-    let key = (addr, format, width, height);
+    let key = (addr, format, width, height, levels);
     let (texels, replacement) = match (drawn, cache.checked(key, size as u32)) {
         (Some(_), _) if !past => (Arc::default(), None),
         (_, Some(found)) => found,
@@ -1988,6 +2113,8 @@ fn bind_texture<M: GpuMemory>(
         border: registers[base].to_le_bytes().map(|c| c as f32 / 255.0),
         // a buffer drawn into is the GPU's, not a pack's picture
         replacement: replacement.filter(|_| drawn.is_none()),
+        levels,
+        lod: Lod::read(registers, base, levels),
     })
 }
 
@@ -2030,8 +2157,8 @@ fn texture_range<M: GpuMemory>(registers: &[u32], memory: &M, unit: usize) -> Op
     if width == 0 || height == 0 || address == 0 {
         return None;
     }
-    let bits = width as u64 * height as u64 * format.bits_per_pixel() as u64;
-    Some((memory.translate(address), bits.div_ceil(8) as u32))
+    let size = texture_bytes(format, width, height, level_count(registers, base, width, height));
+    Some((memory.translate(address), size as u32))
 }
 
 /// where and how depth testing reads/writes, or None when disabled.
@@ -2470,6 +2597,10 @@ fn fill_triangle(
     }
     let inverse_area = 1.0 / area as f32;
     let edges = [Edge::new(&b, &c), Edge::new(&c, &a), Edge::new(&a, &b)];
+    // how the weights change a pixel to the right and a pixel up, for how
+    // fast texture coordinates change across the screen
+    let steps = [edges.map(|edge| (-edge.dy * 16) as f32 * inverse_area), edges.map(|edge| (edge.dx * 16) as f32 * inverse_area)];
+    let weigh = |weights: &[f32; 3], values: [f32; 3]| weights[0] * values[0] + weights[1] * values[1] + weights[2] * values[2];
 
     let bpp = target.format.bytes_per_pixel();
     let mut color_surface = color_surface;
@@ -2540,17 +2671,39 @@ fn fill_triangle(
                         2 if state.texture2_uses_coord1 => 1,
                         unit => unit,
                     };
-                    let u = interpolate([a.texcoords_over_w[set][0], b.texcoords_over_w[set][0], c.texcoords_over_w[set][0]]);
-                    let v = interpolate([a.texcoords_over_w[set][1], b.texcoords_over_w[set][1], c.texcoords_over_w[set][1]]);
+                    let us = [a.texcoords_over_w[set][0], b.texcoords_over_w[set][0], c.texcoords_over_w[set][0]];
+                    let vs = [a.texcoords_over_w[set][1], b.texcoords_over_w[set][1], c.texcoords_over_w[set][1]];
+                    let (u, v) = (interpolate(us), interpolate(vs));
                     // a projected texture divides its coordinates by set 0's w
-                    let (u, v) = match unit == 0 && state.texture0_projected {
+                    let projected = unit == 0 && state.texture0_projected;
+                    let qs = [a.texcoord0_w_over_w, b.texcoord0_w_over_w, c.texcoord0_w_over_w];
+                    let (u, v) = match projected {
                         true => {
-                            let w0 = interpolate([a.texcoord0_w_over_w, b.texcoord0_w_over_w, c.texcoord0_w_over_w]);
-                            (u / w0, v / w0)
+                            let q = interpolate(qs);
+                            (u / q, v / q)
                         }
                         false => (u, v),
                     };
-                    samples[unit] = texture.sample(u, v);
+                    samples[unit] = match texture.levels {
+                        1 => texture.sample(u, v),
+                        _ => {
+                            // a coordinate is a numerator over 1/w, or over
+                            // set 0's w over w when projected, both going
+                            // linearly across the screen, so it changes by
+                            // the numerator's change less the coordinate
+                            // times the denominator's, over the denominator
+                            let over = if projected { qs } else { [a.inv_w, b.inv_w, c.inv_w] };
+                            let denominator = weigh(&[w0, w1, w2], over);
+                            let rate = |step: &[f32; 3]| {
+                                let change = weigh(step, over);
+                                let du = (weigh(step, us) - u * change) / denominator * texture.width as f32;
+                                let dv = (weigh(step, vs) - v * change) / denominator * texture.height as f32;
+                                du * du + dv * dv
+                            };
+                            // the longer step's length in texels, as a power of 2
+                            texture.sample_at(u, v, 0.5 * rate(&steps[0]).max(rate(&steps[1])).log2())
+                        }
+                    };
                 }
                 if let Some(proctex) = &state.proctex {
                     let set = proctex.coordinates;
@@ -3293,7 +3446,7 @@ mod tests {
     #[test]
     fn threaded_pack_lookup_finds_the_same_picture() {
         let data: Vec<u8> = (0..256).map(|i| (i * 7 % 251) as u8).collect();
-        let key = (0, TextureFormat::Rgba8, 8, 8);
+        let key = (0, TextureFormat::Rgba8, 8, 8, 1);
         let pack = Some(crate::pack::pack_for(&data, TextureFormat::Rgba8, 8, 8));
         let texels: Arc<[[u8; 4]]> = vec![[0; 4]; 64].into();
         let direct = found(&lookup(&pack, false, &mut Vec::new(), &data, &texels, key)).map(|m| m.hash());
@@ -3806,12 +3959,76 @@ mod tests {
             height: 8,
             border: RED,
             replacement: None,
+            levels: 1,
+            lod: Lod::default(),
         };
         let white = [1.0; 4];
-        assert_eq!(texture(Wrap::ClampToBorder).texel(-1, 3), RED);
-        assert_eq!(texture(Wrap::ClampToBorder).texel(3, 8), RED);
-        assert_eq!(texture(Wrap::ClampToBorder).texel(3, 3), white);
-        assert_eq!(texture(Wrap::ClampToEdge).texel(-1, 3), white);
+        assert_eq!(texture(Wrap::ClampToBorder).texel(0, -1, 3), RED);
+        assert_eq!(texture(Wrap::ClampToBorder).texel(0, 3, 8), RED);
+        assert_eq!(texture(Wrap::ClampToBorder).texel(0, 3, 3), white);
+        assert_eq!(texture(Wrap::ClampToEdge).texel(0, -1, 3), white);
+    }
+
+    /// a texture drawn at half its size samples the half size after it in
+    /// memory, when GPUREG_TEXUNIT0_LOD lets it, the nearer size or a blend
+    /// of the two, the bias moving the level, on the CPU and the GPU alike.
+    #[test]
+    fn a_minified_texture_samples_its_smaller_sizes() {
+        const TEXTURE: u32 = 0x10000;
+        // the 8x8 target, the texture across it once
+        let quad: Vec<Vertex> = [[-1.0, -1.0, 0.0, 0.0], [3.0, -1.0, 2.0, 0.0], [-1.0, 3.0, 0.0, 2.0]]
+            .into_iter()
+            .map(|[x, y, u, v]| Vertex {
+                clip: [x, y, -0.5, 1.0],
+                color: [1.0; 4],
+                texcoords: [[u, v], [0.0; 2], [0.0; 2]],
+                quaternion: [0.0, 0.0, 0.0, 1.0],
+                view: [0.0; 3],
+                texcoord0_w: 1.0,
+            })
+            .collect();
+        // the largest level, the bias in 256ths, whether it blends, and the
+        // color it comes out
+        let cases = [
+            (0, 0, false, [255, 0, 0, 255]),
+            (1, 0, false, [0, 255, 0, 255]),
+            // levels of about 0.6 and 0.4
+            (1, -102, false, [0, 255, 0, 255]),
+            (1, -154, false, [255, 0, 0, 255]),
+            (1, -128, true, [127, 127, 0, 255]),
+        ];
+        let mut renderers = vec![("the CPU", Resources::default())];
+        #[cfg(feature = "vulkan")]
+        if let Ok(hardware) = hardware::Hardware::new() {
+            renderers.push(("the GPU", Resources { hardware: Some(hardware), ..Default::default() }));
+        }
+        for (renderer, mut resources) in renderers {
+            // 16x16 red, then 8x8 green, A, B, G and R a texel
+            let mut memory = ConsoleMemory::default();
+            memory.write(TEXTURE, &[0xFF, 0, 0, 0xFF].repeat(16 * 16));
+            memory.write(TEXTURE + 16 * 16 * 4, &[0xFF, 0, 0xFF, 0].repeat(8 * 8));
+            for (largest, bias, between, expected) in cases {
+                let mut registers = target_registers();
+                registers[REG_TEXTURE_CONFIG] = 1;
+                registers[REG_TEXTURE0_DIMENSIONS] = 16 | (16 << 16);
+                registers[REG_TEXTURE0_ADDRESS] = TEXTURE >> 3;
+                registers[REG_TEXTURE0_PARAMETERS] = (between as u32) << 24;
+                registers[REG_TEXTURE0_LOD] = largest << 16 | (bias as u32 & 0x1FFF);
+                registers[0x0C0] = 0x3 | (0x3 << 16);
+                for stage in [0x0C8, 0x0D0, 0x0D8, 0x0F0, 0x0F8] {
+                    registers[stage] = 0xF | (0xF << 16);
+                }
+                rasterize_shaded(&registers, &mut memory, &mut resources, &quad);
+                #[cfg(feature = "vulkan")]
+                if let Some(hardware) = resources.hardware.as_mut() {
+                    hardware.flush(&mut memory).unwrap();
+                }
+                for pixel in pixels(&mut memory) {
+                    let near = pixel.iter().zip(expected).all(|(&got, want)| got.abs_diff(want) <= 1);
+                    assert!(near, "{renderer}, largest level {largest}, bias {bias}: {pixel:?}");
+                }
+            }
+        }
     }
 
     /// within a command list memory changes only where draws write, so a
@@ -3820,7 +4037,7 @@ mod tests {
     #[test]
     fn textures_are_checked_once_a_list_unless_drawn_over() {
         let mut cache = TextureCache::default();
-        let key = (0x1000, TextureFormat::Rgba8, 8, 8);
+        let key = (0x1000, TextureFormat::Rgba8, 8, 8, 1);
         cache.begin_list();
         assert!(cache.checked(key, 256).is_none(), "never seen");
         cache.decoded(key, &[0x11; 256]);
@@ -3836,36 +4053,49 @@ mod tests {
     }
 
     /// a few tiles of a texture rewritten, as a title animating sprites in
-    /// an atlas, come out the same as the whole texture decoded again.
+    /// an atlas, come out the same as the whole texture decoded again, in
+    /// its smaller size too.
     #[test]
     fn a_partly_changed_texture_decodes_as_a_whole_one_would() {
         for format in [TextureFormat::Etc1, TextureFormat::Etc1A4, TextureFormat::Rgba8] {
             let (width, height) = (32, 16);
             let size = (width * height * format.bits_per_pixel() / 8) as usize;
-            let before: Vec<u8> = (0..size).map(|i| (i * 7 % 251) as u8).collect();
+            // the half size after the whole
+            let before: Vec<u8> = (0..size + size / 4).map(|i| (i * 7 % 251) as u8).collect();
             let mut after = before.clone();
-            // the third tile of the second row
+            // the third tile of the second row, and the second of the half
             let tile = size / 8;
-            after[6 * tile..7 * tile].iter_mut().for_each(|byte| *byte = byte.wrapping_mul(3).wrapping_add(1));
-            let key = (0x1000, format, width, height);
+            let change = |bytes: &mut [u8]| bytes.iter_mut().for_each(|byte| *byte = byte.wrapping_mul(3).wrapping_add(1));
+            change(&mut after[6 * tile..7 * tile]);
+            change(&mut after[size + tile..size + 2 * tile]);
+            let key = (0x1000, format, width, height, 2);
             let mut cache = TextureCache::default();
             let old = cache.decoded(key, &before).0;
             let updated = cache.decoded(key, &after).0;
             let whole = TextureCache::default().decoded(key, &after).0;
             assert_eq!(updated, whole, "{format:?}");
+            // the fast decode of every size gives what sampling each texel does
+            let sampled = TextureCache { fast: Some(false), ..TextureCache::default() }.decoded(key, &after).0;
+            assert_eq!(sampled, whole, "{format:?} fast");
             let changed = old.iter().zip(updated.iter()).enumerate().filter(|(_, (a, b))| a != b);
-            assert!(changed.clone().count() > 0, "{format:?} changed nothing");
+            let mut levels = [false; 2];
             for (index, _) in changed {
-                let (x, y) = (index as u32 % width, index as u32 / width);
-                assert_eq!((x / 8, y / 8), (2, 1), "{format:?} changed outside the tile, at {x}, {y}");
+                let (level, index, width) = match index as u32 {
+                    index if index < width * height => (0, index, width),
+                    index => (1, index - width * height, width / 2),
+                };
+                let (x, y) = (index % width, index / width);
+                assert_eq!((x / 8, y / 8), [(2, 1), (1, 0)][level], "{format:?} changed outside the tile, at {x}, {y} of size {level}");
+                levels[level] = true;
             }
+            assert_eq!(levels, [true; 2], "{format:?} changed nothing in a size");
         }
     }
 
     #[test]
     fn the_texture_cache_notices_changed_bytes() {
         let mut cache = TextureCache::default();
-        let key = (0x1000, TextureFormat::Rgba8, 8, 8);
+        let key = (0x1000, TextureFormat::Rgba8, 8, 8, 1);
         let first = cache.decoded(key, &[0x11; 256]).0;
         let again = cache.decoded(key, &[0x11; 256]).0;
         assert!(Arc::ptr_eq(&first, &again));
