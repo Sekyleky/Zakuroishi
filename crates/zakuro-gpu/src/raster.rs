@@ -140,6 +140,7 @@ impl VertexLayout {
 /// a draw's vertices as the shader takes them, worked out once for the
 /// draw: what each input register holds when no array feeds it, and the
 /// fields the arrays do give, each going straight to its register.
+#[derive(Clone)]
 struct InputPlan {
     template: [Vec4; shader::INPUT_REGISTERS],
     /// for each input register, the fixed attribute it takes, if one does.
@@ -148,6 +149,7 @@ struct InputPlan {
 }
 
 /// the fields one array gives, and where a vertex of it is.
+#[derive(Clone)]
 struct LoaderPlan {
     /// the loader, 0 to 11, whose register holds the array's offset.
     index: usize,
@@ -158,6 +160,7 @@ struct LoaderPlan {
 }
 
 /// a field of an array's vertex, and the input register it lands in.
+#[derive(Clone)]
 struct PlacedField {
     offset: u32,
     ty: u32,
@@ -230,30 +233,101 @@ impl InputPlan {
         }
     }
 
-    /// one vertex's input registers.
-    fn fetch<M: GpuMemory>(&self, memory: &mut M, base: u32, vertex_index: u32) -> [Vec4; shader::INPUT_REGISTERS] {
-        let mut input = self.template;
+    /// the input registers of each of vertices, into inputs, written where
+    /// they stay: the template for each vertex, then each array's fields
+    /// over it. an array whose vertices sit together in memory, from the
+    /// first one used to the last, is looked up once for them all rather
+    /// than once a vertex.
+    fn fetch_all<M: GpuMemory>(&self, memory: &mut M, base: u32, vertices: &[u32], inputs: &mut Vec<[Vec4; shader::INPUT_REGISTERS]>) {
+        inputs.clear();
+        inputs.resize(vertices.len(), self.template);
+        let (Some(&low), Some(&high)) = (vertices.iter().min(), vertices.iter().max()) else {
+            return;
+        };
         for loader in &self.loaders {
-            // base is physical, and a loader's offset can carry it from one
-            // region into another, titles point the base at the start of VRAM
-            // and reach vertex data in FCRAM through the offset.
-            let vertex = memory.translate(base + loader.offset + vertex_index * loader.stride);
             let size = loader.size as usize;
-            match memory.slice(vertex, size) {
-                Some(bytes) => loader.place(bytes, &mut input),
-                None => {
-                    // twelve fields of sixteen bytes, and their alignment, fit
-                    let mut bytes = [0u8; 256];
-                    memory.read(vertex, &mut bytes[..size]);
-                    loader.place(&bytes[..size], &mut input);
+            let (first, last) = (base + loader.offset + low * loader.stride, base + loader.offset + high * loader.stride);
+            let start = memory.translate(first);
+            // the translation goes on in step to the last vertex, a region
+            // ending in between would not
+            let along = memory.translate(last) == start.wrapping_add(last - first);
+            if let Some(bytes) = along.then(|| memory.slice(start, (last - first) as usize + size)).flatten() {
+                loader.place_all(bytes, low, vertices, inputs);
+                continue;
+            }
+            for (input, &vertex) in inputs.iter_mut().zip(vertices) {
+                // base is physical, and a loader's offset can carry it from
+                // one region into another, titles point the base at the
+                // start of VRAM and reach vertex data in FCRAM through the
+                // offset.
+                let vertex = memory.translate(base + loader.offset + vertex * loader.stride);
+                match memory.slice(vertex, size) {
+                    Some(bytes) => loader.place(bytes, input),
+                    None => {
+                        // twelve fields of sixteen bytes, and their
+                        // alignment, fit
+                        let mut bytes = [0u8; 256];
+                        memory.read(vertex, &mut bytes[..size]);
+                        loader.place(&bytes[..size], input);
+                    }
                 }
             }
         }
-        input
+    }
+
+    /// each array's bytes from vertex low to high, copied, for decoding on
+    /// another thread with decode. none where an array's vertices do not
+    /// sit together in memory, or the vertices between them make it much
+    /// longer than the count drawn needs.
+    fn copy<M: GpuMemory>(&self, memory: &mut M, base: u32, (low, high): (u32, u32), count: u32) -> Option<Vec<Vec<u8>>> {
+        let mut arrays = Vec::with_capacity(self.loaders.len());
+        for loader in &self.loaders {
+            let size = loader.size as usize;
+            let (first, last) = (base + loader.offset + low * loader.stride, base + loader.offset + high * loader.stride);
+            let len = (last - first) as usize + size;
+            if len > (count as usize * loader.stride.max(loader.size) as usize).saturating_mul(4) + 4096 {
+                return None;
+            }
+            let start = memory.translate(first);
+            if memory.translate(last) != start.wrapping_add(last - first) {
+                return None;
+            }
+            arrays.push(memory.slice(start, len)?.to_vec());
+        }
+        Some(arrays)
+    }
+
+    /// the input registers of each of vertices, into inputs, from the bytes
+    /// copy made of each array from vertex low on, as fetch_all reads them
+    /// from memory.
+    fn decode(&self, arrays: &[Vec<u8>], low: u32, vertices: &[u32], inputs: &mut Vec<[Vec4; shader::INPUT_REGISTERS]>) {
+        inputs.clear();
+        inputs.resize(vertices.len(), self.template);
+        for (loader, bytes) in self.loaders.iter().zip(arrays) {
+            loader.place_all(bytes, low, vertices, inputs);
+        }
+    }
+
+    /// one vertex's input registers.
+    #[cfg(test)]
+    fn fetch<M: GpuMemory>(&self, memory: &mut M, base: u32, vertex_index: u32) -> [Vec4; shader::INPUT_REGISTERS] {
+        let mut inputs = Vec::new();
+        self.fetch_all(memory, base, &[vertex_index], &mut inputs);
+        inputs[0]
     }
 }
 
 impl LoaderPlan {
+    /// puts the fields of each of vertices in its input registers, from the
+    /// array's bytes starting at vertex low.
+    fn place_all(&self, bytes: &[u8], low: u32, vertices: &[u32], inputs: &mut [[Vec4; shader::INPUT_REGISTERS]]) {
+        let size = self.size as usize;
+        for (input, &vertex) in inputs.iter_mut().zip(vertices) {
+            let at = ((vertex - low) * self.stride) as usize;
+            self.place(&bytes[at..at + size], input);
+        }
+    }
+
     /// puts the fields of a vertex's bytes in their registers. components
     /// an array does not provide read as (0, 0, 0, 1), a two-component
     /// texture coordinate arrives as (u, v, 0, 1).
@@ -691,7 +765,7 @@ struct Job {
 }
 
 enum Work {
-    Waiting { inputs: Vec<[Vec4; shader::INPUT_REGISTERS]>, order: Option<Vec<usize>> },
+    Waiting(Fetched),
     Running,
     /// none for a draw with no viewport to place it in.
     Done(Option<Prepared>),
@@ -703,14 +777,14 @@ impl Job {
     /// does the work, unless another thread took it.
     fn run(&self, seen: &Seen) {
         let mut state = self.state.lock().unwrap();
-        if !matches!(*state, Work::Waiting { .. }) {
+        if !matches!(*state, Work::Waiting(_)) {
             return;
         }
-        let Work::Waiting { inputs, order } = std::mem::replace(&mut *state, Work::Running) else {
+        let Work::Waiting(fetched) = std::mem::replace(&mut *state, Work::Running) else {
             unreachable!("work that was waiting")
         };
         drop(state);
-        let prepared = prepare(seen, &inputs, order);
+        let prepared = prepare(seen, fetched);
         *self.state.lock().unwrap() = Work::Done(prepared);
         self.done.notify_all();
     }
@@ -723,9 +797,9 @@ impl Handed {
         let mut state = self.job.state.lock().unwrap();
         loop {
             match std::mem::replace(&mut *state, Work::Gone) {
-                Work::Waiting { inputs, order } => {
+                Work::Waiting(fetched) => {
                     drop(state);
-                    return Some(prepare(&self.seen, &inputs, order));
+                    return Some(prepare(&self.seen, fetched));
                 }
                 Work::Running => {
                     *state = Work::Running;
@@ -742,7 +816,7 @@ impl Drop for Handed {
     /// work no draw took is left undone.
     fn drop(&mut self) {
         if let Ok(mut state) = self.job.state.lock() {
-            if matches!(*state, Work::Waiting { .. }) {
+            if matches!(*state, Work::Waiting(_)) {
                 *state = Work::Gone;
             }
         }
@@ -804,20 +878,99 @@ pub(crate) fn hand_out<M: GpuMemory>(
     let writes = memory.writes();
     let scratch = &mut resources.scratch;
     read_indices(registers, memory, scratch, indexed);
-    scratch.plans.update(registers, fixed_attributes);
-    fetch(registers, memory, scratch, indexed);
-    let inputs = std::mem::take(&mut scratch.inputs);
-    let order = indexed.then(|| scratch.order.clone());
+    let plan = scratch.plans.update(registers, fixed_attributes);
+    // the vertices the draw names, from the first to the last
+    let short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
+    let range = match (indexed, short) {
+        (false, _) => {
+            let first = registers[REG_VERTEX_OFFSET];
+            (first, first + vertex_count - 1)
+        }
+        (true, true) => {
+            let halves = scratch.bytes.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes(*b) as u32);
+            halves.fold((u32::MAX, 0), |(low, high), index| (low.min(index), high.max(index)))
+        }
+        (true, false) => scratch.bytes.iter().fold((u32::MAX, 0), |(low, high), &index| (low.min(index as u32), high.max(index as u32))),
+    };
+    // the bytes the thread decodes the vertices from, or the vertices
+    // decoded here where the arrays do not sit together in memory
+    let attribute_base = loc_register(registers, REG_ATTRIBUTE_BASE);
+    let fetched = match plan.copy(memory, attribute_base, range, vertex_count) {
+        Some(arrays) => Fetched::Arrays(Box::new(Arrays {
+            plan: plan.clone(),
+            indices: indexed.then(|| (scratch.bytes.clone(), short)),
+            first: registers[REG_VERTEX_OFFSET],
+            count: vertex_count,
+            low: range.0,
+            arrays,
+        })),
+        None => {
+            fetch(registers, memory, scratch, indexed);
+            Fetched::Inputs(std::mem::take(&mut scratch.inputs), indexed.then(|| scratch.order.clone()))
+        }
+    };
     let seen = Arc::new(Seen {
         registers: registers.into(),
         vertex_shader: vertex_shader.for_draw(),
         geometry_shader: (registers[REG_GEOSTAGE_CONFIG] & 0x3 == 2).then(|| geometry_shader.for_draw()),
         fixed_attributes: *fixed_attributes,
     });
-    let job = Arc::new(Job { state: Mutex::new(Work::Waiting { inputs, order }), done: Condvar::new() });
+    let job = Arc::new(Job { state: Mutex::new(Work::Waiting(fetched)), done: Condvar::new() });
     let (shared, work) = (seen.clone(), job.clone());
     rayon::spawn(move || work.run(&shared));
     Some(Handed { seen, writes, job })
+}
+
+/// what the walk ahead read of a draw's vertices: the shader inputs of
+/// each vertex it names, once each, and which one each vertex of the draw
+/// is when it is indexed, or what the thread doing the work decodes them
+/// from.
+enum Fetched {
+    Inputs(Vec<[Vec4; shader::INPUT_REGISTERS]>, Option<Vec<usize>>),
+    Arrays(Box<Arrays>),
+}
+
+/// a draw's index buffer and the bytes of its arrays from the first vertex
+/// it names to the last, copied, with the plan that decodes them.
+struct Arrays {
+    plan: InputPlan,
+    /// the index buffer's bytes and whether they are halfwords, none for a
+    /// draw without one, which takes count vertices from first on.
+    indices: Option<(Vec<u8>, bool)>,
+    first: u32,
+    count: u32,
+    /// the vertex each array's bytes start at.
+    low: u32,
+    arrays: Vec<Vec<u8>>,
+}
+
+impl Arrays {
+    /// the shader inputs as fetch makes them, on the thread doing the work.
+    fn decode(&self) -> (Vec<[Vec4; shader::INPUT_REGISTERS]>, Option<Vec<usize>>) {
+        thread_local! {
+            static SCRATCH: std::cell::RefCell<Scratch> = std::cell::RefCell::default();
+        }
+        SCRATCH.with_borrow_mut(|scratch| {
+            match &self.indices {
+                Some((bytes, short)) => {
+                    scratch.indices.clear();
+                    if *short {
+                        scratch.indices.extend(bytes.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes(*b) as u32));
+                    } else {
+                        scratch.indices.extend(bytes.iter().map(|&b| b as u32));
+                    }
+                    scratch.unique();
+                }
+                None => {
+                    scratch.unique.clear();
+                    scratch.unique.extend((0..self.count).map(|i| self.first + i));
+                }
+            }
+            let mut inputs = Vec::new();
+            self.plan.decode(&self.arrays, self.low, &scratch.unique, &mut inputs);
+            (inputs, self.indices.is_some().then(|| scratch.order.clone()))
+        })
+    }
 }
 
 /// the fewest vertices a draw needs for its work to go to another thread,
@@ -827,12 +980,16 @@ const HAND_OUT_FROM: u32 = 64;
 
 /// a draw's vertex work, on whichever thread does it: the vertices through
 /// the shaders, then placed on the screen.
-fn prepare(seen: &Seen, inputs: &[[Vec4; shader::INPUT_REGISTERS]], order: Option<Vec<usize>>) -> Option<Prepared> {
+fn prepare(seen: &Seen, fetched: Fetched) -> Option<Prepared> {
     static OFF: std::sync::OnceLock<ShaderUnit> = std::sync::OnceLock::new();
     let registers = &seen.registers[..];
     let viewport = viewport(registers)?;
+    let (inputs, order) = match fetched {
+        Fetched::Inputs(inputs, order) => (inputs, order),
+        Fetched::Arrays(arrays) => arrays.decode(),
+    };
     let geometry_shader = seen.geometry_shader.as_ref().unwrap_or_else(|| OFF.get_or_init(ShaderUnit::new));
-    let (shaded, kept) = process_vertices(registers, &seen.vertex_shader, geometry_shader, inputs, order.as_deref());
+    let (shaded, kept) = process_vertices(registers, &seen.vertex_shader, geometry_shader, &inputs, order.as_deref());
     // the geometry shader's vertices come in order
     let order = if kept.is_some() { order } else { None };
     let placement = place(registers, &shaded, order.as_deref(), viewport);
@@ -2634,9 +2791,7 @@ fn fetch<M: GpuMemory>(registers: &[u32], memory: &mut M, scratch: &mut Scratch,
         scratch.unique.extend((0..vertex_count).map(|i| first_vertex + i));
     }
     let attribute_base = loc_register(registers, REG_ATTRIBUTE_BASE);
-    let plan = scratch.plans.current();
-    scratch.inputs.clear();
-    scratch.inputs.extend(scratch.unique.iter().map(|&vertex_index| plan.fetch(memory, attribute_base, vertex_index)));
+    scratch.plans.current().fetch_all(memory, attribute_base, &scratch.unique, &mut scratch.inputs);
 }
 
 /// draws vertices a title sent one attribute at a time through the fixed
@@ -4914,37 +5069,43 @@ mod tests {
         for index in 0..VERTICES as usize {
             arrays[INDICES as usize + index * 2..][..2].copy_from_slice(&((random() % 40) as u16).to_le_bytes());
         }
-        let memory = || {
-            let mut memory = Counted(ConsoleMemory::default(), 0);
-            memory.0.write(0x1400_0000, &arrays);
-            memory
-        };
         let pixels = |memory: &mut Counted| {
             let mut pixels = vec![0u8; (SIZE * SIZE * 4) as usize];
             memory.read(COLOR, &mut pixels);
             pixels
         };
-        let alone = |registers: &[u32]| {
-            let mut memory = memory();
-            draw(registers, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true, None);
-            pixels(&mut memory)
-        };
 
-        // the draw as handed out, culled since, and with memory written
-        // in between
-        let mut culled = registers.clone();
-        culled[REG_FACE_CULLING] = 1;
-        for (drawn, write, holds) in [(&registers, false, true), (&culled, false, false), (&registers, true, false)] {
-            let mut memory = memory();
-            let handed = hand_out(&registers, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true).expect("handed out");
-            if write {
-                memory.write(0x8000, &[1]);
+        // arrays in the part of memory that is in one piece, which go to
+        // the thread as bytes, and past it, which are decoded first
+        for base in [0x0010_0000, BASE] {
+            registers[REG_ATTRIBUTE_BASE] = base >> 3;
+            let memory = || {
+                let mut memory = Counted(ConsoleMemory::default(), 0);
+                let at = memory.translate(base);
+                memory.0.write(at, &arrays);
+                memory
+            };
+            let alone = |registers: &[u32]| {
+                let mut memory = memory();
+                draw(registers, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true, None);
+                pixels(&mut memory)
+            };
+            // the draw as handed out, culled since, and with memory
+            // written in between
+            let mut culled = registers.clone();
+            culled[REG_FACE_CULLING] = 1;
+            for (drawn, write, holds) in [(&registers, false, true), (&culled, false, false), (&registers, true, false)] {
+                let mut memory = memory();
+                let handed = hand_out(&registers, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true).expect("handed out");
+                if write {
+                    memory.write(0x8000, &[1]);
+                }
+                assert_eq!(handed.holds(drawn, &unit, &unit, &fixed, memory.writes()), holds);
+                draw(drawn, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true, Some(handed));
+                let (got, expected) = (pixels(&mut memory), alone(drawn));
+                assert!(expected.chunks(4).filter(|pixel| *pixel != [0; 4]).count() > 50, "too little drawn to tell");
+                assert!(got == expected, "base 0x{base:08X}, a draw that holds {holds} drew differently");
             }
-            assert_eq!(handed.holds(drawn, &unit, &unit, &fixed, memory.writes()), holds);
-            draw(drawn, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true, Some(handed));
-            let (got, expected) = (pixels(&mut memory), alone(drawn));
-            assert!(expected.chunks(4).filter(|pixel| *pixel != [0; 4]).count() > 50, "too little drawn to tell");
-            assert!(got == expected, "a draw that holds {holds} drew differently");
         }
     }
 
