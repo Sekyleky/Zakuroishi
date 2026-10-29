@@ -4274,16 +4274,27 @@ impl Hardware {
             }
         }
 
+        // a buffer upside down has the window's rows run from its top, a
+        // viewport of negative height turning clip space over, and the
+        // triangles that turns over cull as they would the right way up.
+        // the CPU placed its vertices that way already
+        let flip = super::upside_down(draw.registers) && matches!(draw.geometry, Geometry::Shaded(_));
         // where the PICA's viewport puts clip space, for what the GPU
         // shades, the whole target for what the CPU placed on it
         let (x, y, viewport_width, viewport_height) = match draw.geometry {
+            Geometry::Shaded(shading) if flip => {
+                let (x, y, width, viewport_height) = shading.viewport;
+                (x, height - y, width, -viewport_height)
+            }
             Geometry::Shaded(shading) => shading.viewport,
             Geometry::Placed { .. } => (0.0, 0.0, width, height),
         };
         let y = y + raise as f32;
         let cull = match draw.geometry {
-            Geometry::Shaded(shading) if shading.cull == 1 => vk::CullModeFlags::FRONT,
-            Geometry::Shaded(shading) if shading.cull != 0 => vk::CullModeFlags::BACK,
+            Geometry::Shaded(shading) if shading.cull == 1 && !flip => vk::CullModeFlags::FRONT,
+            Geometry::Shaded(shading) if shading.cull != 0 && !flip => vk::CullModeFlags::BACK,
+            Geometry::Shaded(shading) if shading.cull == 1 => vk::CullModeFlags::BACK,
+            Geometry::Shaded(shading) if shading.cull != 0 => vk::CullModeFlags::FRONT,
             _ => vk::CullModeFlags::NONE,
         };
         let scale = self.scale;
