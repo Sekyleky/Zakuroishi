@@ -1188,18 +1188,24 @@ struct GuestMemory<'a> {
 }
 
 impl GuestMemory<'_> {
-    /// the bytes at addr in the host's memory, where they sit together.
-    fn host(&mut self, addr: u32, len: usize) -> Option<&mut [u8]> {
+    /// the physical address of an address translate made, in the linear
+    /// heap or VRAM.
+    fn physical(&self, addr: u32) -> Option<u32> {
         // the linear heap and VRAM are physical memory in order, so what
         // translate made of a physical address leads back to it. VRAM first,
         // from the old linear heap's base a New 3DS's heap size reaches it
-        let physical = if (VRAM_VADDR..VRAM_VADDR + VRAM_SIZE).contains(&addr) {
-            VRAM_PADDR + (addr - VRAM_VADDR)
+        if (VRAM_VADDR..VRAM_VADDR + VRAM_SIZE).contains(&addr) {
+            Some(VRAM_PADDR + (addr - VRAM_VADDR))
         } else if addr >= self.linear_base && addr - self.linear_base < FCRAM_SIZE_NEW3DS {
-            FCRAM_PADDR + (addr - self.linear_base)
+            Some(FCRAM_PADDR + (addr - self.linear_base))
         } else {
-            return None;
-        };
+            None
+        }
+    }
+
+    /// the bytes at addr in the host's memory, where they sit together.
+    fn host(&mut self, addr: u32, len: usize) -> Option<&mut [u8]> {
+        let physical = self.physical(addr)?;
         self.memory.phys.host_slice_mut(physical, u32::try_from(len).ok()?)
     }
 }
@@ -1234,11 +1240,25 @@ impl GpuMemory for GuestMemory<'_> {
 
     fn slice_mut(&mut self, addr: u32, len: usize) -> Option<&mut [u8]> {
         self.writes += 1;
+        if let Some(physical) = self.physical(addr) {
+            self.memory.wrote_physical(physical, u32::try_from(len).ok()?);
+        }
         self.host(addr, len)
     }
 
     fn writes(&self) -> Option<u64> {
         Some(self.writes)
+    }
+
+    fn watch(&mut self, addr: u32, len: u32) -> Option<u64> {
+        let physical = self.physical(addr)?;
+        // in one piece, as host hands it out
+        self.memory.phys.host_slice_mut(physical, len)?;
+        Some(self.memory.watch_physical(physical, len))
+    }
+
+    fn unchanged(&mut self, addr: u32, len: u32, watch: u64) -> bool {
+        self.physical(addr).is_some_and(|physical| self.memory.unchanged_physical(physical, len, watch))
     }
 
     fn translate(&self, paddr: u32) -> u32 {

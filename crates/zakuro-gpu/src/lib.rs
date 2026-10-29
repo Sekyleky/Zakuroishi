@@ -91,6 +91,18 @@ pub trait GpuMemory {
     fn writes(&self) -> Option<u64> {
         None
     }
+
+    /// watches a range for writes of anything from now on, the CPU's, a
+    /// service's or the GPU's own, and gives what unchanged takes to tell
+    /// whether one came since. none where nothing watches.
+    fn watch(&mut self, _addr: u32, _len: u32) -> Option<u64> {
+        None
+    }
+
+    /// whether nothing wrote over a range since watch gave watch.
+    fn unchanged(&mut self, _addr: u32, _len: u32, _watch: u64) -> bool {
+        false
+    }
 }
 
 /// what one LCD controller holds.
