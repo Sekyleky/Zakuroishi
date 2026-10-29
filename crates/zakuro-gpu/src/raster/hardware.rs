@@ -3716,7 +3716,7 @@ impl Hardware {
                 view[0] * w,
                 view[1] * w,
                 view[2] * w,
-                0.0,
+                v.texcoord0_w_over_w * w,
             ];
             for (bytes, value) in out.as_chunks_mut::<4>().0.iter_mut().zip(values) {
                 *bytes = value.to_le_bytes();
