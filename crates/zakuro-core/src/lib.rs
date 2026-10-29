@@ -860,6 +860,7 @@ impl System {
         let _timed = zakuro_gpu::timed(0);
         let linear_base = self.kernel.linear_base;
         let mut guest = GuestMemory {
+            writes: 0,
             linear_base,
             memory: &mut self.memory,
         };
@@ -872,6 +873,7 @@ impl System {
     pub fn sync_gpu(&mut self, addr: u32, len: u32) {
         let linear_base = self.kernel.linear_base;
         let mut guest = GuestMemory {
+            writes: 0,
             linear_base,
             memory: &mut self.memory,
         };
@@ -892,6 +894,7 @@ impl System {
     pub fn memory_fill(&mut self, start: u32, end: u32, value: u32, width: u32) {
         let linear_base = self.kernel.linear_base;
         let mut guest = GuestMemory {
+            writes: 0,
             linear_base,
             memory: &mut self.memory,
         };
@@ -908,6 +911,7 @@ impl System {
     ) {
         let linear_base = self.kernel.linear_base;
         let mut guest = GuestMemory {
+            writes: 0,
             linear_base,
             memory: &mut self.memory,
         };
@@ -931,6 +935,7 @@ impl System {
     ) {
         let linear_base = self.kernel.linear_base;
         let mut guest = GuestMemory {
+            writes: 0,
             linear_base,
             memory: &mut self.memory,
         };
@@ -1090,7 +1095,7 @@ impl System {
         // more than the comparing
         let base = services::gsp::physical_to_virtual(self, address);
         let len = width * stride;
-        let mut guest = GuestMemory { linear_base: self.kernel.linear_base, memory: &mut self.memory };
+        let mut guest = GuestMemory { linear_base: self.kernel.linear_base, memory: &mut self.memory, writes: 0 };
         if let Some(bytes) = guest.slice(base, len as usize) {
             return self.gpu.scaled_screen(base, (height, width), stride / bpp, format, bytes);
         }
@@ -1178,6 +1183,25 @@ impl System {
 struct GuestMemory<'a> {
     memory: &'a mut Memory,
     linear_base: u32,
+    /// the writes through it so far, see GpuMemory::writes.
+    writes: u64,
+}
+
+impl GuestMemory<'_> {
+    /// the bytes at addr in the host's memory, where they sit together.
+    fn host(&mut self, addr: u32, len: usize) -> Option<&mut [u8]> {
+        // the linear heap and VRAM are physical memory in order, so what
+        // translate made of a physical address leads back to it. VRAM first,
+        // from the old linear heap's base a New 3DS's heap size reaches it
+        let physical = if (VRAM_VADDR..VRAM_VADDR + VRAM_SIZE).contains(&addr) {
+            VRAM_PADDR + (addr - VRAM_VADDR)
+        } else if addr >= self.linear_base && addr - self.linear_base < FCRAM_SIZE_NEW3DS {
+            FCRAM_PADDR + (addr - self.linear_base)
+        } else {
+            return None;
+        };
+        self.memory.phys.host_slice_mut(physical, u32::try_from(len).ok()?)
+    }
 }
 
 impl GpuMemory for GuestMemory<'_> {
@@ -1186,6 +1210,7 @@ impl GpuMemory for GuestMemory<'_> {
     }
 
     fn write(&mut self, addr: u32, data: &[u8]) {
+        self.writes += 1;
         self.memory.write_bytes(addr, data);
     }
 
@@ -1204,21 +1229,16 @@ impl GpuMemory for GuestMemory<'_> {
     }
 
     fn slice(&mut self, addr: u32, len: usize) -> Option<&[u8]> {
-        self.slice_mut(addr, len).map(|slice| &*slice)
+        self.host(addr, len).map(|slice| &*slice)
     }
 
     fn slice_mut(&mut self, addr: u32, len: usize) -> Option<&mut [u8]> {
-        // the linear heap and VRAM are physical memory in order, so what
-        // translate made of a physical address leads back to it. VRAM first,
-        // from the old linear heap's base a New 3DS's heap size reaches it
-        let physical = if (VRAM_VADDR..VRAM_VADDR + VRAM_SIZE).contains(&addr) {
-            VRAM_PADDR + (addr - VRAM_VADDR)
-        } else if addr >= self.linear_base && addr - self.linear_base < FCRAM_SIZE_NEW3DS {
-            FCRAM_PADDR + (addr - self.linear_base)
-        } else {
-            return None;
-        };
-        self.memory.phys.host_slice_mut(physical, u32::try_from(len).ok()?)
+        self.writes += 1;
+        self.host(addr, len)
+    }
+
+    fn writes(&self) -> Option<u64> {
+        Some(self.writes)
     }
 
     fn translate(&self, paddr: u32) -> u32 {
@@ -1246,7 +1266,7 @@ unsafe fn sync_for_cpu(gpu: *mut (), linear_base: u32, memory: &mut Memory, addr
         addr.wrapping_add(len)
     );
     let gpu = unsafe { &mut *(gpu as *mut Gpu) };
-    gpu.sync_depth(&mut GuestMemory { memory, linear_base }, addr, len);
+    gpu.sync_depth(&mut GuestMemory { memory, linear_base, writes: 0 }, addr, len);
 }
 
 /// writes back what the GPU drew over a range, for a write of the CPU
@@ -1262,7 +1282,7 @@ unsafe fn sync_for_cpu_write(gpu: *mut (), linear_base: u32, memory: &mut Memory
         addr.wrapping_add(len)
     );
     let gpu = unsafe { &mut *(gpu as *mut Gpu) };
-    gpu.sync_memory(&mut GuestMemory { memory, linear_base }, addr, len);
+    gpu.sync_memory(&mut GuestMemory { memory, linear_base, writes: 0 }, addr, len);
 }
 
 impl Drop for System {

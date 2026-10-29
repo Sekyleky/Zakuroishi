@@ -166,6 +166,37 @@ impl ShaderUnit {
         self.decoded = Some(program);
     }
 
+    /// a copy to shade a draw with on another thread, without the programs
+    /// decoded before.
+    pub fn for_draw(&self) -> ShaderUnit {
+        ShaderUnit {
+            program: self.program.clone(),
+            descriptors: self.descriptors.clone(),
+            float_uniforms: self.float_uniforms.clone(),
+            int_uniforms: self.int_uniforms,
+            bool_uniforms: self.bool_uniforms,
+            entry_point: self.entry_point,
+            program_write_offset: self.program_write_offset,
+            descriptor_write_offset: self.descriptor_write_offset,
+            float_uniform_index: self.float_uniform_index,
+            float_uniform_component: self.float_uniform_component,
+            float_uniform_wide: self.float_uniform_wide,
+            float_uniform_staging: self.float_uniform_staging,
+            decoded: self.decoded.clone(),
+            decoded_before: HashMap::new(),
+        }
+    }
+
+    /// whether the unit shades as other does: the same program from the
+    /// same entry point, with the same uniforms, NaNs included.
+    pub fn runs_like(&self, other: &ShaderUnit) -> bool {
+        self.entry_point == other.entry_point
+            && self.bool_uniforms == other.bool_uniforms
+            && self.int_uniforms == other.int_uniforms
+            && self.fingerprint() == other.fingerprint()
+            && self.float_uniforms.iter().zip(other.float_uniforms.iter()).all(|(a, b)| a.map(f32::to_bits) == b.map(f32::to_bits))
+    }
+
     /// the input registers the program reads, one bit each, all of them
     /// until it is prepared.
     pub fn inputs_read(&self) -> u16 {

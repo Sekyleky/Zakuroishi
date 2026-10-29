@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 use rayon::prelude::*;
 
@@ -624,6 +624,9 @@ enum Vertices<'a> {
         vertices: &'a [u32],
     },
     Shaded(&'a [Vertex]),
+    /// through the shaders and placed on the screen by another thread, see
+    /// hand_out.
+    Prepared(&'a Prepared),
 }
 
 impl Vertices<'_> {
@@ -633,8 +636,290 @@ impl Vertices<'_> {
             #[cfg(feature = "vulkan")]
             Vertices::Raw { vertices, .. } => vertices.len(),
             Vertices::Shaded(shaded) => shaded.len(),
+            Vertices::Prepared(prepared) => prepared.order.as_ref().map_or(prepared.shaded.len(), Vec::len),
         }
     }
+}
+
+/// a draw's vertices through the shaders, then clipped, culled and placed
+/// on the screen as the GPU or the software fill takes them.
+struct Prepared {
+    shaded: Vec<Vertex>,
+    /// which of the shaded vertices each vertex of the draw is.
+    order: Option<Vec<usize>>,
+    placement: Placement,
+}
+
+/// the triangles of a draw on the screen. each vertex inside the volume
+/// lands once however many triangles share it, the triangles index those,
+/// and what clipping makes goes after them.
+struct Placement {
+    placed: Vec<Screen>,
+    indices: Vec<u32>,
+    /// the triangles before clipping and culling.
+    triangles: usize,
+    clipped_away: u32,
+    culled: u32,
+}
+
+/// what a draw's vertex work reads besides the vertices, as the walk ahead
+/// of a command list saw it at the draw: what another thread shades with,
+/// and what the real walk checks it reached the draw with.
+struct Seen {
+    registers: Box<[u32]>,
+    vertex_shader: ShaderUnit,
+    /// none while the geometry stage is off.
+    geometry_shader: Option<ShaderUnit>,
+    fixed_attributes: [Vec4; 16],
+}
+
+/// a draw's vertex work, handed to another thread by the walk ahead of a
+/// command list, see Gpu::scout.
+pub struct Handed {
+    seen: Arc<Seen>,
+    /// memory's count of writes when the walk read the vertices.
+    writes: Option<u64>,
+    job: Arc<Job>,
+}
+
+/// a draw's vertex work, which whichever thread gets to it first does: a
+/// thread of the pool, or the real walk when it reaches the draw before
+/// any did, which costs less than waiting for one to start.
+struct Job {
+    state: Mutex<Work>,
+    done: Condvar,
+}
+
+enum Work {
+    Waiting { inputs: Vec<[Vec4; shader::INPUT_REGISTERS]>, order: Option<Vec<usize>> },
+    Running,
+    /// none for a draw with no viewport to place it in.
+    Done(Option<Prepared>),
+    /// taken, or not wanted any more.
+    Gone,
+}
+
+impl Job {
+    /// does the work, unless another thread took it.
+    fn run(&self, seen: &Seen) {
+        let mut state = self.state.lock().unwrap();
+        if !matches!(*state, Work::Waiting { .. }) {
+            return;
+        }
+        let Work::Waiting { inputs, order } = std::mem::replace(&mut *state, Work::Running) else {
+            unreachable!("work that was waiting")
+        };
+        drop(state);
+        let prepared = prepare(seen, &inputs, order);
+        *self.state.lock().unwrap() = Work::Done(prepared);
+        self.done.notify_all();
+    }
+}
+
+impl Handed {
+    /// the work done, here if no thread started on it yet. none when the
+    /// draw has no viewport, or the thread doing it died.
+    fn take(self) -> Option<Option<Prepared>> {
+        let mut state = self.job.state.lock().unwrap();
+        loop {
+            match std::mem::replace(&mut *state, Work::Gone) {
+                Work::Waiting { inputs, order } => {
+                    drop(state);
+                    return Some(prepare(&self.seen, &inputs, order));
+                }
+                Work::Running => {
+                    *state = Work::Running;
+                    state = self.job.done.wait(state).unwrap();
+                }
+                Work::Done(prepared) => return Some(prepared),
+                Work::Gone => return None,
+            }
+        }
+    }
+}
+
+impl Drop for Handed {
+    /// work no draw took is left undone.
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.job.state.lock() {
+            if matches!(*state, Work::Waiting { .. }) {
+                *state = Work::Gone;
+            }
+        }
+    }
+}
+
+impl Handed {
+    /// whether the walk ahead saw this draw as it is: the same registers,
+    /// shaders and fixed attributes, and memory unwritten since it read the
+    /// vertices.
+    fn holds(
+        &self,
+        registers: &[u32],
+        vertex_shader: &ShaderUnit,
+        geometry_shader: &ShaderUnit,
+        fixed_attributes: &[Vec4; 16],
+        writes: Option<u64>,
+    ) -> bool {
+        let seen = &*self.seen;
+        writes.is_some()
+            && writes == self.writes
+            && *seen.registers == *registers
+            && same_bits(&seen.fixed_attributes, fixed_attributes)
+            && seen.vertex_shader.runs_like(vertex_shader)
+            && seen.geometry_shader.as_ref().is_none_or(|unit| unit.runs_like(geometry_shader))
+    }
+}
+
+/// whether two runs of vectors hold the same bits, NaNs included.
+pub(crate) fn same_bits(a: &[Vec4], b: &[Vec4]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.map(f32::to_bits) == b.map(f32::to_bits))
+}
+
+/// whether draws hand their vertex work to other threads, see Gpu::scout,
+/// unless ZAKURO_SHADE_AHEAD is 0.
+#[cfg(feature = "vulkan")]
+fn shading_ahead() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("ZAKURO_SHADE_AHEAD").map_or(true, |value| value != "0"))
+}
+
+/// the walk ahead of a command list's half of draw: what draw reads of
+/// memory first, the index buffer and the vertices it names, handed with
+/// the state shading takes to another thread, which shades, clips and
+/// places them for the real walk's draw. none for a draw with no vertices.
+pub(crate) fn hand_out<M: GpuMemory>(
+    registers: &[u32],
+    vertex_shader: &ShaderUnit,
+    geometry_shader: &ShaderUnit,
+    fixed_attributes: &[Vec4; 16],
+    memory: &mut M,
+    resources: &mut Resources,
+    indexed: bool,
+) -> Option<Handed> {
+    let vertex_count = registers[REG_VERTEX_COUNT];
+    if vertex_count < HAND_OUT_FROM || vertex_count > 0x1_0000 {
+        return None;
+    }
+    let writes = memory.writes();
+    let scratch = &mut resources.scratch;
+    read_indices(registers, memory, scratch, indexed);
+    scratch.plans.update(registers, fixed_attributes);
+    fetch(registers, memory, scratch, indexed);
+    let inputs = std::mem::take(&mut scratch.inputs);
+    let order = indexed.then(|| scratch.order.clone());
+    let seen = Arc::new(Seen {
+        registers: registers.into(),
+        vertex_shader: vertex_shader.for_draw(),
+        geometry_shader: (registers[REG_GEOSTAGE_CONFIG] & 0x3 == 2).then(|| geometry_shader.for_draw()),
+        fixed_attributes: *fixed_attributes,
+    });
+    let job = Arc::new(Job { state: Mutex::new(Work::Waiting { inputs, order }), done: Condvar::new() });
+    let (shared, work) = (seen.clone(), job.clone());
+    rayon::spawn(move || work.run(&shared));
+    Some(Handed { seen, writes, job })
+}
+
+/// the fewest vertices a draw needs for its work to go to another thread,
+/// fewer cost less to shade than to hand out. 64 and 256 timed the same
+/// in the games measured.
+const HAND_OUT_FROM: u32 = 64;
+
+/// a draw's vertex work, on whichever thread does it: the vertices through
+/// the shaders, then placed on the screen.
+fn prepare(seen: &Seen, inputs: &[[Vec4; shader::INPUT_REGISTERS]], order: Option<Vec<usize>>) -> Option<Prepared> {
+    static OFF: std::sync::OnceLock<ShaderUnit> = std::sync::OnceLock::new();
+    let registers = &seen.registers[..];
+    let viewport = viewport(registers)?;
+    let geometry_shader = seen.geometry_shader.as_ref().unwrap_or_else(|| OFF.get_or_init(ShaderUnit::new));
+    let (shaded, kept) = process_vertices(registers, &seen.vertex_shader, geometry_shader, inputs, order.as_deref());
+    // the geometry shader's vertices come in order
+    let order = if kept.is_some() { order } else { None };
+    let placement = place(registers, &shaded, order.as_deref(), viewport);
+    Some(Prepared { shaded, order, placement })
+}
+
+/// the viewport's left, bottom, width and height, none where it has no
+/// extent to draw in.
+fn viewport(registers: &[u32]) -> Option<(f32, f32, f32, f32)> {
+    // the offset is two signed 10-bit fields.
+    let signed10 = |value: u32| (((value & 0x3FF) << 22) as i32 >> 22) as f32;
+    let viewport_x = signed10(registers[REG_VIEWPORT_XY]);
+    let viewport_y = signed10(registers[REG_VIEWPORT_XY] >> 16);
+    // the viewport registers hold *half* the extent, because what the hardware
+    // actually wants is the scale factor that maps clip space (-1..1) onto the
+    // target.
+    let viewport_width = read_float24(registers, REG_VIEWPORT_WIDTH) * 2.0;
+    let viewport_height = read_float24(registers, REG_VIEWPORT_HEIGHT) * 2.0;
+    if viewport_width <= 0.0 || viewport_height <= 0.0 {
+        return None;
+    }
+    Some((viewport_x, viewport_y, viewport_width, viewport_height))
+}
+
+/// a draw's shaded vertices assembled into triangles and placed on the
+/// screen, clipped to the volume and culled.
+fn place(registers: &[u32], shaded: &[Vertex], order: Option<&[usize]>, viewport: (f32, f32, f32, f32)) -> Placement {
+    // GPUREG_PRIMITIVE_CONFIG bits [9:8], 0 = triangle list, 1 = strip,
+    // 2 = fan, 3 = whatever the geometry shader emitted, which is a list.
+    let topology = (registers[REG_PRIMITIVE_CONFIG] >> 8) & 0x3;
+    // GPUREG_FACECULLING_CONFIG, 0 keeps everything, 1 keeps triangles
+    // wound clockwise and 2 counter-clockwise, as seen with y pointing up.
+    let cull_mode = registers[REG_FACE_CULLING] & 0x3;
+    // which of the vertices made each vertex of the draw is
+    let at = |i: usize| order.map_or(i, |order| order[i]);
+    let triangle_indices = assemble(topology, order.map_or(shaded.len(), <[usize]>::len));
+
+    let triangles = triangle_indices.len();
+    let mut clipped_away = 0u32;
+    let mut culled = 0u32;
+    const OUTSIDE: u32 = u32::MAX;
+    let mut placed: Vec<Screen> = Vec::with_capacity(shaded.len());
+    let slots: Vec<u32> = shaded
+        .iter()
+        .map(|vertex| match inside(vertex).then(|| to_screen(vertex, viewport)).flatten() {
+            Some(screen) => {
+                placed.push(screen);
+                placed.len() as u32 - 1
+            }
+            None => OUTSIDE,
+        })
+        .collect();
+    let mut indices: Vec<u32> = Vec::with_capacity(triangles * 3);
+    let culls = |p: &Screen, q: &Screen, r: &Screen| {
+        let counter_clockwise = (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x) > 0.0;
+        cull_mode != 0 && counter_clockwise == (cull_mode == 1)
+    };
+    let (mut polygon, mut spare, mut screen) = (Vec::new(), Vec::new(), Vec::new());
+    for (ia, ib, ic) in triangle_indices {
+        let (a, b, c) = (at(ia), at(ib), at(ic));
+        let [sa, sb, sc] = [slots[a], slots[b], slots[c]];
+        if sa != OUTSIDE && sb != OUTSIDE && sc != OUTSIDE {
+            if culls(&placed[sa as usize], &placed[sb as usize], &placed[sc as usize]) {
+                culled += 1;
+            } else {
+                indices.extend([sa, sb, sc]);
+            }
+            continue;
+        }
+        clip_triangle([shaded[a], shaded[b], shaded[c]], &mut polygon, &mut spare);
+        screen.clear();
+        screen.extend(polygon.iter().filter_map(|v| to_screen(v, viewport)));
+        if screen.len() < 3 || screen.len() != polygon.len() {
+            clipped_away += 1;
+            continue;
+        }
+        if culls(&screen[0], &screen[1], &screen[2]) {
+            culled += 1;
+            continue;
+        }
+        let first = placed.len() as u32;
+        placed.extend_from_slice(&screen);
+        for i in 1..screen.len() as u32 - 1 {
+            indices.extend([first, first + i, first + i + 1]);
+        }
+    }
+    Placement { placed, indices, triangles, clipped_away, culled }
 }
 
 /// where the GPU's vertex shader finds each varying, per semantic
@@ -981,6 +1266,15 @@ pub struct Resources {
 }
 
 impl Resources {
+    /// whether draws hand their vertex work to other threads, see
+    /// Gpu::scout: on the host's GPU while the CPU shades.
+    pub(crate) fn hands_out(&self) -> bool {
+        #[cfg(feature = "vulkan")]
+        return shading_ahead() && self.hardware.as_ref().is_some_and(|hardware| !hardware.shades());
+        #[cfg(not(feature = "vulkan"))]
+        false
+    }
+
     /// lets go of the textures decoded, what the last draws left to the
     /// next and what the host's GPU drew, memory having been put back as a
     /// saved state had it.
@@ -2212,37 +2506,33 @@ pub fn draw<M: GpuMemory>(
     memory: &mut M,
     resources: &mut Resources,
     indexed: bool,
+    handed: Option<Handed>,
 ) -> u32 {
     let vertex_count = registers[REG_VERTEX_COUNT];
-    let first_vertex = registers[REG_VERTEX_OFFSET];
     if vertex_count == 0 || vertex_count > 0x1_0000 {
         return 0;
     }
 
+    // the vertex work another thread did, when the walk ahead saw the draw
+    // as it is
+    if let Some(handed) = handed.filter(|handed| handed.holds(registers, vertex_shader, geometry_shader, fixed_attributes, memory.writes())) {
+        match handed.take() {
+            Some(Some(prepared)) => {
+                rasterize(registers, memory, resources, Vertices::Prepared(&prepared));
+                return vertex_count;
+            }
+            // nothing to draw it in
+            Some(None) => return vertex_count,
+            None => {}
+        }
+    }
+
     let attribute_base = loc_register(registers, REG_ATTRIBUTE_BASE);
-
-    // resolve each of the vertex_count draw indices to an actual vertex
-    // array index, sequential for DrawArrays, looked up in the index buffer
-    // for DrawElements.
-    let index_config = registers[REG_INDEX_ARRAY];
-    let index_short = index_config & 0x8000_0000 != 0;
-    let index_base = memory.translate(attribute_base + (index_config & 0x0FFF_FFFF));
-
 
     // an index buffer names most vertices several times, fetch and shade
     // each of them once.
     let mut scratch = std::mem::take(&mut resources.scratch);
-    if indexed {
-        // the whole index buffer at once, a read per index costs far more
-        let size = if index_short { 2 } else { 1 };
-        let len = (vertex_count * size) as usize;
-        let bytes = &mut scratch.bytes;
-        bytes.resize(len, 0);
-        match memory.slice(index_base, len) {
-            Some(slice) => bytes.copy_from_slice(slice),
-            None => memory.read(index_base, bytes),
-        }
-    }
+    read_indices(registers, memory, &mut scratch, indexed);
     let plan = scratch.plans.update(registers, fixed_attributes);
     log::trace!(
         "array draw: {vertex_count} vertices from 0x{attribute_base:08X}, indexed {indexed}, formats \
@@ -2255,6 +2545,8 @@ pub fn draw<M: GpuMemory>(
     // first vertex the draw uses to the last
     #[cfg(feature = "vulkan")]
     if resources.hardware.as_ref().is_some_and(|hardware| hardware.shades()) && registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2 {
+        let index_short = registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0;
+        let first_vertex = registers[REG_VERTEX_OFFSET];
         let (first, span) = if indexed {
             // over the index buffer's own bytes or halfwords, which the
             // vector units compare many at a time, they have no unsigned
@@ -2292,26 +2584,59 @@ pub fn draw<M: GpuMemory>(
             }
         }
     }
+    fetch(registers, memory, &mut scratch, indexed);
+    let order = indexed.then_some(&scratch.order[..]);
+    let vertices = Vertices::Unshaded { vertex_shader, geometry_shader, inputs: &scratch.inputs, order };
+    rasterize(registers, memory, resources, vertices);
+    resources.scratch = scratch;
+    vertex_count
+}
+
+/// a draw's index buffer into scratch.bytes, the whole of it at once, a
+/// read per index costs far more.
+fn read_indices<M: GpuMemory>(registers: &[u32], memory: &mut M, scratch: &mut Scratch, indexed: bool) {
+    if !indexed {
+        return;
+    }
+    // resolve each of the vertex_count draw indices to an actual vertex
+    // array index, sequential for DrawArrays, looked up in the index buffer
+    // for DrawElements.
+    let attribute_base = loc_register(registers, REG_ATTRIBUTE_BASE);
+    let index_config = registers[REG_INDEX_ARRAY];
+    let index_short = index_config & 0x8000_0000 != 0;
+    let index_base = memory.translate(attribute_base + (index_config & 0x0FFF_FFFF));
+    let size = if index_short { 2 } else { 1 };
+    let len = (registers[REG_VERTEX_COUNT] * size) as usize;
+    let bytes = &mut scratch.bytes;
+    bytes.resize(len, 0);
+    match memory.slice(index_base, len) {
+        Some(slice) => bytes.copy_from_slice(slice),
+        None => memory.read(index_base, bytes),
+    }
+}
+
+/// the shader inputs of each vertex a draw names, once each, into
+/// scratch.inputs, with scratch.order saying which one each vertex of the
+/// draw is when it is indexed. the plan is the one plans.update made.
+fn fetch<M: GpuMemory>(registers: &[u32], memory: &mut M, scratch: &mut Scratch, indexed: bool) {
+    let vertex_count = registers[REG_VERTEX_COUNT];
     if indexed {
         scratch.indices.clear();
-        if index_short {
+        if registers[REG_INDEX_ARRAY] & 0x8000_0000 != 0 {
             scratch.indices.extend(scratch.bytes.as_chunks::<2>().0.iter().map(|b| u16::from_le_bytes(*b) as u32));
         } else {
             scratch.indices.extend(scratch.bytes.iter().map(|&b| b as u32));
         }
         scratch.unique();
     } else {
+        let first_vertex = registers[REG_VERTEX_OFFSET];
         scratch.unique.clear();
         scratch.unique.extend((0..vertex_count).map(|i| first_vertex + i));
     }
+    let attribute_base = loc_register(registers, REG_ATTRIBUTE_BASE);
     let plan = scratch.plans.current();
     scratch.inputs.clear();
     scratch.inputs.extend(scratch.unique.iter().map(|&vertex_index| plan.fetch(memory, attribute_base, vertex_index)));
-    let order = indexed.then_some(&scratch.order[..]);
-    let vertices = Vertices::Unshaded { vertex_shader, geometry_shader, inputs: &scratch.inputs, order };
-    rasterize(registers, memory, resources, vertices);
-    resources.scratch = scratch;
-    vertex_count
 }
 
 /// draws vertices a title sent one attribute at a time through the fixed
@@ -2449,19 +2774,10 @@ fn assemble(topology: u32, count: usize) -> Vec<(usize, usize, usize)> {
 /// CPU decodes then.
 fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Resources, vertices: Vertices) -> Option<u32> {
     let vertex_count = vertices.len();
-    // the offset is two signed 10-bit fields.
-    let signed10 = |value: u32| (((value & 0x3FF) << 22) as i32 >> 22) as f32;
-    let viewport_x = signed10(registers[REG_VIEWPORT_XY]);
-    let viewport_y = signed10(registers[REG_VIEWPORT_XY] >> 16);
-    // the viewport registers hold *half* the extent, because what the hardware
-    // actually wants is the scale factor that maps clip space (-1..1) onto the
-    // target.
-    let viewport_width = read_float24(registers, REG_VIEWPORT_WIDTH) * 2.0;
-    let viewport_height = read_float24(registers, REG_VIEWPORT_HEIGHT) * 2.0;
-    if viewport_width <= 0.0 || viewport_height <= 0.0 {
+    let Some(viewport) = viewport(registers) else {
         return Some(0);
-    }
-    let viewport = (viewport_x, viewport_y, viewport_width, viewport_height);
+    };
+    let (viewport_x, viewport_y, viewport_width, viewport_height) = viewport;
 
     let color_buffer_raw = loc_register(registers, REG_COLOR_BUFFER_ADDRESS);
     let target_addr = memory.translate(color_buffer_raw);
@@ -2561,14 +2877,6 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
         resources.textures.wrote(depth.addr, pixels * depth.bytes);
     }
 
-    // GPUREG_PRIMITIVE_CONFIG bits [9:8], 0 = triangle list, 1 = strip,
-    // 2 = fan, 3 = whatever the geometry shader emitted, which is a list.
-    let topology = (registers[REG_PRIMITIVE_CONFIG] >> 8) & 0x3;
-
-    // GPUREG_FACECULLING_CONFIG, 0 keeps everything, 1 keeps triangles
-    // wound clockwise and 2 counter-clockwise, as seen with y pointing up.
-    let cull_mode = registers[REG_FACE_CULLING] & 0x3;
-
     // the GPU runs the vertex shader itself, unless a geometry shader
     // comes after it
     #[cfg(feature = "vulkan")]
@@ -2580,9 +2888,17 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
                 Some((vertex_shader, hardware::Inputs::Decoded(inputs), order, None))
             }
             Vertices::Raw { vertex_shader, raw, vertices } => Some((vertex_shader, hardware::Inputs::Raw(raw), None, Some(vertices))),
-            Vertices::Shaded(_) => None,
+            Vertices::Shaded(_) | Vertices::Prepared(_) => None,
         };
         if let Some((unit, inputs, order, raw)) = unshaded.filter(|_| hardware.shades() && whole && registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2) {
+            // GPUREG_PRIMITIVE_CONFIG bits [9:8], 0 = triangle list, 1 =
+            // strip, 2 = fan, 3 = whatever the geometry shader emitted,
+            // which is a list.
+            let topology = (registers[REG_PRIMITIVE_CONFIG] >> 8) & 0x3;
+            // GPUREG_FACECULLING_CONFIG, 0 keeps everything, 1 keeps
+            // triangles wound clockwise and 2 counter-clockwise, as seen
+            // with y pointing up.
+            let cull_mode = registers[REG_FACE_CULLING] & 0x3;
             let mut assembled = std::mem::take(&mut resources.triangles);
             let indices = triangle_indices(topology, vertex_count, raw, order, &mut assembled);
             let shading = hardware::Shading {
@@ -2602,82 +2918,34 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
             }
         }
     }
-    let processed;
-    let (shaded, order) = match vertices {
-        Vertices::Shaded(shaded) => (shaded, None),
+    let (processed, placed_here);
+    // the order goes to the software path the GPU falls back on alone
+    #[cfg_attr(not(feature = "vulkan"), allow(unused_variables))]
+    let (shaded, order, placement) = match vertices {
+        Vertices::Prepared(prepared) => (&prepared.shaded[..], prepared.order.as_deref(), &prepared.placement),
+        Vertices::Shaded(shaded) => {
+            placed_here = place(registers, shaded, None, viewport);
+            (shaded, None, &placed_here)
+        }
         Vertices::Unshaded { vertex_shader, geometry_shader, inputs, order } => {
             processed = process_vertices(registers, vertex_shader, geometry_shader, inputs, order);
-            (&processed.0[..], processed.1)
+            placed_here = place(registers, &processed.0, processed.1, viewport);
+            (&processed.0[..], processed.1, &placed_here)
         }
         // arrays the GPU did not draw, which the CPU decodes first
         #[cfg(feature = "vulkan")]
         Vertices::Raw { .. } => return None,
     };
-    // which of the vertices made each vertex of the draw is
-    let at = |i: usize| order.map_or(i, |order| order[i]);
-    let triangle_indices = assemble(topology, order.map_or(shaded.len(), <[usize]>::len));
-
-    let triangle_count = triangle_indices.len();
-    let mut clipped_away = 0u32;
-    let mut culled = 0u32;
+    let (placed, indices) = (&placement.placed, &placement.indices);
+    let (triangle_count, clipped_away, culled) = (placement.triangles, placement.clipped_away, placement.culled);
     let mut stats = FillStats::default();
-    // where each vertex inside the volume lands, worked out once however
-    // many triangles share it, and the triangles as indices into those, a
-    // triangle of such vertices needs no clipping. what clipping makes goes
-    // after them
-    const OUTSIDE: u32 = u32::MAX;
-    let mut placed: Vec<Screen> = Vec::with_capacity(shaded.len());
-    let slots: Vec<u32> = shaded
-        .iter()
-        .map(|vertex| match inside(vertex).then(|| to_screen(vertex, viewport)).flatten() {
-            Some(screen) => {
-                placed.push(screen);
-                placed.len() as u32 - 1
-            }
-            None => OUTSIDE,
-        })
-        .collect();
-    let mut indices: Vec<u32> = Vec::with_capacity(triangle_count * 3);
-    let culls = |p: &Screen, q: &Screen, r: &Screen| {
-        let counter_clockwise = (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x) > 0.0;
-        cull_mode != 0 && counter_clockwise == (cull_mode == 1)
-    };
-    let (mut polygon, mut spare, mut screen) = (Vec::new(), Vec::new(), Vec::new());
-    for (ia, ib, ic) in triangle_indices {
-        let (a, b, c) = (at(ia), at(ib), at(ic));
-        let [sa, sb, sc] = [slots[a], slots[b], slots[c]];
-        if sa != OUTSIDE && sb != OUTSIDE && sc != OUTSIDE {
-            if culls(&placed[sa as usize], &placed[sb as usize], &placed[sc as usize]) {
-                culled += 1;
-            } else {
-                indices.extend([sa, sb, sc]);
-            }
-            continue;
-        }
-        clip_triangle([shaded[a], shaded[b], shaded[c]], &mut polygon, &mut spare);
-        screen.clear();
-        screen.extend(polygon.iter().filter_map(|v| to_screen(v, viewport)));
-        if screen.len() < 3 || screen.len() != polygon.len() {
-            clipped_away += 1;
-            continue;
-        }
-        if culls(&screen[0], &screen[1], &screen[2]) {
-            culled += 1;
-            continue;
-        }
-        let first = placed.len() as u32;
-        placed.extend_from_slice(&screen);
-        for i in 1..screen.len() as u32 - 1 {
-            indices.extend([first, first + i, first + i + 1]);
-        }
-    }
 
     #[cfg(feature = "vulkan")]
     if let Some(hardware) = resources.hardware.as_mut() {
         let target = &state.target;
         // tiles are whole in any buffer a title really draws into
         if target.buffer_width.is_multiple_of(8) && target.buffer_height.is_multiple_of(8) {
-            let geometry = hardware::Geometry::Placed { vertices: &placed, indices: &indices };
+            let geometry = hardware::Geometry::Placed { vertices: placed, indices };
             match hardware.draw(memory, &state.hardware(registers, geometry)) {
                 Ok(()) => return Some(triangle_count as u32),
                 Err(error) => log::error!("the GPU could not draw, {error}, drawing in software"),
@@ -2697,6 +2965,8 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
         // were not
         if drawn.iter().any(Option::is_some) {
             let hardware = resources.hardware.take();
+            // which of the vertices made each vertex of the draw is
+            let at = |i: usize| order.map_or(i, |order| order[i]);
             let in_order: Vec<Vertex> = (0..order.map_or(shaded.len(), <[usize]>::len)).map(|i| shaded[at(i)]).collect();
             let drawn = rasterize(registers, memory, resources, Vertices::Shaded(&in_order));
             resources.hardware = hardware;
@@ -4531,9 +4801,9 @@ mod tests {
             decoded.write(COLOR, &vec![0u8; (SIZE * SIZE * 4) as usize]);
             raw.write(COLOR, &vec![0u8; (SIZE * SIZE * 4) as usize]);
             let indexed = case.indices.is_some();
-            draw(&registers, &unit, &unit, &fixed, &mut decoded, &mut resources, indexed);
+            draw(&registers, &unit, &unit, &fixed, &mut decoded, &mut resources, indexed, None);
             resources.hardware.as_mut().unwrap().flush(&mut decoded).unwrap();
-            draw(&registers, &unit, &unit, &fixed, &mut raw, &mut resources, indexed);
+            draw(&registers, &unit, &unit, &fixed, &mut raw, &mut resources, indexed, None);
             resources.hardware.as_mut().unwrap().flush(&mut raw).unwrap();
             // the first array whole, from the first vertex used to the last
             let span = match indexed {
@@ -4548,6 +4818,133 @@ mod tests {
             let drawn = a.chunks(4).filter(|pixel| *pixel != [0; 4]).count();
             assert!(drawn > 50, "case {number}, only {drawn} pixels drawn");
             assert!(a == b, "case {number}, the arrays decode differently");
+        }
+    }
+
+    /// memory that counts its writes, which handing a draw out takes.
+    struct Counted(ConsoleMemory, u64);
+
+    impl GpuMemory for Counted {
+        fn read(&mut self, addr: u32, out: &mut [u8]) {
+            self.0.read(addr, out);
+        }
+
+        fn write(&mut self, addr: u32, data: &[u8]) {
+            self.1 += 1;
+            self.0.write(addr, data);
+        }
+
+        fn slice(&mut self, addr: u32, len: usize) -> Option<&[u8]> {
+            self.0.slice(addr, len)
+        }
+
+        fn slice_mut(&mut self, addr: u32, len: usize) -> Option<&mut [u8]> {
+            self.1 += 1;
+            self.0.slice_mut(addr, len)
+        }
+
+        fn translate(&self, paddr: u32) -> u32 {
+            self.0.translate(paddr)
+        }
+
+        fn writes(&self) -> Option<u64> {
+            Some(self.1)
+        }
+    }
+
+    /// a draw whose vertex work another thread did draws what it draws on
+    /// its own, and work done for a draw that changed since, or with
+    /// memory written since, is done again by the draw.
+    #[test]
+    fn draws_handed_out_draw_as_they_would() {
+        const SIZE: u32 = 32;
+        const BASE: u32 = 0x2000_0000;
+        const INDICES: u32 = 0x6000;
+        const VERTICES: u32 = 96;
+        const IDENTITY: u32 = 0x1B << 5 | 0x1B << 14 | 0x1B << 23;
+        let mut unit = ShaderUnit::new();
+        unit.descriptors[0] = 0xF | IDENTITY;
+        let op = |opcode: u32, destination: u32, src1: u32, src2: u32| opcode << 26 | destination << 21 | src1 << 12 | src2 << 7;
+        // o0 = c0 * v0, o1 = c1 * v1
+        let program = [op(0x08, 0x00, 0x20, 0x00), op(0x08, 0x01, 0x21, 0x01), 0x22 << 26];
+        unit.program[..program.len()].copy_from_slice(&program);
+        unit.float_uniforms[0] = [0.9, 0.9, 1.0, 1.0];
+        unit.float_uniforms[1] = [1.0 / 255.0; 4];
+        unit.prepare();
+        let fixed = [shader::ZERO; 16];
+
+        let mut registers = target_registers();
+        registers[REG_VIEWPORT_WIDTH] = float24(SIZE as f32 / 2.0);
+        registers[REG_VIEWPORT_HEIGHT] = float24(SIZE as f32 / 2.0);
+        registers[REG_FRAMEBUFFER_DIMENSIONS] = SIZE | ((SIZE - 1) << 12);
+        registers[REG_SHADER_OUTPUT_TOTAL] = 2;
+        registers[REG_SHADER_OUTPUT_MAP] = 0x0302_0100;
+        registers[REG_SHADER_OUTPUT_MAP + 1] = 0x0B0A_0908;
+        registers[REG_VS_OUTPUT_MASK] = 0b11;
+        registers[REG_ATTRIBUTE_BASE] = BASE >> 3;
+        registers[REG_VS_NUM_INPUT_ATTRIBUTES] = 1;
+        registers[REG_VS_BLOCK + SHADER_INPUT_MAP_LOW] = 0x10;
+        // float positions, two of them, and four byte colors, each in an
+        // array of its own
+        registers[REG_ATTRIBUTE_FORMAT_LOW] = (1 << 2 | 3) | (3 << 2 | 1) << 4;
+        registers[REG_ATTRIBUTE_FORMAT_HIGH] = 1 << 28;
+        registers[REG_ATTRIBUTE_LOADER] = 0x100;
+        registers[REG_ATTRIBUTE_LOADER + 2] = 8 << 16 | 1 << 28;
+        registers[REG_ATTRIBUTE_LOADER + 3] = 0x800;
+        registers[REG_ATTRIBUTE_LOADER + 4] = 1;
+        registers[REG_ATTRIBUTE_LOADER + 5] = 4 << 16 | 1 << 28;
+        registers[REG_VERTEX_COUNT] = VERTICES;
+        registers[REG_INDEX_ARRAY] = INDICES | 1 << 31;
+
+        let mut seed = 5u32;
+        let mut random = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            seed >> 8
+        };
+        let mut arrays = vec![0u8; 0x6000 + VERTICES as usize * 2];
+        for vertex in 0..40usize {
+            for component in 0..2 {
+                let position = (random() & 0xFFFF) as f32 / 65536.0 * 1.8 - 0.9;
+                arrays[0x100 + vertex * 8 + component * 4..][..4].copy_from_slice(&position.to_le_bytes());
+            }
+            for component in 0..4 {
+                arrays[0x800 + vertex * 4 + component] = random() as u8;
+            }
+        }
+        for index in 0..VERTICES as usize {
+            arrays[INDICES as usize + index * 2..][..2].copy_from_slice(&((random() % 40) as u16).to_le_bytes());
+        }
+        let memory = || {
+            let mut memory = Counted(ConsoleMemory::default(), 0);
+            memory.0.write(0x1400_0000, &arrays);
+            memory
+        };
+        let pixels = |memory: &mut Counted| {
+            let mut pixels = vec![0u8; (SIZE * SIZE * 4) as usize];
+            memory.read(COLOR, &mut pixels);
+            pixels
+        };
+        let alone = |registers: &[u32]| {
+            let mut memory = memory();
+            draw(registers, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true, None);
+            pixels(&mut memory)
+        };
+
+        // the draw as handed out, culled since, and with memory written
+        // in between
+        let mut culled = registers.clone();
+        culled[REG_FACE_CULLING] = 1;
+        for (drawn, write, holds) in [(&registers, false, true), (&culled, false, false), (&registers, true, false)] {
+            let mut memory = memory();
+            let handed = hand_out(&registers, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true).expect("handed out");
+            if write {
+                memory.write(0x8000, &[1]);
+            }
+            assert_eq!(handed.holds(drawn, &unit, &unit, &fixed, memory.writes()), holds);
+            draw(drawn, &unit, &unit, &fixed, &mut memory, &mut Resources::default(), true, Some(handed));
+            let (got, expected) = (pixels(&mut memory), alone(drawn));
+            assert!(expected.chunks(4).filter(|pixel| *pixel != [0; 4]).count() > 50, "too little drawn to tell");
+            assert!(got == expected, "a draw that holds {holds} drew differently");
         }
     }
 
