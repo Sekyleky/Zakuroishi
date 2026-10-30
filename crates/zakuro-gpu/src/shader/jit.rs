@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 use std::mem::offset_of;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
@@ -58,7 +58,7 @@ pub(super) enum Tier {
 
 /// how many batches a program compiled quickly shades before it is compiled
 /// again in full.
-const HOT: u32 = 4096;
+const HOT: u64 = 4096;
 
 /// what a compiled program reads and writes, the registers as rows of lanes.
 #[repr(C, align(16))]
@@ -224,11 +224,12 @@ pub(super) struct Compiled {
     /// whether it is being compiled again in full.
     upgrading: AtomicBool,
     /// the batches it ran and gave back, it gives up on a program whose
-    /// vertices part ways often, which batch shades better.
-    runs: AtomicU32,
-    returned: AtomicU32,
+    /// vertices part ways often, which batch shades better. wide enough
+    /// not to come round in a long session.
+    runs: AtomicU64,
+    returned: AtomicU64,
     /// the batches given back where the lanes parted ways, for the tests.
-    parted: AtomicU32,
+    parted: AtomicU64,
     given_up: AtomicBool,
 }
 
@@ -263,19 +264,19 @@ impl Compiled {
     /// how many batches it gave back where their lanes parted ways, for the
     /// tests.
     #[cfg(test)]
-    pub(super) fn parted(&self) -> u32 {
+    pub(super) fn parted(&self) -> u64 {
         self.parted.load(Ordering::Relaxed)
     }
 
     /// how many batches it gave back for any reason, for the tests.
     #[cfg(test)]
-    pub(super) fn returned(&self) -> u32 {
+    pub(super) fn returned(&self) -> u64 {
         self.returned.load(Ordering::Relaxed)
     }
 
     /// counts batches run and given back, giving up once a quarter of them
     /// came back.
-    fn counted(&self, runs: u32, returned: u32) {
+    fn counted(&self, runs: u64, returned: u64) {
         let runs = self.runs.fetch_add(runs, Ordering::Relaxed) + runs;
         let returned = self.returned.fetch_add(returned, Ordering::Relaxed) + returned;
         if runs >= 64 && returned * 4 > runs && !self.given_up.swap(true, Ordering::Relaxed) {
@@ -428,10 +429,12 @@ fn queue() -> &'static Arc<Queue> {
                     record_saved(record);
                 }
                 match quick {
-                    // a full compile takes the quick code's place, unless that went
+                    // a full compile takes the quick code's place, unless that
+                    // went, or gave up while it compiled, which it stays
                     Some(quick) => {
                         let mut kept = codes();
-                        if found.is_some() && matches!(kept.get(&key), Some(Slot::Done(Some(current))) if Arc::ptr_eq(current, &quick)) {
+                        let given_up = quick.given_up.load(Ordering::Relaxed);
+                        if found.is_some() && !given_up && matches!(kept.get(&key), Some(Slot::Done(Some(current))) if Arc::ptr_eq(current, &quick)) {
                             kept.insert(key, Slot::Done(found));
                         }
                     }
@@ -839,7 +842,8 @@ pub(super) fn compile(program: &Program, entry: u32, tier: Tier) -> Result<Compi
     let [floor, exp2, log2, lit, set_emit, emit] = ids.map(|id| module.declare_func_in_func(id, builder.func));
     let helpers = Helpers { floor, exp2, log2, lit, set_emit, emit };
 
-    // given up halfway, the function is left unfinished
+    // none when its states go too many ways or too deep, found before
+    // anything is built
     Compiler::build(&mut builder, program, entry, helpers).ok_or("it goes too many ways or too deep")?;
     builder.seal_all_blocks();
     builder.finalize(module.target_config());
@@ -863,9 +867,9 @@ pub(super) fn compile(program: &Program, entry: u32, tier: Tier) -> Result<Compi
         function,
         tier,
         upgrading: AtomicBool::new(false),
-        runs: AtomicU32::new(0),
-        returned: AtomicU32::new(0),
-        parted: AtomicU32::new(0),
+        runs: AtomicU64::new(0),
+        returned: AtomicU64::new(0),
+        parted: AtomicU64::new(0),
         given_up: AtomicBool::new(false),
     })
 }
@@ -1974,5 +1978,33 @@ mod saved_tests {
         queue.push(job(8, false, false));
         assert_eq!(queue.take(false).key.0, 8);
         assert_eq!(queue.take(true).key.0, 7);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// quick code asked for once it has shaded HOT batches comes back as it
+    /// is while the program compiles in full, which then takes its place.
+    #[test]
+    fn hot_quick_code_is_compiled_again_in_full() {
+        let mut unit = ShaderUnit::new();
+        // mov o5, c77, which no other test runs
+        unit.program[0] = (0x13 << 26) | (0x05 << 21) | ((0x20 + 77) << 12);
+        unit.program[1] = 0x22 << 26;
+        unit.prepare();
+        let program = unit.decoded.clone().expect("prepared");
+        let key = (program.fingerprint, unit.entry_point);
+        let quick = Arc::new(compile(&program, unit.entry_point, Tier::Quick).expect("compiled"));
+        quick.runs.store(HOT, Ordering::Relaxed);
+        codes().insert(key, Slot::Done(Some(quick.clone())));
+        let found = compiled(&unit, &program).expect("the quick code");
+        assert!(Arc::ptr_eq(&found, &quick));
+        let start = std::time::Instant::now();
+        while !matches!(codes().get(&key), Some(Slot::Done(Some(current))) if current.tier == Tier::Full) {
+            assert!(start.elapsed().as_secs() < 60, "never compiled in full");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
     }
 }
