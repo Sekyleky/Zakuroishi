@@ -6,8 +6,10 @@
 //! every way of being in the calls, ifs and loops it is reached in, every
 //! such state found first, with the ways into each, and then compiled, a
 //! run of states nothing else leads into making up one block. where the
-//! vertices of a batch would go different ways at a branch, it gives the
-//! batch back, and batch shades it, following each way.
+//! vertices of a batch go different ways at a branch, ifs, calls and jumps
+//! ahead over instructions that only work out values run for the lanes
+//! going each way under masks, and elsewhere it gives the batch back, which
+//! batch shades following each way.
 
 use std::collections::HashMap;
 use std::mem::offset_of;
@@ -512,9 +514,21 @@ enum Step {
     Run { pc: u32, depth: usize, next: usize },
     /// a branch on a boolean uniform, taken or not.
     Uniform { pc: u32, taken: usize, other: usize },
-    /// a branch on the conditions, taken or not, and the ranges the lanes
-    /// going each way run under masks where they part, then on together.
-    Conditional { pc: u32, taken: usize, other: usize, parted: Option<([(u32, u32); 2], usize)> },
+    /// a branch on the conditions, taken or not, and how the lanes going
+    /// each way run under masks where they part, then on together.
+    Conditional { pc: u32, taken: usize, other: usize, parted: Option<(Parted, usize)> },
+}
+
+/// how the lanes of a batch that part at a conditional branch each run their
+/// own way under masks, see Program::maskable.
+#[derive(Clone, Copy)]
+enum Parted {
+    /// an if's bodies, the lanes taking it running the first and the others
+    /// the second, or a call's routine and nothing.
+    Bodies([(u32, u32); 2]),
+    /// a jump ahead, the lanes not taking it running on from the next
+    /// instruction and the others from where it lands, to the end.
+    Ahead { lands: u32, end: u32 },
 }
 
 impl Step {
@@ -664,8 +678,8 @@ fn plan(program: &Program, (pc, frames): &State, reach: &mut impl FnMut(State, b
                 }
                 _ => {
                     let (taken, other) = (reach(taken, true)?, reach(other, true)?);
-                    let parted = match parted(program, op, pc) {
-                        Some((ranges, next)) => Some((ranges, reach((next, frames), false)?)),
+                    let parted = match parted(program, op, pc, &frames) {
+                        Some((parted, next)) => Some((parted, reach((next, frames), false)?)),
                         None => None,
                     };
                     Some(Step::Conditional { pc, taken, other, parted })
@@ -676,20 +690,26 @@ fn plan(program: &Program, (pc, frames): &State, reach: &mut impl FnMut(State, b
     }
 }
 
-/// where the lanes of a batch part at a conditional branch, an if or a call
-/// that only works out values: the range the lanes going its way run, the
-/// one the others run, and where all of them go on from, as they would have
-/// going each way.
-fn parted(program: &Program, op: &Op, pc: u32) -> Option<([(u32, u32); 2], u32)> {
+/// how the lanes of a batch run their own ways where they part at a
+/// conditional branch, an if, a call or a jump ahead over instructions that
+/// only work out values, and where all of them go on from, as they would
+/// have going each way.
+fn parted(program: &Program, op: &Op, pc: u32, frames: &[Frame]) -> Option<(Parted, u32)> {
     let (destination, count) = op.instruction.flow_target();
     match op.opcode {
         OpCode::IfC => {
             let (then, otherwise, next) = if_ranges(pc, destination, count);
-            (program.plain(then, 0) && program.plain(otherwise, 0)).then_some(([then, otherwise], next))
+            (program.maskable(then, 0, &[]) && program.maskable(otherwise, 0, &[])).then_some((Parted::Bodies([then, otherwise]), next))
         }
         OpCode::CallC => {
             let routine = (destination, destination + count);
-            program.plain(routine, 0).then_some(([routine, (pc + 1, pc + 1)], pc + 1))
+            program.maskable(routine, 0, &[]).then_some((Parted::Bodies([routine, (pc + 1, pc + 1)]), pc + 1))
+        }
+        // the lanes not jumping must not leave a block on the way to where
+        // all of them meet
+        OpCode::JmpC if destination > pc => {
+            let end = program.ahead(pc, destination)?;
+            frames.last().is_none_or(|top| !(pc + 1..end).contains(&top.end)).then_some((Parted::Ahead { lands: destination, end }, end))
         }
         _ => None,
     }
@@ -1087,7 +1107,7 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
     /// a branch on the conditions, every lane the same way, or where they
     /// part each running its own way under masks, else the batch going
     /// back. the state they go on to together comes back.
-    fn conditional(&mut self, pc: u32, taken: usize, other: usize, parted: Option<([(u32, u32); 2], usize)>) -> Option<usize> {
+    fn conditional(&mut self, pc: u32, taken: usize, other: usize, parted: Option<(Parted, usize)>) -> Option<usize> {
         let lanes = self.condition(self.program.ops[pc as usize].instruction);
         let all = self.builder.ins().vall_true(lanes);
         let none_check = self.builder.create_block();
@@ -1098,59 +1118,91 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         self.builder.switch_to_block(none_check);
         let any = self.builder.ins().vany_true(lanes);
         let other = self.to(other);
-        let Some(([first, second], next)) = parted else {
+        let Some((parted, next)) = parted else {
             self.builder.ins().brif(any, self.give_back, &[], other, &[]);
             self.landed();
             return None;
         };
-        // where the lanes part, an if or a call that only works out values
-        // runs for the lanes going each way, the others keeping theirs, as
-        // they would have going the other way
+        // where the lanes part, an if, a call or a jump ahead over what only
+        // works out values runs for the lanes going each way, the others
+        // keeping theirs, as they would have going the other way
         let both = self.builder.create_block();
         self.builder.ins().brif(any, both, &[], other, &[]);
         self.landed();
         self.builder.seal_block(both);
         self.builder.switch_to_block(both);
         let rest = self.builder.ins().bnot(lanes);
-        self.predicated(first, lanes);
-        self.predicated(second, rest);
+        match parted {
+            Parted::Bodies([first, second]) => {
+                self.predicated(first, lanes, Vec::new());
+                self.predicated(second, rest, Vec::new());
+            }
+            Parted::Ahead { lands, end } => self.predicated((pc + 1, end), rest, vec![(lands, lanes)]),
+        }
         Some(next)
     }
 
-    /// compiles the instructions of a range Program::plain allows for the
-    /// lanes in mask, ifs inside narrowing it further.
-    fn predicated(&mut self, (start, end): (u32, u32), mask: Value) {
+    /// compiles a range Program::maskable allows for the lanes in mask, ifs
+    /// inside narrowing it, jumps ahead taking their lanes to where they land.
+    /// lands are lanes that jumps from before it land later in it.
+    fn predicated(&mut self, (start, end): (u32, u32), mask: Value, mut lands: Vec<(u32, Value)>) {
+        let mut flowing = mask;
         let mut pc = start;
         while pc < end {
+            // the lanes landing here run on with those already here
+            for at in (0..lands.len()).rev() {
+                if lands[at].0 == pc {
+                    let (_, landed) = lands.swap_remove(at);
+                    flowing = self.builder.ins().bor(flowing, landed);
+                }
+            }
             let op = self.program.ops[pc as usize];
             self.spend();
+            let (destination, count) = op.instruction.flow_target();
             match op.opcode {
                 OpCode::IfC | OpCode::IfU => {
-                    let lanes = if op.opcode == OpCode::IfC {
-                        self.condition(op.instruction)
-                    } else {
-                        let bools = self.builder.ins().load(types::I32, constant(), self.context, offset_of!(Context, bools) as i32);
-                        let set = self.builder.ins().band_imm_u(bools, 1i64 << op.instruction.bool_index());
-                        let set = self.builder.ins().icmp_imm_u(IntCC::NotEqual, set, 0);
-                        let set = self.builder.ins().bmask(types::I32, set);
-                        self.builder.ins().splat(types::I32X4, set)
+                    let lanes = match op.opcode {
+                        OpCode::IfC => self.condition(op.instruction),
+                        _ => self.uniform_lanes(op.instruction.bool_index(), false),
                     };
-                    let (destination, count) = op.instruction.flow_target();
                     let (then, otherwise, next) = if_ranges(pc, destination, count);
-                    let taken = self.builder.ins().band(mask, lanes);
-                    let others = self.builder.ins().band_not(mask, lanes);
-                    self.predicated(then, taken);
-                    self.predicated(otherwise, others);
+                    let taken = self.builder.ins().band(flowing, lanes);
+                    let others = self.builder.ins().band_not(flowing, lanes);
+                    self.predicated(then, taken, Vec::new());
+                    self.predicated(otherwise, others, Vec::new());
                     pc = next;
                 }
+                OpCode::JmpC | OpCode::JmpU => {
+                    // jmpu can test for either value, the low bit of its count
+                    // inverts it
+                    let lanes = match op.opcode {
+                        OpCode::JmpC => self.condition(op.instruction),
+                        _ => self.uniform_lanes(op.instruction.bool_index(), count & 1 != 0),
+                    };
+                    let jumping = self.builder.ins().band(flowing, lanes);
+                    lands.push((destination, jumping));
+                    flowing = self.builder.ins().band_not(flowing, lanes);
+                    pc += 1;
+                }
                 _ => {
-                    let outer = self.mask.replace(mask);
+                    let outer = self.mask.replace(flowing);
                     self.arithmetic(&op);
                     self.mask = outer;
                     pc += 1;
                 }
             }
         }
+    }
+
+    /// a boolean uniform in every lane, all ones where it is set, or where it
+    /// is not when inverted.
+    fn uniform_lanes(&mut self, index: u32, inverted: bool) -> Value {
+        let bools = self.builder.ins().load(types::I32, constant(), self.context, offset_of!(Context, bools) as i32);
+        let set = self.builder.ins().band_imm_u(bools, 1i64 << index);
+        let test = if inverted { IntCC::Equal } else { IntCC::NotEqual };
+        let set = self.builder.ins().icmp_imm_u(test, set, 0);
+        let set = self.builder.ins().bmask(types::I32, set);
+        self.builder.ins().splat(types::I32X4, set)
     }
 
     /// sets a variable to a value, in the lanes being compiled for, the
@@ -1471,23 +1523,33 @@ impl Program {
     }
 
     /// whether a range of instructions only works out values, with ifs
-    /// inside that come back within it, which compiles for the lanes going
-    /// either way of a branch.
-    fn plain(&self, (start, end): (u32, u32), depth: usize) -> bool {
-        if depth > DEEPEST_PARTED || end as usize > PROGRAM_SIZE {
+    /// inside that come back within it and jumps ahead that land in it, no
+    /// deeper in ifs than they are, which compiles for the lanes going
+    /// either way of a branch under masks. lands are where jumps from before
+    /// the range land in it, which have to be at its own depth too.
+    fn maskable(&self, (start, end): (u32, u32), depth: usize, lands: &[u32]) -> bool {
+        if depth > DEEPEST_PARTED || start > end || end as usize > PROGRAM_SIZE {
             return false;
         }
+        // the instructions at this depth, where a jump may land
+        let mut level = Vec::new();
+        let mut landing = lands.to_vec();
         let mut pc = start;
         while pc < end {
+            level.push(pc);
             let op = &self.ops[pc as usize];
+            let (destination, count) = op.instruction.flow_target();
             match op.opcode {
                 OpCode::IfC | OpCode::IfU => {
-                    let (destination, count) = op.instruction.flow_target();
                     let (then, otherwise, next) = if_ranges(pc, destination, count);
-                    if next <= pc || next > end || !self.plain(then, depth + 1) || !self.plain(otherwise, depth + 1) {
+                    if next <= pc || next > end || !self.maskable(then, depth + 1, &[]) || !self.maskable(otherwise, depth + 1, &[]) {
                         return false;
                     }
                     pc = next;
+                }
+                OpCode::JmpC | OpCode::JmpU if pc < destination && destination <= end => {
+                    landing.push(destination);
+                    pc += 1;
                 }
                 OpCode::Call
                 | OpCode::CallC
@@ -1503,7 +1565,40 @@ impl Program {
                 _ => pc += 1,
             }
         }
-        true
+        landing.iter().all(|&at| at == end || level.binary_search(&at).is_ok())
+    }
+
+    /// where the lanes that part at a jump ahead from pc to destination all
+    /// run on together again, the furthest the jumps between land, when what
+    /// they run apart is maskable.
+    fn ahead(&self, pc: u32, destination: u32) -> Option<u32> {
+        let mut end = destination;
+        loop {
+            let mut furthest = end;
+            let mut at = pc + 1;
+            while at < end && (at as usize) < PROGRAM_SIZE {
+                let op = &self.ops[at as usize];
+                let (target, count) = op.instruction.flow_target();
+                match op.opcode {
+                    OpCode::JmpC | OpCode::JmpU if target > at => furthest = furthest.max(target),
+                    OpCode::IfC | OpCode::IfU => {
+                        let (_, _, next) = if_ranges(at, target, count);
+                        if next > at {
+                            furthest = furthest.max(next);
+                            at = next;
+                            continue;
+                        }
+                    }
+                    _ => {}
+                }
+                at += 1;
+            }
+            if furthest == end {
+                break;
+            }
+            end = furthest;
+        }
+        self.maskable((pc + 1, end), 0, &[destination]).then_some(end)
     }
 }
 

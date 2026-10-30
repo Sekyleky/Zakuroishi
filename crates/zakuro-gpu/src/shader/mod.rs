@@ -1410,15 +1410,36 @@ mod tests {
         }
     }
 
-    /// ifs nested in ifs, on conditions and on booleans, and a call, whose
-    /// vertices part ways at every one, come out the same compiled as one
-    /// vertex at a time, without a batch going back.
+    /// ifs nested in ifs, on conditions and on booleans, jumps ahead and
+    /// ifs and elses made of jumps, and a call, whose vertices part ways at
+    /// every one, come out the same compiled as one vertex at a time,
+    /// without a batch going back.
     #[test]
     fn parted_branches_shade_like_the_interpreter() {
         fn block(random: &mut Random, program: &mut Vec<u32>, depth: u32) {
             let arithmetic = [0x00, 0x01, 0x02, 0x03, 0x08, 0x0B, 0x0C, 0x0D, 0x0E, 0x12, 0x13];
             for _ in 0..1 + random.below(3) {
-                match random.below(if depth < 3 { 5 } else { 3 }) {
+                match random.below(if depth < 3 { 7 } else { 3 }) {
+                    5 | 6 => {
+                        // a jump ahead over a block, or over the block that
+                        // is an else, the one before it, the then, ending in
+                        // a jump on a boolean over it
+                        let at = program.len();
+                        program.push(0);
+                        block(random, program, depth + 1);
+                        let lands = match random.below(2) {
+                            0 => program.len() as u32,
+                            _ => {
+                                let jump = program.len();
+                                program.push(0);
+                                let otherwise = program.len() as u32;
+                                block(random, program, depth + 1);
+                                program[jump] = (0x2D << 26) | (random.below(16) << 22) | ((program.len() as u32) << 10) | random.below(2);
+                                otherwise
+                            }
+                        };
+                        program[at] = (0x2C << 26) | (random.below(4) << 24) | (random.below(4) << 22) | (lands << 10);
+                    }
                     0 | 1 => {
                         let op = arithmetic[random.below(arithmetic.len() as u32) as usize];
                         let (destination, wide, narrow) = (random.below(32), random.below(0x80), random.below(0x20));
