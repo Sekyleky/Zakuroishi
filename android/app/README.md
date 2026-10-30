@@ -1,5 +1,12 @@
 # Android app interface
 
+The library supports search, display names, a separate per-game settings dialog,
+system light/dark colors, font scaling and controller focus. See
+[frontend behavior](../../docs/frontend.md). New imports store a bounded
+`display-name.txt` next to the immutable import. Existing imports still work and
+can be renamed. Import progress reports bytes and completed files; activation
+reads and commits share one lock without blocking on the bulk copy.
+
 Package: `io.github.zakuro.android`. Launcher: `.Launcher`. Native activity: `.Game`,
 non-exported in `:game`, loading `libzakuro_android.so`. Android 11/API 30 minimum.
 Package only `arm64-v8a` native libraries; the launcher also rejects non-ARM64 devices.

@@ -1,5 +1,9 @@
 # Android test APK
 
+The frontend update is version 0.1.1 (version code 2). Its current artifact,
+interface changes and frontend test scope are recorded in [frontend.md](frontend.md).
+The earlier 0.1.0 validation record below remains the native runtime baseline.
+
 The standalone app is `io.github.zakuro.android`, launcher `.Launcher`, with
 NativeActivity `io.github.zakuro.android.Game`. The native crate is
 `crates/zakuro-android`, Cargo package `zakuro-android`, cdylib

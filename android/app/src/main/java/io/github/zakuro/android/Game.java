@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
+import android.view.KeyEvent;
+import android.content.DialogInterface;
 
 /** Lifecycle and controller events remain owned by NativeActivity and the runtime. */
 public final class Game extends NativeActivity {
@@ -31,7 +33,13 @@ public final class Game extends NativeActivity {
                     .setPositiveButton("Return to library", (dialog, which) -> finish())
                     .create();
             errorDialog.setCanceledOnTouchOutside(false);
+            errorDialog.setOnKeyListener((dialog, code, event) -> {
+                if (code != KeyEvent.KEYCODE_BUTTON_A && code != KeyEvent.KEYCODE_BUTTON_B) return false;
+                if (event.getAction() == KeyEvent.ACTION_UP) finish();
+                return true;
+            });
             errorDialog.show();
+            errorDialog.getButton(DialogInterface.BUTTON_POSITIVE).requestFocus();
         });
     }
     /** Compatibility with the current native report_error call site. */

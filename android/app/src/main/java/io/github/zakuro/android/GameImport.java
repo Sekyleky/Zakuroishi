@@ -10,6 +10,30 @@ import java.util.*;
 
 /** Private immutable imports; only the small active pointer is replaced on commit. */
 final class GameImport {
+    // AtomicFile readers can restore backups or discard an in-flight replacement.
+    private static final Object POINTER_LOCK = new Object();
+    interface Progress { void update(long bytes, int files, String name); }
+
+    /** Counts copied bytes and completed files; callbacks run on the importing thread. */
+    static final class CopyProgress {
+        private final Progress callback;
+        long bytes;
+        int files;
+        private long last;
+        private boolean reported;
+        CopyProgress(Progress callback) { this.callback = callback; }
+        void update(int added, boolean completed, String name) {
+            bytes += added;
+            if (completed) files++;
+            report(System.nanoTime(), name);
+        }
+        void report(long now, String name) {
+            if (callback != null && (!reported || now - last >= 250_000_000L)) {
+                last = now; reported = true;
+                callback.update(bytes, files, GameMetadata.clean(name));
+            }
+        }
+    }
     static File child(File parent, String name) throws IOException {
         if (name == null || name.isEmpty() || name.equals(".") || name.equals("..")
                 || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0)
@@ -23,7 +47,8 @@ final class GameImport {
         if (!f.isDirectory() && !f.mkdirs()) throw new IOException("Cannot create " + f.getName());
     }
     private static void copy(ContentResolver resolver, Uri tree, String id, File out,
-                             Set<String> ancestors, int depth, int[] count, boolean assets) throws Exception {
+                             Set<String> ancestors, int depth, int[] count, boolean assets,
+                             CopyProgress progress) throws Exception {
         if (depth > 64 || !ancestors.add(id)) throw new IOException("Folder nesting or cycle limit");
         Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, id);
         String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -40,7 +65,7 @@ final class GameImport {
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2))) {
                     mkdir(dest);
                     copy(resolver, tree, document, dest, ancestors, depth + 1, count,
-                            assets || name.equalsIgnoreCase("textures") || name.equalsIgnoreCase("sysdata"));
+                            assets || name.equalsIgnoreCase("textures") || name.equalsIgnoreCase("sysdata"), progress);
                 } else {
                     if (!wanted(name, assets)) continue;
                     Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, document);
@@ -49,8 +74,12 @@ final class GameImport {
                         if (in == null) throw new IOException("Cannot open " + name);
                         byte[] buffer = new byte[65536];
                         int n;
-                        while ((n = in.read(buffer)) != -1) stream.write(buffer, 0, n);
+                        while ((n = in.read(buffer)) != -1) {
+                            stream.write(buffer, 0, n);
+                            progress.update(n, false, name);
+                        }
                         stream.getFD().sync();
+                        progress.update(0, true, name);
                     }
                 }
             }
@@ -116,18 +145,29 @@ final class GameImport {
         }
     }
     static String install(android.content.Context context, Uri tree) throws Exception {
+        return install(context, tree, null);
+    }
+    private static String folderName(ContentResolver resolver, Uri tree) {
+        Uri document = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
+        try (Cursor cursor = resolver.query(document,
+                new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            return cursor != null && cursor.moveToFirst() ? cursor.getString(0) : "";
+        } catch (Exception ignored) { return ""; }
+    }
+    static String install(android.content.Context context, Uri tree, Progress progress) throws Exception {
         File imports = new File(context.getFilesDir(), "imports"); mkdir(imports);
         File stage = new File(imports, UUID.randomUUID().toString()); mkdir(stage);
         boolean committed = false;
         try {
             File payload = new File(stage, "game"); mkdir(payload);
             copy(context.getContentResolver(), tree, DocumentsContract.getTreeDocumentId(tree), payload,
-                    new HashSet<>(), 0, new int[1], false);
+                    new HashSet<>(), 0, new int[1], false, new CopyProgress(progress));
             List<File> roms = new ArrayList<>(), code = new ArrayList<>(), textures = new ArrayList<>();
             find(payload, roms, code, textures);
             if (roms.size() != 1 || code.size() != 1 || textures.size() > 1)
                 throw new IOException("Select one built game: one original ROM, one ARM64 title.so, at most one textures folder");
             File rom = roms.get(0); String id = title(rom);
+            GameMetadata.store(stage, GameMetadata.choose(rom, folderName(context.getContentResolver(), tree), id));
             File normalized = new File(payload, "game.3ds");
             if (!rom.equals(normalized) && (normalized.exists() || !rom.renameTo(normalized)))
                 throw new IOException("Cannot normalize ROM path");
@@ -145,12 +185,14 @@ final class GameImport {
             }
             // AtomicFile keeps the previous complete import active if commit is interrupted.
             android.util.AtomicFile pointer = new android.util.AtomicFile(new File(imports, id + ".active"));
-            FileOutputStream stream = null;
-            try {
-                stream = pointer.startWrite();
-                stream.write(stage.getName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                pointer.finishWrite(stream);
-            } catch (Exception e) { if (stream != null) pointer.failWrite(stream); throw e; }
+            synchronized (POINTER_LOCK) {
+                FileOutputStream stream = null;
+                try {
+                    stream = pointer.startWrite();
+                    stream.write(stage.getName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    pointer.finishWrite(stream);
+                } catch (Exception e) { if (stream != null) pointer.failWrite(stream); throw e; }
+            }
             committed = true;
             return id;
         } finally { if (!committed) remove(stage); }
@@ -165,15 +207,18 @@ final class GameImport {
     static File active(android.content.Context context, String id) throws IOException {
         File imports = new File(context.getFilesDir(), "imports");
         android.util.AtomicFile pointer = new android.util.AtomicFile(new File(imports, id + ".active"));
-        try (InputStream in = pointer.openRead()) {
-            byte[] bytes = new byte[128]; int n = in.read(bytes);
-            if (n < 1 || in.read() != -1) throw new IOException("Invalid import pointer");
-            String name = new String(bytes, 0, n, java.nio.charset.StandardCharsets.UTF_8);
-            if (!name.matches("[0-9a-f-]{36}")) throw new IOException("Invalid import pointer");
-            File version = child(imports, name);
-            if (!new File(version, "game/game.3ds").isFile() || !arm64(new File(version, "code/title.so")))
-                throw new IOException("Imported files are missing; import this game again");
-            return version;
+        String name;
+        synchronized (POINTER_LOCK) {
+            try (InputStream in = pointer.openRead()) {
+                byte[] bytes = new byte[128]; int n = in.read(bytes);
+                if (n < 1 || in.read() != -1) throw new IOException("Invalid import pointer");
+                name = new String(bytes, 0, n, java.nio.charset.StandardCharsets.UTF_8);
+            }
         }
+        if (!name.matches("[0-9a-f-]{36}")) throw new IOException("Invalid import pointer");
+        File version = child(imports, name);
+        if (!new File(version, "game/game.3ds").isFile() || !arm64(new File(version, "code/title.so")))
+            throw new IOException("Imported files are missing; import this game again");
+        return version;
     }
 }
