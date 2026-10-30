@@ -1615,6 +1615,30 @@ mod tests {
         assert!(same(&outputs, &one_by_one(&unit, &inputs)));
     }
 
+    /// zero times infinity is zero compiled as in the interpreter, without
+    /// the batch going back.
+    #[test]
+    fn zero_times_infinity_stays_compiled() {
+        // mul o0, c0, v0, then dp4 o1, c0, v0
+        let mul = (0x08 << 26) | (0x20 << 12);
+        let dp4 = (0x02 << 26) | (0x01 << 21) | (0x20 << 12);
+        let mut unit = unit_with(&[mul, dp4, 0x22 << 26], &[IDENTITY]);
+        unit.float_uniforms[0] = [f32::INFINITY, 0.0, f32::NEG_INFINITY, 2.0];
+        unit.prepare();
+        let inputs: Vec<[Vec4; INPUT_REGISTERS]> = (0..8)
+            .map(|i| {
+                let mut input = [ZERO; INPUT_REGISTERS];
+                input[0] = [0.0, f32::INFINITY, -0.0, i as f32];
+                input
+            })
+            .collect();
+        let outputs = run_vertices(&unit, &inputs);
+        assert!(same(&outputs, &one_by_one(&unit, &inputs)));
+        assert_eq!(outputs[3][0], [0.0, 0.0, 0.0, 6.0]);
+        #[cfg(feature = "jit")]
+        assert_eq!(jit::compiled(&unit, unit.decoded.as_ref().expect("prepared")).expect("compiled").returned(), 0);
+    }
+
     /// a loop adds up the uniforms its counter walks over.
     #[test]
     fn a_loop_walks_uniforms_the_same_way() {

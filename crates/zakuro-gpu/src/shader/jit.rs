@@ -232,14 +232,11 @@ impl Compiled {
     fn run(&self, context: &mut Context) -> bool {
         // SAFETY: the function was compiled for a context laid out like this
         // one, which outlives the call
-        match unsafe { (self.function)(context) } {
-            0 => true,
-            1 => {
-                self.parted.fetch_add(1, Ordering::Relaxed);
-                false
-            }
-            _ => false,
+        let ran = unsafe { (self.function)(context) } == 0;
+        if !ran {
+            self.parted.fetch_add(1, Ordering::Relaxed);
         }
+        ran
     }
 
     /// how many batches it gave back where their lanes parted ways, for the
@@ -247,6 +244,12 @@ impl Compiled {
     #[cfg(test)]
     pub(super) fn parted(&self) -> u32 {
         self.parted.load(Ordering::Relaxed)
+    }
+
+    /// how many batches it gave back for any reason, for the tests.
+    #[cfg(test)]
+    pub(super) fn returned(&self) -> u32 {
+        self.returned.load(Ordering::Relaxed)
     }
 
     /// counts batches run and given back, giving up once a quarter of them
@@ -613,11 +616,6 @@ struct Compiler<'a, 'b, 'c> {
     checks: Vec<(Block, Block)>,
     /// gives the batch back, where its lanes parted ways.
     give_back: Block,
-    /// gives the batch back, where a lane came out NaN, which the shader's
-    /// multiply may have made zero, the interpreter's arithmetic works it
-    /// out. it is rare, a hundredth of the batches of Ocarina of Time 3D at
-    /// most, and the code without the careful way kept in it goes faster.
-    give_back_nan: Block,
     /// the lanes the code being compiled runs for, all of them when none,
     /// the others keeping what they had, inside a branch the vertices
     /// parted at.
@@ -630,7 +628,6 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         let start = builder.create_block();
         builder.append_block_params_for_function_params(start);
         let give_back = builder.create_block();
-        let give_back_nan = builder.create_block();
         builder.switch_to_block(start);
         let context = builder.block_params(start)[0];
         let uniforms = builder.ins().load(types::I64, constant(), context, offset_of!(Context, uniforms) as i32);
@@ -674,7 +671,6 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
             pending: Vec::new(),
             checks: Vec::new(),
             give_back,
-            give_back_nan,
             mask: None,
         };
         let first = compiler.edge(entry, Vec::new());
@@ -694,9 +690,6 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         }
         compiler.builder.switch_to_block(give_back);
         let returned = compiler.builder.ins().iconst(types::I32, 1);
-        compiler.builder.ins().return_(&[returned]);
-        compiler.builder.switch_to_block(give_back_nan);
-        let returned = compiler.builder.ins().iconst(types::I32, 2);
         compiler.builder.ins().return_(&[returned]);
         Some(())
     }
@@ -1066,47 +1059,33 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         }
     }
 
-    /// whether any lane of any of the values is NaN.
-    fn any_nan(&mut self, values: &[Value]) -> Value {
-        let masks: Vec<Value> = values.iter().map(|&value| self.builder.ins().fcmp(FloatCC::Unordered, value, value)).collect();
-        let mask = masks.into_iter().reduce(|a, b| self.builder.ins().bor(a, b)).expect("a value");
-        self.builder.ins().vany_true(mask)
-    }
-
-    /// carries on with the components of an instruction's value worked out
-    /// the quick way, the batch going back where a lane of the ones written
-    /// is NaN.
-    fn checked(&mut self, op: &Op, quick: Vec<Value>) -> Vec<Value> {
-        // a dot product writes the one value it has to every component
-        let written: Vec<Value> = if quick.len() == 1 {
-            quick.clone()
-        } else {
-            quick.iter().enumerate().filter(|(component, _)| op.mask & (0b1000 >> component) != 0).map(|(_, &value)| value).collect()
-        };
-        if written.is_empty() {
-            return quick;
-        }
-        let nan = self.any_nan(&written);
-        let on = self.builder.create_block();
-        self.builder.ins().brif(nan, self.give_back_nan, &[], on, &[]);
-        self.builder.switch_to_block(on);
-        quick
+    /// the shader's multiply, zero rather than NaN for zero times infinity,
+    /// a NaN product of two numbers zeroed in each lane the way the
+    /// interpreter's is, without a branch.
+    fn multiply(&mut self, a: Value, b: Value) -> Value {
+        let product = self.builder.ins().fmul(a, b);
+        let nan = self.builder.ins().fcmp(FloatCC::Unordered, product, product);
+        let numbers = self.builder.ins().fcmp(FloatCC::Ordered, a, b);
+        let zeroed = self.builder.ins().band(nan, numbers);
+        let zeroed = self.floats(zeroed);
+        let zero = self.splat(0.0);
+        self.builder.ins().bitselect(zeroed, zero, product)
     }
 
     /// a dot product of an instruction's two sources over the first count
     /// components, which adds up exactly the way the interpreter's does, its
     /// fourth source's w added after for dph.
-    fn dot(&mut self, op: &Op, a: &[Value; 4], b: &[Value; 4], count: usize, w: bool) -> Value {
+    fn dot(&mut self, a: &[Value; 4], b: &[Value; 4], count: usize, w: bool) -> Value {
         let start = std::iter::empty::<f32>().sum::<f32>();
         let mut sum = self.splat(start);
         for component in 0..count {
-            let product = self.builder.ins().fmul(a[component], b[component]);
+            let product = self.multiply(a[component], b[component]);
             sum = self.builder.ins().fadd(sum, product);
         }
         if w {
             sum = self.builder.ins().fadd(sum, b[3]);
         }
-        self.checked(op, vec![sum])[0]
+        sum
     }
 
     /// floats through a helper, the rows in scratch and back.
@@ -1140,21 +1119,13 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         };
         let result: [Value; 4] = match op.opcode {
             OpCode::Add => pairs(self, |c, x, y| c.builder.ins().fadd(x, y)),
-            OpCode::Mul => {
-                let quick: Vec<Value> = (0..4).map(|component| self.builder.ins().fmul(a[component], b[component])).collect();
-                let fixed = self.checked(op, quick);
-                std::array::from_fn(|component| fixed[component])
-            }
+            OpCode::Mul => pairs(self, |c, x, y| c.multiply(x, y)),
             OpCode::Mad | OpCode::MadI => {
                 let c = values[2];
-                let quick: Vec<Value> = (0..4)
-                    .map(|component| {
-                        let product = self.builder.ins().fmul(a[component], b[component]);
-                        self.builder.ins().fadd(product, c[component])
-                    })
-                    .collect();
-                let fixed = self.checked(op, quick);
-                std::array::from_fn(|component| fixed[component])
+                std::array::from_fn(|component| {
+                    let product = self.multiply(a[component], b[component]);
+                    self.builder.ins().fadd(product, c[component])
+                })
             }
             // x when it is greater, else y, which is how NaN behaves on hardware
             OpCode::Max => pairs(self, |c, x, y| {
@@ -1167,9 +1138,9 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
                 let less = c.floats(less);
                 c.builder.ins().bitselect(less, x, y)
             }),
-            OpCode::Dp3 => [self.dot(op, &a, &b, 3, false); 4],
-            OpCode::Dp4 => [self.dot(op, &a, &b, 4, false); 4],
-            OpCode::Dph | OpCode::DphI => [self.dot(op, &a, &b, 3, true); 4],
+            OpCode::Dp3 => [self.dot(&a, &b, 3, false); 4],
+            OpCode::Dp4 => [self.dot(&a, &b, 4, false); 4],
+            OpCode::Dph | OpCode::DphI => [self.dot(&a, &b, 3, true); 4],
             OpCode::Mov => a,
             OpCode::Flr => {
                 let floored = self.helped(self.helpers.floor, &a);
@@ -1196,9 +1167,8 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
             }),
             OpCode::Dst | OpCode::DstI => {
                 let one = self.splat(1.0);
-                let product = self.builder.ins().fmul(a[1], b[1]);
-                let checked = self.checked(op, vec![one, product, a[2], b[3]]);
-                [checked[0], checked[1], checked[2], checked[3]]
+                let product = self.multiply(a[1], b[1]);
+                [one, product, a[2], b[3]]
             }
             OpCode::LitP => {
                 let zero = self.splat(0.0);
