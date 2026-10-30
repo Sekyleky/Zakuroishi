@@ -3228,8 +3228,11 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
     #[cfg(feature = "vulkan")]
     if let Some(hardware) = resources.hardware.as_mut() {
         for (unit, drawn) in drawn.iter_mut().enumerate() {
+            // one memory holds as drawn is still the GPU's to copy, unless
+            // the unit reads smaller sizes after it, which memory has
+            let one_size = |texture: &DrawnTexture| level_count(registers, TEXTURE_UNIT_BASES[unit], texture.width, texture.height) == 1;
             *drawn = drawn_texture(registers, memory, unit)
-                .filter(|texture| hardware.holds(texture) || hardware.holds_unchanged(memory, texture));
+                .filter(|texture| hardware.holds(texture) || (one_size(texture) && hardware.holds_unchanged(memory, texture)));
             if let Some(texture) = drawn {
                 past[unit] = !hardware.covers(texture);
                 continue;
@@ -4654,6 +4657,53 @@ mod tests {
         ColorFormat::Rgba8.encode([0, 255, 0, 255], &mut green);
         memory.write(COLOR, &green);
         assert!(!hardware.holds_unchanged(&mut memory, &texture), "the CPU wrote over it");
+    }
+
+    /// a buffer written back and unchanged since that a unit reads with
+    /// smaller sizes after it comes from memory, which has them, not from
+    /// the GPU's copy of the one size: drawn at half its size, it shows the
+    /// half size memory holds.
+    #[cfg(feature = "vulkan")]
+    #[test]
+    fn a_buffer_written_back_read_with_smaller_sizes_comes_from_memory() {
+        let Ok(hardware) = hardware::Hardware::new() else { return };
+        const BUFFER: u32 = 0x10000;
+        let mut drawing = target_registers();
+        sized(&mut drawing, 16, 16);
+        drawing[REG_COLOR_BUFFER_ADDRESS] = BUFFER >> 3;
+        let mut memory = ConsoleMemory::default();
+        let mut resources = Resources { hardware: Some(hardware), ..Default::default() };
+        rasterize_shaded(&drawing, &mut memory, &mut resources, &cover(-0.5, RED));
+        resources.hardware.as_mut().unwrap().sync(&mut memory, BUFFER, 16 * 16 * 4).unwrap();
+        // the half size after it, green
+        let mut green = [0u8; 4];
+        ColorFormat::Rgba8.encode([0, 255, 0, 255], &mut green);
+        memory.write(BUFFER + 16 * 16 * 4, &green.repeat(8 * 8));
+
+        // the 8x8 target, the buffer across it once with both sizes
+        let mut sampling = target_registers();
+        sampling[REG_TEXTURE_CONFIG] = 1;
+        sampling[REG_TEXTURE0_DIMENSIONS] = 16 | (16 << 16);
+        sampling[REG_TEXTURE0_ADDRESS] = BUFFER >> 3;
+        sampling[REG_TEXTURE0_LOD] = 1 << 16;
+        sampling[0x0C0] = 0x3 | (0x3 << 16);
+        for stage in [0x0C8, 0x0D0, 0x0D8, 0x0F0, 0x0F8] {
+            sampling[stage] = 0xF | (0xF << 16);
+        }
+        let quad: Vec<Vertex> = [[-1.0, -1.0, 0.0, 0.0], [3.0, -1.0, 2.0, 0.0], [-1.0, 3.0, 0.0, 2.0]]
+            .into_iter()
+            .map(|[x, y, u, v]| Vertex {
+                clip: [x, y, -0.5, 1.0],
+                color: [1.0; 4],
+                texcoords: [[u, v], [0.0; 2], [0.0; 2]],
+                quaternion: [0.0, 0.0, 0.0, 1.0],
+                view: [0.0; 3],
+                texcoord0_w: 1.0,
+            })
+            .collect();
+        rasterize_shaded(&sampling, &mut memory, &mut resources, &quad);
+        resources.hardware.as_mut().unwrap().flush(&mut memory).unwrap();
+        assert!(pixels(&mut memory).iter().all(|&p| p == [0, 255, 0, 255]), "{:?}", pixels(&mut memory)[0]);
     }
 
     /// a narrower buffer drawn over rows a fill left of a wider one does not
