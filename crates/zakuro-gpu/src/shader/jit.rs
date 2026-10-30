@@ -3,9 +3,11 @@
 //! of lanes per component the way batch keeps eight, and computes exactly
 //! what the interpreter computes, operation for operation. the flow of the
 //! program is followed ahead of time: each instruction is compiled once for
-//! every way of being in the calls, ifs and loops it is reached in. where
-//! the vertices of a batch would go different ways at a branch, it gives
-//! the batch back, and batch shades it, following each way.
+//! every way of being in the calls, ifs and loops it is reached in, every
+//! such state found first, with the ways into each, and then compiled, a
+//! run of states nothing else leads into making up one block. where the
+//! vertices of a batch would go different ways at a branch, it gives the
+//! batch back, and batch shades it, following each way.
 
 use std::collections::HashMap;
 use std::mem::offset_of;
@@ -495,6 +497,204 @@ struct Frame {
 /// where the program is, an instruction and the frames it is in.
 type State = (u32, Vec<Frame>);
 
+/// what compiling a state does, and the states it goes on to by their
+/// number in the graph.
+#[derive(Clone, Copy)]
+enum Step {
+    /// the program ends.
+    Finish,
+    /// blocks ending there are left, without running anything.
+    Leave(usize),
+    /// an iteration of a loop ends, aL steps, and it goes again or on.
+    Iterate { integer: u32, level: usize, again: usize, done: usize },
+    /// an instruction that goes on to one state, a loop it starts at depth
+    /// included, or a call or break, which always go.
+    Run { pc: u32, depth: usize, next: usize },
+    /// a branch on a boolean uniform, taken or not.
+    Uniform { pc: u32, taken: usize, other: usize },
+    /// a branch on the conditions, taken or not, and the ranges the lanes
+    /// going each way run under masks where they part, then on together.
+    Conditional { pc: u32, taken: usize, other: usize, parted: Option<([(u32, u32); 2], usize)> },
+}
+
+impl Step {
+    /// the states it goes on to.
+    fn onward(&self) -> impl Iterator<Item = usize> {
+        let (first, second, third) = match *self {
+            Step::Finish => (None, None, None),
+            Step::Leave(next) | Step::Run { next, .. } => (Some(next), None, None),
+            Step::Iterate { again, done, .. } => (Some(again), Some(done), None),
+            Step::Uniform { taken, other, .. } => (Some(taken), Some(other), None),
+            Step::Conditional { taken, other, parted, .. } => (Some(taken), Some(other), parted.map(|(_, next)| next)),
+        };
+        first.into_iter().chain(second).chain(third)
+    }
+}
+
+/// every state a program reaches from an entry point, found before any is
+/// compiled, so that a state nothing else leads into is compiled in the
+/// block of the one before it, and a block is sealed once everything that
+/// goes into it is there.
+struct Graph {
+    steps: Vec<Step>,
+    /// how many jumps and branches go into each state, the first one's
+    /// from the function's start counted, and whether any is a branch.
+    into: Vec<u32>,
+    branched: Vec<bool>,
+    /// the states each ahead of those it leads to, but by going back.
+    order: Vec<usize>,
+}
+
+impl Graph {
+    /// the states from the entry point on, none when there are too many or
+    /// they go too deep.
+    fn explore(program: &Program, entry: u32) -> Option<Graph> {
+        let first: State = (entry, Vec::new());
+        let mut index = HashMap::from([(first.clone(), 0)]);
+        let mut states = vec![first];
+        let mut steps = vec![None];
+        let (mut into, mut branched) = (vec![1], vec![false]);
+        let mut unplanned = vec![0];
+        while let Some(at) = unplanned.pop() {
+            let state = states[at].clone();
+            let mut reach = |state: State, branch: bool| -> Option<usize> {
+                let found = match index.get(&state) {
+                    Some(&found) => found,
+                    None => {
+                        if states.len() > MOST_STATES {
+                            return None;
+                        }
+                        let found = states.len();
+                        index.insert(state.clone(), found);
+                        states.push(state);
+                        steps.push(None);
+                        into.push(0);
+                        branched.push(false);
+                        unplanned.push(found);
+                        found
+                    }
+                };
+                into[found] += 1;
+                branched[found] |= branch;
+                Some(found)
+            };
+            let step = plan(program, &state, &mut reach)?;
+            steps[at] = Some(step);
+        }
+        let steps: Vec<Step> = steps.into_iter().map(|step| step.expect("every state planned")).collect();
+        // depth first, each state after all it leads to, then the other way
+        let mut seen = vec![false; steps.len()];
+        let mut order = Vec::with_capacity(steps.len());
+        let mut walk = vec![(0, steps[0].onward())];
+        seen[0] = true;
+        while let Some((at, onward)) = walk.last_mut() {
+            match onward.find(|&next| !seen[next]) {
+                Some(next) => {
+                    seen[next] = true;
+                    walk.push((next, steps[next].onward()));
+                }
+                None => {
+                    order.push(*at);
+                    walk.pop();
+                }
+            }
+        }
+        order.reverse();
+        Some(Graph { steps, into, branched, order })
+    }
+}
+
+/// what a state does, the states it goes on to found or added by reach,
+/// with whether it branches to them. none where it goes too deep.
+fn plan(program: &Program, (pc, frames): &State, reach: &mut impl FnMut(State, bool) -> Option<usize>) -> Option<Step> {
+    let (mut pc, mut frames) = (*pc, frames.clone());
+    let depth = frames.len();
+    // the blocks ending there, as the interpreter leaves them
+    while let Some(top) = frames.last().copied() {
+        if pc != top.end {
+            break;
+        }
+        if let Some(integer) = top.integer {
+            let level = frames.len() - 1;
+            let again = reach((top.start, frames.clone()), false)?;
+            frames.pop();
+            let done = reach((top.return_address, frames), true)?;
+            return Some(Step::Iterate { integer, level, again, done });
+        }
+        pc = top.return_address;
+        frames.pop();
+    }
+    if frames.len() != depth {
+        return Some(Step::Leave(reach((pc, frames), false)?));
+    }
+    if pc as usize >= PROGRAM_SIZE {
+        return Some(Step::Finish);
+    }
+    let op = &program.ops[pc as usize];
+    let next = pc + 1;
+    match op.opcode {
+        OpCode::End => Some(Step::Finish),
+        OpCode::Loop => {
+            if depth >= DEEPEST {
+                return None;
+            }
+            let integer = op.instruction.integer_index() & 3;
+            let (last, _) = op.instruction.flow_target();
+            frames.push(Frame { end: last + 1, return_address: last + 1, start: next, integer: Some(integer) });
+            Some(Step::Run { pc, depth, next: reach((next, frames), false)? })
+        }
+        OpCode::Call
+        | OpCode::CallU
+        | OpCode::CallC
+        | OpCode::JmpC
+        | OpCode::JmpU
+        | OpCode::IfC
+        | OpCode::IfU
+        | OpCode::Break
+        | OpCode::BreakC => {
+            let taken = branch(op, pc, true, &frames);
+            if taken.1.len() > DEEPEST {
+                return None;
+            }
+            let other = branch(op, pc, false, &frames);
+            match op.opcode {
+                OpCode::Call | OpCode::Break => Some(Step::Run { pc, depth, next: reach(taken, false)? }),
+                OpCode::CallU | OpCode::IfU | OpCode::JmpU => {
+                    Some(Step::Uniform { pc, taken: reach(taken, true)?, other: reach(other, true)? })
+                }
+                _ => {
+                    let (taken, other) = (reach(taken, true)?, reach(other, true)?);
+                    let parted = match parted(program, op, pc) {
+                        Some((ranges, next)) => Some((ranges, reach((next, frames), false)?)),
+                        None => None,
+                    };
+                    Some(Step::Conditional { pc, taken, other, parted })
+                }
+            }
+        }
+        _ => Some(Step::Run { pc, depth, next: reach((next, frames), false)? }),
+    }
+}
+
+/// where the lanes of a batch part at a conditional branch, an if or a call
+/// that only works out values: the range the lanes going its way run, the
+/// one the others run, and where all of them go on from, as they would have
+/// going each way.
+fn parted(program: &Program, op: &Op, pc: u32) -> Option<([(u32, u32); 2], u32)> {
+    let (destination, count) = op.instruction.flow_target();
+    match op.opcode {
+        OpCode::IfC => {
+            let (then, otherwise, next) = if_ranges(pc, destination, count);
+            (program.plain(then, 0) && program.plain(otherwise, 0)).then_some(([then, otherwise], next))
+        }
+        OpCode::CallC => {
+            let routine = (destination, destination + count);
+            program.plain(routine, 0).then_some(([routine, (pc + 1, pc + 1)], pc + 1))
+        }
+        _ => None,
+    }
+}
+
 /// the helpers compiled code calls.
 struct Helpers {
     floor: FuncRef,
@@ -609,11 +809,21 @@ struct Compiler<'a, 'b, 'c> {
     /// program that can come back to an instruction it ran, see may_loop.
     budget: Variable,
     counted: bool,
-    states: HashMap<State, Block>,
-    pending: Vec<(State, Block)>,
-    /// jumps to a state compiled before, which may close a loop, and so
-    /// look at the budget first.
-    checks: Vec<(Block, Block)>,
+    graph: Graph,
+    /// each state's block, made when something first jumps or branches to
+    /// it, none for a state compiled in the block of the one before.
+    blocks: Vec<Option<Block>>,
+    /// whether each state's code is there.
+    done: Vec<bool>,
+    /// the jumps and branches still to come into each state's block, which
+    /// is sealed once there are none, so that the variables read in it are
+    /// looked up right away rather than all left open to the end.
+    awaited: Vec<u32>,
+    /// the states the jump or branch being made goes to, see to.
+    landing: Vec<usize>,
+    /// jumps back to a state compiled before, which may close a loop, and so
+    /// look at the budget first, the block that looks and the state.
+    checks: Vec<(Block, usize)>,
     /// gives the batch back, where its lanes parted ways.
     give_back: Block,
     /// the lanes the code being compiled runs for, all of them when none,
@@ -624,6 +834,7 @@ struct Compiler<'a, 'b, 'c> {
 
 impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
     fn build(builder: &'a mut FunctionBuilder<'b>, program: &'c Program, entry: u32, helpers: Helpers) -> Option<()> {
+        let graph = Graph::explore(program, entry)?;
         // the first block filled in is the one the function starts at
         let start = builder.create_block();
         builder.append_block_params_for_function_params(start);
@@ -667,26 +878,30 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
             repeats,
             budget,
             counted: program.may_loop(),
-            states: HashMap::new(),
-            pending: Vec::new(),
+            blocks: vec![None; graph.steps.len()],
+            done: vec![false; graph.steps.len()],
+            awaited: graph.into.clone(),
+            landing: Vec::new(),
+            graph,
             checks: Vec::new(),
             give_back,
             mask: None,
         };
-        let first = compiler.edge(entry, Vec::new());
-        compiler.builder.ins().jump(first, &[]);
-        while let Some((state, block)) = compiler.pending.pop() {
-            if compiler.states.len() > MOST_STATES {
-                return None;
+        compiler.builder.seal_block(start);
+        // the first state, in the start's block unless something goes back
+        // to it, then the rest, each with its block ahead of the states it
+        // leads to but by going back
+        compiler.onward(0);
+        compiler.check_budget();
+        for at in 0..compiler.graph.order.len() {
+            let state = compiler.graph.order[at];
+            if compiler.done[state] {
+                continue;
             }
+            let block = compiler.block(state);
             compiler.builder.switch_to_block(block);
-            compiler.state(state)?;
-            while let Some((check, target)) = compiler.checks.pop() {
-                compiler.builder.switch_to_block(check);
-                let budget = compiler.builder.use_var(compiler.budget);
-                let low = compiler.builder.ins().icmp_imm_s(IntCC::SignedLessThan, budget, MOST_STATES as i64);
-                compiler.builder.ins().brif(low, compiler.give_back, &[], target, &[]);
-            }
+            compiler.emit(state);
+            compiler.check_budget();
         }
         compiler.builder.switch_to_block(give_back);
         let returned = compiler.builder.ins().iconst(types::I32, 1);
@@ -703,187 +918,203 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         }
     }
 
-    /// the block a jump to a state goes to, the state's own when it is new,
-    /// one that looks at the budget first when it was there before and the
-    /// budget is kept.
-    fn edge(&mut self, pc: u32, frames: Vec<Frame>) -> Block {
-        let state = (pc, frames);
-        if let Some(&block) = self.states.get(&state) {
-            if !self.counted {
-                return block;
-            }
+    /// fills in the blocks that look at the budget before going back to a
+    /// state, the batch going back once the interpreter would have stopped.
+    fn check_budget(&mut self) {
+        while let Some((check, state)) = self.checks.pop() {
+            self.builder.seal_block(check);
+            self.builder.switch_to_block(check);
+            let budget = self.builder.use_var(self.budget);
+            let low = self.builder.ins().icmp_imm_s(IntCC::SignedLessThan, budget, MOST_STATES as i64);
+            let target = self.block(state);
+            self.landing.push(state);
+            self.builder.ins().brif(low, self.give_back, &[], target, &[]);
+            self.landed();
+        }
+    }
+
+    /// a state's block, made the first time it is asked for.
+    fn block(&mut self, state: usize) -> Block {
+        *self.blocks[state].get_or_insert_with(|| self.builder.create_block())
+    }
+
+    /// the block a jump or branch to a state goes to: the state's own, or,
+    /// going back to one compiled before in a program that keeps the budget,
+    /// one that looks at the budget first. the state is counted in once the
+    /// jump or branch is there, see landed.
+    fn to(&mut self, state: usize) -> Block {
+        if self.counted && self.done[state] {
             let check = self.builder.create_block();
-            self.checks.push((check, block));
+            self.checks.push((check, state));
             return check;
         }
-        let block = self.builder.create_block();
-        self.states.insert(state.clone(), block);
-        self.pending.push((state, block));
-        block
+        self.landing.push(state);
+        self.block(state)
     }
 
-    fn jump(&mut self, pc: u32, frames: Vec<Frame>) {
-        let target = self.edge(pc, frames);
+    /// counts in the jump or branch just made to the states to gave, sealing
+    /// each block nothing more goes into.
+    fn landed(&mut self) {
+        while let Some(state) = self.landing.pop() {
+            self.awaited[state] -= 1;
+            if self.awaited[state] == 0 {
+                let block = self.block(state);
+                self.builder.seal_block(block);
+            }
+        }
+    }
+
+    /// whether a state is compiled where the one jumping to it is, nothing
+    /// else leading into it.
+    fn inline(&self, state: usize) -> bool {
+        self.graph.into[state] == 1 && !self.graph.branched[state]
+    }
+
+    /// goes on to a state with a jump, compiling it right there when nothing
+    /// else leads into it.
+    fn onward(&mut self, state: usize) {
+        if self.inline(state) {
+            self.emit(state);
+            return;
+        }
+        let target = self.to(state);
         self.builder.ins().jump(target, &[]);
+        self.landed();
     }
 
-    /// compiles one state: the blocks ending there as the interpreter leaves
-    /// them, then its instruction.
-    fn state(&mut self, (mut pc, mut frames): State) -> Option<()> {
-        let depth = frames.len();
-        while let Some(top) = frames.last().copied() {
-            if pc != top.end {
-                break;
+    /// compiles a state, and on into the states only it leads to.
+    fn emit(&mut self, mut state: usize) {
+        loop {
+            self.done[state] = true;
+            let next = match self.graph.steps[state] {
+                Step::Finish => {
+                    self.finish();
+                    return;
+                }
+                Step::Leave(next) => next,
+                Step::Iterate { integer, level, again, done } => {
+                    // an iteration of a loop ends, aL steps, and it goes again
+                    // while it has repeats left
+                    let at = offset_of!(Context, ints) as u32 + integer * 4 + 2;
+                    let increment = self.builder.ins().sload8(types::I32, constant(), self.context, at as i32);
+                    let counter = self.builder.use_var(self.loop_counter);
+                    let stepped = self.builder.ins().iadd(counter, increment);
+                    self.builder.def_var(self.loop_counter, stepped);
+                    let repeats = self.builder.use_var(self.repeats[level]);
+                    let more = self.builder.create_block();
+                    let done = self.to(done);
+                    self.builder.ins().brif(repeats, more, &[], done, &[]);
+                    self.landed();
+                    self.builder.seal_block(more);
+                    self.builder.switch_to_block(more);
+                    let fewer = self.builder.ins().iadd_imm_s(repeats, -1);
+                    self.builder.def_var(self.repeats[level], fewer);
+                    again
+                }
+                Step::Run { pc, depth, next } => {
+                    self.spend();
+                    self.instruction(pc, depth);
+                    next
+                }
+                Step::Uniform { pc, taken, other } => {
+                    self.spend();
+                    self.uniform(pc, taken, other);
+                    return;
+                }
+                Step::Conditional { pc, taken, other, parted } => {
+                    self.spend();
+                    match self.conditional(pc, taken, other, parted) {
+                        Some(next) => next,
+                        None => return,
+                    }
+                }
+            };
+            if !self.inline(next) {
+                let target = self.to(next);
+                self.builder.ins().jump(target, &[]);
+                self.landed();
+                return;
             }
-            if let Some(integer) = top.integer {
-                // an iteration of a loop ends, aL steps, and it goes again
-                // while it has repeats left
-                let at = offset_of!(Context, ints) as u32 + integer * 4 + 2;
-                let increment = self.builder.ins().sload8(types::I32, constant(), self.context, at as i32);
-                let counter = self.builder.use_var(self.loop_counter);
-                let stepped = self.builder.ins().iadd(counter, increment);
-                self.builder.def_var(self.loop_counter, stepped);
-                let level = frames.len() - 1;
-                let repeats = self.builder.use_var(self.repeats[level]);
-                let again = self.builder.create_block();
-                let mut left = frames.clone();
-                left.pop();
-                let done = self.edge(top.return_address, left);
-                self.builder.ins().brif(repeats, again, &[], done, &[]);
-                self.builder.switch_to_block(again);
-                let fewer = self.builder.ins().iadd_imm_s(repeats, -1);
-                self.builder.def_var(self.repeats[level], fewer);
-                self.jump(top.start, frames);
-                return Some(());
-            }
-            pc = top.return_address;
-            frames.pop();
+            state = next;
         }
-        if frames.len() != depth {
-            // the state the blocks that ended leave it in, compiled once
-            self.jump(pc, frames);
-            return Some(());
-        }
-        if pc as usize >= PROGRAM_SIZE {
-            self.finish();
-            return Some(());
-        }
-        self.spend();
+    }
 
+    /// an instruction that goes on to the next state.
+    fn instruction(&mut self, pc: u32, depth: usize) {
         let op = self.program.ops[pc as usize];
         let instruction = op.instruction;
-        let next = pc + 1;
         match op.opcode {
-            OpCode::End => self.finish(),
             OpCode::SetEmit => {
                 let slot = self.builder.ins().iconst(types::I32, instruction.emit_vertex().min(2) as i64);
                 let completes = self.builder.ins().iconst(types::I32, instruction.emit_primitive() as i64);
                 self.builder.ins().call(self.helpers.set_emit, &[self.context, slot, completes]);
-                self.jump(next, frames);
             }
             OpCode::Emit => {
                 self.store_outputs();
                 self.builder.ins().call(self.helpers.emit, &[self.context]);
-                self.jump(next, frames);
             }
             OpCode::Loop => {
-                if frames.len() >= DEEPEST {
-                    return None;
-                }
                 let integer = instruction.integer_index() & 3;
                 let at = offset_of!(Context, ints) as u32 + integer * 4;
                 let repeats = self.builder.ins().uload8(types::I32, constant(), self.context, at as i32);
                 let first = self.builder.ins().uload8(types::I32, constant(), self.context, (at + 1) as i32);
                 self.builder.def_var(self.loop_counter, first);
-                self.builder.def_var(self.repeats[frames.len()], repeats);
-                let (last, _) = instruction.flow_target();
-                frames.push(Frame { end: last + 1, return_address: last + 1, start: next, integer: Some(integer) });
-                self.jump(next, frames);
+                self.builder.def_var(self.repeats[depth], repeats);
             }
-            OpCode::Call
-            | OpCode::CallU
-            | OpCode::CallC
-            | OpCode::JmpC
-            | OpCode::JmpU
-            | OpCode::IfC
-            | OpCode::IfU
-            | OpCode::Break
-            | OpCode::BreakC => self.flow(&op, pc, frames)?,
-            OpCode::Nop => self.jump(next, frames),
-            _ => {
-                self.arithmetic(&op);
-                self.jump(next, frames);
-            }
+            // calls and breaks are where they go
+            OpCode::Nop | OpCode::Call | OpCode::Break => {}
+            _ => self.arithmetic(&op),
         }
-        Some(())
     }
 
-    /// a flow instruction, which goes one way or the other, every lane the
-    /// same way or else the batch goes back.
-    fn flow(&mut self, op: &Op, pc: u32, frames: Vec<Frame>) -> Option<()> {
+    /// a branch on a boolean uniform, every lane the same way.
+    fn uniform(&mut self, pc: u32, taken: usize, other: usize) {
+        let op = self.program.ops[pc as usize];
         let instruction = op.instruction;
-        let (taken_pc, taken_frames) = branch(op, pc, true, &frames);
-        let (other_pc, other_frames) = branch(op, pc, false, &frames);
-        if taken_frames.len() > DEEPEST {
+        let bools = self.builder.ins().load(types::I32, constant(), self.context, offset_of!(Context, bools) as i32);
+        let set = self.builder.ins().band_imm_u(bools, 1i64 << instruction.bool_index());
+        // jmpu can test for either value, the low bit of its count inverts it
+        let inverted = op.opcode == OpCode::JmpU && instruction.flow_target().1 & 1 != 0;
+        let (taken, other) = (self.to(taken), self.to(other));
+        if inverted {
+            self.builder.ins().brif(set, other, &[], taken, &[]);
+        } else {
+            self.builder.ins().brif(set, taken, &[], other, &[]);
+        }
+        self.landed();
+    }
+
+    /// a branch on the conditions, every lane the same way, or where they
+    /// part each running its own way under masks, else the batch going
+    /// back. the state they go on to together comes back.
+    fn conditional(&mut self, pc: u32, taken: usize, other: usize, parted: Option<([(u32, u32); 2], usize)>) -> Option<usize> {
+        let lanes = self.condition(self.program.ops[pc as usize].instruction);
+        let all = self.builder.ins().vall_true(lanes);
+        let none_check = self.builder.create_block();
+        let taken = self.to(taken);
+        self.builder.ins().brif(all, taken, &[], none_check, &[]);
+        self.landed();
+        self.builder.seal_block(none_check);
+        self.builder.switch_to_block(none_check);
+        let any = self.builder.ins().vany_true(lanes);
+        let other = self.to(other);
+        let Some(([first, second], next)) = parted else {
+            self.builder.ins().brif(any, self.give_back, &[], other, &[]);
+            self.landed();
             return None;
-        }
-        let bool_set = |compiler: &mut Self| {
-            let bools = compiler.builder.ins().load(types::I32, constant(), compiler.context, offset_of!(Context, bools) as i32);
-            compiler.builder.ins().band_imm_u(bools, 1i64 << instruction.bool_index())
         };
-        match op.opcode {
-            OpCode::Call | OpCode::Break => self.jump(taken_pc, taken_frames),
-            OpCode::CallU | OpCode::IfU | OpCode::JmpU => {
-                let set = bool_set(self);
-                // jmpu can test for either value, the low bit of its count
-                // inverts it
-                let inverted = op.opcode == OpCode::JmpU && instruction.flow_target().1 & 1 != 0;
-                let taken = self.edge(taken_pc, taken_frames);
-                let other = self.edge(other_pc, other_frames);
-                if inverted {
-                    self.builder.ins().brif(set, other, &[], taken, &[]);
-                } else {
-                    self.builder.ins().brif(set, taken, &[], other, &[]);
-                }
-            }
-            _ => {
-                let lanes = self.condition(instruction);
-                let taken = self.edge(taken_pc, taken_frames);
-                let other = self.edge(other_pc, other_frames);
-                let all = self.builder.ins().vall_true(lanes);
-                let none_check = self.builder.create_block();
-                self.builder.ins().brif(all, taken, &[], none_check, &[]);
-                self.builder.switch_to_block(none_check);
-                let any = self.builder.ins().vany_true(lanes);
-                // where the lanes part, an if or a call that only works out
-                // values runs for the lanes going each way, the others
-                // keeping theirs, as they would have going the other way
-                let (destination, count) = instruction.flow_target();
-                let parted = match op.opcode {
-                    OpCode::IfC => {
-                        let (then, otherwise, next) = if_ranges(pc, destination, count);
-                        (self.program.plain(then, 0) && self.program.plain(otherwise, 0)).then_some(([then, otherwise], next))
-                    }
-                    OpCode::CallC => {
-                        let routine = (destination, destination + count);
-                        self.program.plain(routine, 0).then_some(([routine, (pc + 1, pc + 1)], pc + 1))
-                    }
-                    _ => None,
-                };
-                let Some(([first, second], next)) = parted else {
-                    self.builder.ins().brif(any, self.give_back, &[], other, &[]);
-                    return Some(());
-                };
-                let both = self.builder.create_block();
-                self.builder.ins().brif(any, both, &[], other, &[]);
-                self.builder.switch_to_block(both);
-                let rest = self.builder.ins().bnot(lanes);
-                self.predicated(first, lanes);
-                self.predicated(second, rest);
-                self.jump(next, frames);
-            }
-        }
-        Some(())
+        // where the lanes part, an if or a call that only works out values
+        // runs for the lanes going each way, the others keeping theirs, as
+        // they would have going the other way
+        let both = self.builder.create_block();
+        self.builder.ins().brif(any, both, &[], other, &[]);
+        self.landed();
+        self.builder.seal_block(both);
+        self.builder.switch_to_block(both);
+        let rest = self.builder.ins().bnot(lanes);
+        self.predicated(first, lanes);
+        self.predicated(second, rest);
+        Some(next)
     }
 
     /// compiles the instructions of a range Program::plain allows for the
