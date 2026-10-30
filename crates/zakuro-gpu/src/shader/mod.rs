@@ -1756,6 +1756,20 @@ mod tests {
         assert!(same(&run_vertices(&unit, &inputs), &single));
     }
 
+    /// a break outside any loop leaves the call that came to it and goes on
+    /// after itself, before that call, forever, and stops compiled where the
+    /// interpreter stops it.
+    #[test]
+    fn a_break_outside_a_loop_stops_the_same_compiled() {
+        // break, then call 0 for one instruction
+        let mut unit = unit_with(&[0x20 << 26, (0x24 << 26) | 1], &[IDENTITY]);
+        unit.prepare();
+        let inputs = vec![[[1.0; 4]; INPUT_REGISTERS]; 4];
+        let single = one_by_one(&unit, &inputs);
+        assert_compiled(&unit, &inputs, &single);
+        assert!(same(&run_vertices(&unit, &inputs), &single));
+    }
+
     /// a program calling itself goes too deep to compile, and the batches
     /// shade it.
     #[test]

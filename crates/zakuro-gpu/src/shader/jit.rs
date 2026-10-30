@@ -1562,14 +1562,16 @@ const DEEPEST_PARTED: usize = 8;
 
 impl Program {
     /// whether the program can come back to an instruction it ran, by a
-    /// loop, a jump back, or an if whose blocks come back to before it. one
-    /// that can't runs each of its ways of reaching an instruction at most
-    /// once, far fewer instructions than the interpreter stops a program at.
+    /// loop, a jump back, an if whose blocks come back to before it, or a
+    /// break, which out of any loop leaves every block and goes on after
+    /// itself, before the call that may have brought it there. one that
+    /// can't runs each of its ways of reaching an instruction at most once,
+    /// far fewer instructions than the interpreter stops a program at.
     fn may_loop(&self) -> bool {
         self.ops.iter().zip(0u32..).any(|(op, pc)| {
             let (destination, count) = op.instruction.flow_target();
             match op.opcode {
-                OpCode::Loop => true,
+                OpCode::Loop | OpCode::Break | OpCode::BreakC => true,
                 OpCode::JmpC | OpCode::JmpU => destination <= pc,
                 OpCode::IfC | OpCode::IfU => destination + count <= pc,
                 _ => false,
