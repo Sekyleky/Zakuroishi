@@ -101,6 +101,7 @@ impl Keyboard {
             c_stick_y: axis(c_up, c_down),
             touch: self.touch,
             tilt: self.tilt,
+            motion: None,
         }
     }
 }

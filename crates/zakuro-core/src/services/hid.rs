@@ -76,6 +76,16 @@ pub struct InputState {
     /// right of the screen and toward its bottom, the way dragging the mouse
     /// tilts it. the sensors report it, and how fast it changes.
     pub tilt: [f32; 2],
+    /// Calibrated device sensors, in g and degrees/second on the console axes.
+    // Live sensor readings are transient; keep the existing saved-state layout.
+    #[serde(skip)]
+    pub motion: Option<MotionSample>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MotionSample {
+    pub acceleration: [f32; 3],
+    pub angular_velocity: [f32; 3],
 }
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
@@ -319,7 +329,7 @@ pub fn update(system: &mut System, input: InputState) {
 
     // the sensors report the tilt, and how fast it changes, kept track of
     // whether or not they are on. titles that turn one on wait for its event
-    let (gravity, rate) = motion(&mut system.services.hid, input.tilt);
+    let (gravity, rate) = sensor_values(&mut system.services.hid, input);
     let accelerometer = gravity.map(|g| (g * ONE_G).round().clamp(-32768.0, 32767.0) as i16);
     let gyroscope = rate.map(|r| (r * GYROSCOPE_PER_DPS).round().clamp(-32768.0, 32767.0) as i16);
     let hid = &system.services.hid;
@@ -344,6 +354,18 @@ pub fn update(system: &mut System, input: InputState) {
 
 /// a rotation, w then x, y and z.
 pub type Quaternion = [f32; 4];
+
+fn sensor_values(hid: &mut HidState, input: InputState) -> ([f32; 3], [f32; 3]) {
+    if let Some(sample) = input.motion.filter(|sample| {
+        sample.acceleration.iter().chain(&sample.angular_velocity).all(|value| value.is_finite())
+    }) {
+        // Reset the synthetic derivative when switching back to mouse tilt.
+        hid.orientation = None;
+        (sample.acceleration, sample.angular_velocity)
+    } else {
+        motion(hid, input.tilt)
+    }
+}
 
 fn multiply([aw, ax, ay, az]: Quaternion, [bw, bx, by, bz]: Quaternion) -> Quaternion {
     [
@@ -402,6 +424,27 @@ fn motion_sample(system: &mut System, section: u32, which: usize, index: u32, ti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_motion_preserves_yaw_and_invalid_samples_fall_back() {
+        let mut hid = HidState::default();
+        let mut input = InputState {
+            motion: Some(MotionSample { acceleration: [0.0, -1.0, 0.25], angular_velocity: [0.0, 30.0, -10.0] }),
+            ..InputState::default()
+        };
+        assert_eq!(sensor_values(&mut hid, input), ([0.0, -1.0, 0.25], [0.0, 30.0, -10.0]));
+        input.motion.as_mut().unwrap().acceleration[0] = f32::NAN;
+        assert_eq!(sensor_values(&mut hid, input), ([0.0, -1.0, 0.0], [0.0; 3]));
+    }
+
+    #[test]
+    fn saved_inputs_do_not_restore_stale_device_motion() {
+        let input = InputState { motion: Some(MotionSample::default()), ..InputState::default() };
+        let bytes = postcard::to_stdvec(&input).unwrap();
+        assert_eq!(bytes, postcard::to_stdvec(&InputState::default()).unwrap());
+        let restored: InputState = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(restored.motion, None);
+    }
 
     fn close(a: [f32; 3], b: [f32; 3]) -> bool {
         a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3)

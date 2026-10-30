@@ -1,0 +1,20 @@
+[package]
+name = "zakuro-android"
+version = "0.2.30"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "zakuro_android"
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity = { version = "0.6", features = ["native-activity"] }
+jni = "0.21"
+log = "0.4"
+ndk = { version = "0.9", features = ["audio", "rwh_06"] }
+ndk-sys = "0.6"
+raw-window-handle = "0.6"
+zakuro-common = { path = "../zakuro-common" }
+zakuro-core = { path = "../zakuro-core" }
+zakuro-gpu = { path = "../zakuro-gpu", features = ["vulkan"] }

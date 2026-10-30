@@ -1,0 +1,39 @@
+# Standalone Zakuro Android toolchain, adapted from local Pocket Native scripts/android.
+FROM docker.io/library/ubuntu:22.04
+ARG NDK_VERSION=r27c
+# Android 11 minimum native API.
+ARG ANDROID_API=30
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        gcc g++ libc6-dev make cmake ninja-build pkg-config ca-certificates curl unzip zip util-linux openjdk-17-jdk-headless \
+    && rm -rf /var/lib/apt/lists/*
+RUN curl -sSfL "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip" -o /tmp/ndk.zip \
+    && unzip -q /tmp/ndk.zip -d /opt \
+    && mv "/opt/android-ndk-${NDK_VERSION}" /opt/ndk \
+    && rm /tmp/ndk.zip
+# the SDK's build tools and the platform an APK is linked against, for
+# packaging the app without Gradle
+ARG CMDLINE_TOOLS=11076708
+ARG SDK_PLATFORM=35
+ARG BUILD_TOOLS=35.0.0
+RUN curl -sSfL "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS}_latest.zip" -o /tmp/tools.zip \
+    && mkdir -p /opt/sdk/cmdline-tools \
+    && unzip -q /tmp/tools.zip -d /opt/sdk/cmdline-tools \
+    && mv /opt/sdk/cmdline-tools/cmdline-tools /opt/sdk/cmdline-tools/latest \
+    && rm /tmp/tools.zip \
+    && yes | /opt/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/opt/sdk --licenses >/dev/null \
+    && /opt/sdk/cmdline-tools/latest/bin/sdkmanager --sdk_root=/opt/sdk "build-tools;${BUILD_TOOLS}" "platforms;android-${SDK_PLATFORM}" >/dev/null \
+    && chmod -R a+rX /opt/sdk
+ENV ANDROID_HOME=/opt/sdk \
+    BUILD_TOOLS_BIN=/opt/sdk/build-tools/${BUILD_TOOLS} \
+    ANDROID_JAR=/opt/sdk/platforms/android-${SDK_PLATFORM}/android.jar
+ENV RUSTUP_HOME=/opt/rustup PATH=/opt/cargo/bin:$PATH
+RUN curl -sSf https://sh.rustup.rs -o /tmp/rustup.sh \
+    && CARGO_HOME=/opt/cargo sh /tmp/rustup.sh -y --default-toolchain 1.95.0 --profile minimal --component rustfmt,clippy --no-modify-path --target aarch64-linux-android \
+    && chmod -R a+rX /opt/rustup /opt/cargo
+ENV ANDROID_NDK_HOME=/opt/ndk \
+    ANDROID_API=${ANDROID_API} \
+    NDK_BIN=/opt/ndk/toolchains/llvm/prebuilt/linux-x86_64/bin
+ENV CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=${NDK_BIN}/aarch64-linux-android${ANDROID_API}-clang \
+    CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS="-C link-arg=-Wl,-z,max-page-size=16384" \
+    CC_aarch64_linux_android=${NDK_BIN}/aarch64-linux-android${ANDROID_API}-clang \
+    AR_aarch64_linux_android=${NDK_BIN}/llvm-ar

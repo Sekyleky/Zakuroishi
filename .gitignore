@@ -1,4 +1,6 @@
 /target
+/build/
+/build-transform-check.exe
 *.log
 /roms
 /dump

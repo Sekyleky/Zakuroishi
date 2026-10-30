@@ -1,5 +1,17 @@
 # Zakuro
 
+This working copy adds an experimental Android frontend for ARM64 handhelds.
+See [Android build and installation](docs/android.md) and the
+[benchmark procedure](docs/benchmark.md). Source baseline: upstream Zakuro
+v0.2.30, commit `e174910`.
+
+The Android app uses the existing Vulkan renderer, AOT game libraries and runtime
+HD texture replacement. It imports one built game folder and keeps its own saves.
+It does not include games or texture packs. Faster performance than Azahar is a
+benchmark target, not an established result. Android device compatibility is
+still under test. Both 3DS screens currently share the main display; a separate
+window on the Thor's second display is not implemented.
+
 A WIP HLE Nintendo 3DS emulator written in Rust that uses ahead-of-time (AOT) recompilation instead of a JIT.
 
 Bug reports, progress and everything else are on the [Discord server](https://discord.gg/7dduXVv2xm).

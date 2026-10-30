@@ -1,0 +1,2 @@
+*.sh text eol=lf
+android/scripts/Containerfile text eol=lf

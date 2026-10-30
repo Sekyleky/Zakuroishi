@@ -4660,6 +4660,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "zakuro-android"
+version = "0.2.30"
+dependencies = [
+ "android-activity",
+ "jni 0.21.1",
+ "log",
+ "ndk",
+ "ndk-sys",
+ "raw-window-handle",
+ "zakuro-common",
+ "zakuro-core",
+ "zakuro-gpu",
+]
+
+[[package]]
 name = "zakuro-common"
 version = "0.2.30"
 dependencies = [

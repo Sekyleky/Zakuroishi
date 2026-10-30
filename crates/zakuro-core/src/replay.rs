@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
-use crate::services::hid::{InputState, PadState};
+use crate::services::hid::{InputState, MotionSample, PadState};
 
 pub struct Recorder {
     out: BufWriter<File>,
@@ -29,7 +29,7 @@ impl Recorder {
         if self.last != Some(input) {
             let (x, y) = input.touch.map_or((-1, -1), |(x, y)| (x as i32, y as i32));
             let [tilt_x, tilt_y] = input.tilt;
-            let line = format!(
+            let mut line = format!(
                 "{} {:x} {:?} {:?} {x} {y} {tilt_x:?} {tilt_y:?} {:?} {:?}",
                 self.frame,
                 input.buttons.bits(),
@@ -38,6 +38,11 @@ impl Recorder {
                 input.c_stick_x,
                 input.c_stick_y
             );
+            if let Some(sample) = input.motion {
+                for value in sample.acceleration.into_iter().chain(sample.angular_velocity) {
+                    line.push_str(&format!(" {value:?}"));
+                }
+            }
             // written through at once, the run may end in a crash
             if writeln!(self.out, "{line}").and_then(|()| self.out.flush()).is_err() {
                 log::warn!("could not write to the input recording");
@@ -70,10 +75,16 @@ impl Replay {
             let parse = || -> Option<(u64, InputState)> {
                 let (tx, ty): (i32, i32) = (tx.parse().ok()?, ty.parse().ok()?);
                 let pair = |x: &str, y: &str| -> Option<[f32; 2]> { Some([x.parse().ok()?, y.parse().ok()?]) };
-                let (tilt, c_stick) = match rest {
-                    [] => ([0.0; 2], [0.0; 2]),
-                    [x, y] => (pair(x, y)?, [0.0; 2]),
-                    [x, y, cx, cy] => (pair(x, y)?, pair(cx, cy)?),
+                let (tilt, c_stick, motion) = match rest {
+                    [] => ([0.0; 2], [0.0; 2], None),
+                    [x, y] => (pair(x, y)?, [0.0; 2], None),
+                    [x, y, cx, cy] => (pair(x, y)?, pair(cx, cy)?, None),
+                    [x, y, cx, cy, ax, ay, az, gx, gy, gz] => (
+                        pair(x, y)?, pair(cx, cy)?, Some(MotionSample {
+                            acceleration: [ax.parse().ok()?, ay.parse().ok()?, az.parse().ok()?],
+                            angular_velocity: [gx.parse().ok()?, gy.parse().ok()?, gz.parse().ok()?],
+                        }),
+                    ),
                     _ => return None,
                 };
                 Some((
@@ -84,6 +95,7 @@ impl Replay {
                         circle_y: y.parse().ok()?,
                         touch: (tx >= 0).then_some((tx as u16, ty as u16)),
                         tilt,
+                        motion,
                         c_stick_x: c_stick[0],
                         c_stick_y: c_stick[1],
                     },
@@ -126,6 +138,7 @@ mod tests {
             circle_y: -1.0,
             touch: Some((10, 20)),
             tilt: [0.25, -0.5],
+            motion: Some(MotionSample { acceleration: [0.1, -1.0, 0.2], angular_velocity: [5.0, 0.0, -20.0] }),
             c_stick_x: -0.75,
             c_stick_y: 1.0,
         };
