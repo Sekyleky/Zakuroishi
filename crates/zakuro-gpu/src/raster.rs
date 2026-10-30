@@ -3779,6 +3779,7 @@ mod tests {
         let expected = pixels(&mut alone);
         assert!(expected.contains(&[0; 4]) && expected.contains(&[255, 0, 0, 255]));
 
+        #[cfg_attr(not(feature = "vulkan"), allow(unused_mut))]
         let mut renderers = vec![("the CPU", Resources::default())];
         #[cfg(feature = "vulkan")]
         if let Ok(hardware) = hardware::Hardware::new() {
@@ -4001,6 +4002,7 @@ mod tests {
             (1, -154, false, [255, 0, 0, 255]),
             (1, -128, true, [127, 127, 0, 255]),
         ];
+        #[cfg_attr(not(feature = "vulkan"), allow(unused_mut))]
         let mut renderers = vec![("the CPU", Resources::default())];
         #[cfg(feature = "vulkan")]
         if let Ok(hardware) = hardware::Hardware::new() {
