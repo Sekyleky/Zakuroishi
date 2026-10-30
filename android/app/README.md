@@ -12,15 +12,34 @@ non-exported in `:game`, loading `libzakuro_android.so`. Android 11/API 30 minim
 Package only `arm64-v8a` native libraries; the launcher also rejects non-ARM64 devices.
 The manifest requires Vulkan 1.3 (0x00403000); no GLES or optional Vulkan hardware level is required. No signing identity or key is stored here.
 
-Select **one game's built folder**, not an entire multi-game library. SAF traversal
-copies ROMs and title.so plus files inside textures/sysdata with a 64 KiB buffer, rejects unsafe/duplicate names and cycles,
-and limits nesting and document count. The folder must contain exactly one original
+Select **one game's built folder**, not an entire multi-game library. SAF inspection
+first lists document metadata and rejects unsafe/duplicate names, cycles, excessive
+nesting and ambiguous game/asset folders. It then reads bounded source headers and
+checks source sizes/readability and available private storage. No staging directory
+or copied file exists during this preflight. The folder must contain exactly one original
 `.3ds`, `.cci` or `.cxi` ROM and one Android ARM64 ELF shared object named `title.so`;
 x86 title.so variants are ignored. Encrypted ROMs are rejected. An optional single
-`textures` directory can be nested anywhere in the selected folder.
+`textures` directory can be nested anywhere in the selected folder. Its PNG signatures,
+IHDR dimensions and header CRCs are checked before bulk copying; a folder without
+PNG images is rejected. This does not decode every image or checksum the entire ROM.
 An ARM64 Linux build is not interchangeable with an Android build; header checks
 alone cannot establish ABI compatibility. Loading the native library remains the
 runtime's final check.
+
+Only the validated plan is copied: the chosen ROM, ARM64 library, PNGs and `pack.json`
+inside the texture folder, and root `shared_font.bin`/`CFL_Res.dat` in the optional
+sysdata folder. Archives, desktop libraries, unrelated files and directory structure
+are not mirrored. The plan resolves unknown source sizes with seekable descriptors,
+and requires its total byte size plus 16 MiB headroom before staging begins. Use a
+local device/SD-card folder if the provider cannot offer seekable documents.
+
+Destination path lengths are checked before staging. Copies use a 64 KiB buffer
+and check exact planned lengths. The ROM/native headers are rechecked, and captured
+PNG headers are compared before and after copying. Activation requires synced
+pointer data and an exact UUID readback. Copy failures remove the stage; if an
+activation outcome cannot be confirmed, its candidate is retained to avoid deleting
+a possibly active version. Existing versions and saves remain. These format checks
+do not establish native ABI/game compatibility.
 
 The Play intent sends:
 

@@ -1,6 +1,6 @@
 # Android test APK
 
-The frontend update is version 0.1.1 (version code 2). Its current artifact,
+The frontend/import update is version 0.1.2 (version code 3). Its current artifact,
 interface changes and frontend test scope are recorded in [frontend.md](frontend.md).
 The earlier 0.1.0 validation record below remains the native runtime baseline.
 

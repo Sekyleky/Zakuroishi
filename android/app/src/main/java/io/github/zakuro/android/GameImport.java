@@ -3,18 +3,20 @@ package io.github.zakuro.android;
 import android.content.ContentResolver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
+import android.os.StatFs;
 import android.provider.DocumentsContract;
 import android.system.Os;
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
 import java.util.*;
 
-/** Private immutable imports; only the small active pointer is replaced on commit. */
+/** Validate source documents first, then stage only the immutable import plan. */
 final class GameImport {
-    // AtomicFile readers can restore backups or discard an in-flight replacement.
     private static final Object POINTER_LOCK = new Object();
     interface Progress { void update(long bytes, int files, String name); }
-
-    /** Counts copied bytes and completed files; callbacks run on the importing thread. */
     static final class CopyProgress {
         private final Progress callback;
         long bytes;
@@ -35,174 +37,144 @@ final class GameImport {
         }
     }
     static File child(File parent, String name) throws IOException {
-        if (name == null || name.isEmpty() || name.equals(".") || name.equals("..")
-                || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\0') >= 0)
-            throw new IOException("Unsafe document name");
+        ImportPlan.safeName(name);
         File file = new File(parent, name);
         if (!file.getCanonicalFile().getParentFile().equals(parent.getCanonicalFile()))
             throw new IOException("Document escapes import folder");
         return file;
     }
-    static void mkdir(File f) throws IOException {
-        if (!f.isDirectory() && !f.mkdirs()) throw new IOException("Cannot create " + f.getName());
+    static void mkdir(File file) throws IOException {
+        if (!file.isDirectory() && !file.mkdirs()) throw new IOException("Cannot create " + file.getName());
     }
-    private static void copy(ContentResolver resolver, Uri tree, String id, File out,
-                             Set<String> ancestors, int depth, int[] count, boolean assets,
-                             CopyProgress progress) throws Exception {
-        if (depth > 64 || !ancestors.add(id)) throw new IOException("Folder nesting or cycle limit");
-        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, id);
-        String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE};
-        try (Cursor cursor = resolver.query(children, columns, null, null, null)) {
-            if (cursor == null) throw new IOException("Cannot read selected folder");
-            Set<String> names = new HashSet<>();
-            while (cursor.moveToNext()) {
-                if (++count[0] > 200000) throw new IOException("Too many documents");
-                String name = cursor.getString(1);
-                File dest = child(out, name);
-                if (!names.add(name.toLowerCase(Locale.ROOT))) throw new IOException("Duplicate document name");
-                String document = cursor.getString(0);
-                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2))) {
-                    mkdir(dest);
-                    copy(resolver, tree, document, dest, ancestors, depth + 1, count,
-                            assets || name.equalsIgnoreCase("textures") || name.equalsIgnoreCase("sysdata"), progress);
-                } else {
-                    if (!wanted(name, assets)) continue;
-                    Uri uri = DocumentsContract.buildDocumentUriUsingTree(tree, document);
-                    try (InputStream in = resolver.openInputStream(uri);
-                         FileOutputStream stream = new FileOutputStream(dest)) {
-                        if (in == null) throw new IOException("Cannot open " + name);
-                        byte[] buffer = new byte[65536];
-                        int n;
-                        while ((n = in.read(buffer)) != -1) {
-                            stream.write(buffer, 0, n);
-                            progress.update(n, false, name);
-                        }
-                        stream.getFD().sync();
-                        progress.update(0, true, name);
-                    }
+    private static final class DocumentsSource implements ImportPlan.Source {
+        final ContentResolver resolver;
+        final Uri tree;
+        DocumentsSource(ContentResolver resolver, Uri tree) { this.resolver = resolver; this.tree = tree; }
+        public List<ImportPlan.Entry> children(String id) throws IOException {
+            Uri uri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, id);
+            String[] columns = {DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE};
+            List<ImportPlan.Entry> entries = new ArrayList<>();
+            try (Cursor cursor = resolver.query(uri, columns, null, null, null)) {
+                if (cursor == null) throw new IOException("Cannot read selected folder");
+                while (cursor.moveToNext()) {
+                    if (entries.size() >= 200000) throw new IOException("Too many documents");
+                    entries.add(new ImportPlan.Entry(cursor.getString(0), cursor.getString(1),
+                        DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2)), cursor.isNull(3) ? -1 : cursor.getLong(3)));
                 }
             }
-        } finally { ancestors.remove(id); }
-    }
-    static boolean wanted(String name, boolean assets) {
-        String lower = name.toLowerCase(Locale.ROOT);
-        return assets || lower.equals("title.so") || lower.endsWith(".3ds")
-                || lower.endsWith(".cci") || lower.endsWith(".cxi");
-    }
-    private static void find(File dir, List<File> roms, List<File> code, List<File> textures) throws IOException {
-        File[] files = dir.listFiles();
-        if (files == null) throw new IOException("Cannot inspect import");
-        for (File f : files) {
-            if (f.isDirectory()) {
-                if (f.getName().equalsIgnoreCase("textures")) textures.add(f);
-                find(f, roms, code, textures);
-            } else {
-                String name = f.getName().toLowerCase(Locale.ROOT);
-                if (name.endsWith(".3ds") || name.endsWith(".cci") || name.endsWith(".cxi")) roms.add(f);
-                if (name.equals("title.so") && arm64(f)) code.add(f);
+            return entries;
+        }
+        public SeekableByteChannel open(String id) throws IOException {
+            ParcelFileDescriptor descriptor = resolver.openFileDescriptor(DocumentsContract.buildDocumentUriUsingTree(tree, id), "r");
+            if (descriptor == null) throw new IOException("Cannot open source document");
+            ParcelFileDescriptor.AutoCloseInputStream stream = new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+            try {
+                SeekableByteChannel channel = stream.getChannel();
+                channel.position(0);
+                return channel;
+            } catch (IOException e) {
+                stream.close();
+                throw new IOException("Cannot inspect this storage directly. Use a folder on device storage or the SD card.", e);
             }
         }
     }
     static boolean arm64(File file) throws IOException {
-        try (RandomAccessFile in = new RandomAccessFile(file, "r")) {
-            if (in.length() < 64) return false;
-            byte[] h = new byte[64]; in.readFully(h);
-            return h[0] == 127 && h[1] == 'E' && h[2] == 'L' && h[3] == 'F'
-                    && h[4] == 2 && h[5] == 1 && h[16] == 3 && h[17] == 0
-                    && (h[18] & 255) == 183 && h[19] == 0;
-        }
+        try (SeekableByteChannel channel = Files.newByteChannel(file.toPath())) { return ImportPlan.arm64(channel); }
     }
-    static void installSysdata(File payload, File data) throws IOException {
-        List<File> folders = new ArrayList<>();
-        findSysdata(payload, folders);
-        if (folders.size() > 1) throw new IOException("Multiple sysdata folders; select one built game");
-        if (!folders.isEmpty()) java.nio.file.Files.move(folders.get(0).toPath(), new File(data, "sysdata").toPath());
+    static String title(File file) throws IOException {
+        try (SeekableByteChannel channel = Files.newByteChannel(file.toPath())) { return ImportPlan.title(channel); }
     }
-    private static void findSysdata(File dir, List<File> folders) throws IOException {
-        File[] files = dir.listFiles();
-        if (files == null) throw new IOException("Cannot inspect sysdata");
-        for (File file : files) if (file.isDirectory()) {
-            if (file.getName().equalsIgnoreCase("sysdata")) folders.add(file);
-            else if (!file.getName().equalsIgnoreCase("textures")) findSysdata(file, folders);
-        }
-    }
-    static long little(RandomAccessFile f, long offset, int bytes) throws IOException {
-        f.seek(offset); long value = 0;
-        for (int i = 0; i < bytes; i++) value |= (long) f.readUnsignedByte() << (i * 8);
-        return value;
-    }
-    static String title(File rom) throws IOException {
-        try (RandomAccessFile f = new RandomAccessFile(rom, "r")) {
-            long magic = little(f, 0x100, 4);
-            long base = magic == 0x4453434eL ? little(f, 0x120, 4) * 512 : 0;
-            if (base < 0 || base > f.length() - 512 || little(f, base + 0x100, 4) != 0x4843434eL)
-                throw new IOException("Expected an original decrypted NCSD/NCCH ROM");
-            if ((little(f, base + 0x18f, 1) & 4) == 0) throw new IOException("ROM is encrypted; decrypt it before importing");
-            long id = little(f, base + 0x118, 8);
-            if (id == 0) throw new IOException("ROM has no title ID");
-            return String.format(Locale.ROOT, "%016X", id);
-        }
-    }
-    static String install(android.content.Context context, Uri tree) throws Exception {
-        return install(context, tree, null);
-    }
+    static String install(android.content.Context context, Uri tree) throws Exception { return install(context, tree, null); }
     private static String folderName(ContentResolver resolver, Uri tree) {
         Uri document = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-        try (Cursor cursor = resolver.query(document,
-                new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+        try (Cursor cursor = resolver.query(document, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
             return cursor != null && cursor.moveToFirst() ? cursor.getString(0) : "";
         } catch (Exception ignored) { return ""; }
     }
-    static String install(android.content.Context context, Uri tree, Progress progress) throws Exception {
-        File imports = new File(context.getFilesDir(), "imports"); mkdir(imports);
-        File stage = new File(imports, UUID.randomUUID().toString()); mkdir(stage);
-        boolean committed = false;
-        try {
-            File payload = new File(stage, "game"); mkdir(payload);
-            copy(context.getContentResolver(), tree, DocumentsContract.getTreeDocumentId(tree), payload,
-                    new HashSet<>(), 0, new int[1], false, new CopyProgress(progress));
-            List<File> roms = new ArrayList<>(), code = new ArrayList<>(), textures = new ArrayList<>();
-            find(payload, roms, code, textures);
-            if (roms.size() != 1 || code.size() != 1 || textures.size() > 1)
-                throw new IOException("Select one built game: one original ROM, one ARM64 title.so, at most one textures folder");
-            File rom = roms.get(0); String id = title(rom);
-            GameMetadata.store(stage, GameMetadata.choose(rom, folderName(context.getContentResolver(), tree), id));
-            File normalized = new File(payload, "game.3ds");
-            if (!rom.equals(normalized) && (normalized.exists() || !rom.renameTo(normalized)))
-                throw new IOException("Cannot normalize ROM path");
-            File codeDir = new File(stage, "code"); mkdir(codeDir);
-            File executable = new File(codeDir, "title.so");
-            if (!code.get(0).renameTo(executable) || !executable.setReadOnly())
-                throw new IOException("Cannot secure title.so");
-            File data = new File(stage, "data"); mkdir(data);
-            installSysdata(payload, data);
-            File user = new File(context.getFilesDir(), "savedata/" + id + "/user"); mkdir(user);
-            Os.symlink(user.getAbsolutePath(), new File(data, "user").getAbsolutePath());
-            if (!textures.isEmpty()) {
-                File mods = new File(data, "mods/" + id); mkdir(mods);
-                if (!textures.get(0).renameTo(new File(mods, "textures"))) throw new IOException("Cannot install textures");
+    private static void copy(ImportPlan.Source source, ImportPlan plan, File stage, Progress callback) throws IOException {
+        CopyProgress progress = new CopyProgress(callback);
+        ByteBuffer buffer = ByteBuffer.allocate(65536);
+        String root = stage.getCanonicalPath() + File.separator;
+        for (ImportPlan.Item item : plan.files) {
+            File dest = new File(stage, item.destination).getCanonicalFile();
+            if (!dest.getPath().startsWith(root)) throw new IOException("Invalid import destination");
+            try (SeekableByteChannel input = source.open(item.source.id)) {
+                if (input.size() != item.source.size) throw new IOException("Source file changed: " + item.source.name);
+                item.checkHeader(input);
+                if (item.destination.equals("game/game.3ds") && !plan.titleId.equals(ImportPlan.title(input)))
+                    throw new IOException("The game changed after inspection. Try adding it again.");
+                if (item.destination.equals("code/title.so") && !ImportPlan.arm64(input))
+                    throw new IOException("The native library changed after inspection.");
+                input.position(0); mkdir(dest.getParentFile());
+                try (FileOutputStream output = new FileOutputStream(dest)) {
+                    long copied = 0;
+                    for (;;) {
+                        buffer.clear(); int n = input.read(buffer);
+                        if (n < 0) break;
+                        if (n == 0) throw new IOException("Cannot read " + item.source.name);
+                        if (n > item.source.size - copied) throw new IOException("Source file grew: " + item.source.name);
+                        output.write(buffer.array(), 0, n); copied += n;
+                        progress.update(n, false, item.source.name);
+                    }
+                    if (copied != item.source.size || input.size() != item.source.size)
+                        throw new IOException("Source file changed or was truncated: " + item.source.name);
+                    output.getFD().sync(); progress.update(0, true, item.source.name);
+                }
+                try (SeekableByteChannel copied = Files.newByteChannel(dest.toPath())) { item.checkHeader(copied); }
             }
-            // AtomicFile keeps the previous complete import active if commit is interrupted.
-            android.util.AtomicFile pointer = new android.util.AtomicFile(new File(imports, id + ".active"));
+        }
+    }
+    static String install(android.content.Context context, Uri tree, Progress progress) throws Exception {
+        DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
+        ImportPlan plan = ImportPlan.inspect(source, DocumentsContract.getTreeDocumentId(tree));
+        File imports = new File(context.getFilesDir(), "imports");
+        File stage = new File(imports, UUID.randomUUID().toString());
+        plan.checkDestination(stage);
+        long available = new StatFs(context.getFilesDir().getAbsolutePath()).getAvailableBytes();
+        if (plan.bytes > Math.max(0, available - 16L * 1024 * 1024))
+            throw new IOException("Not enough free space for this game and its selected files. No files were copied.");
+        // No staging or save directories are created until all source checks pass.
+        mkdir(imports); Files.createDirectory(stage.toPath());
+        boolean keepStage = false;
+        try {
+            copy(source, plan, stage, progress);
+            File rom = new File(stage, "game/game.3ds"), executable = new File(stage, "code/title.so");
+            if (!plan.titleId.equals(title(rom)) || !arm64(executable)) throw new IOException("The source changed during import");
+            if (!executable.setReadOnly()) throw new IOException("Cannot secure title.so");
+            String name = GameMetadata.romTitle(rom);
+            if (name.isEmpty()) name = GameMetadata.choose(plan.rom.name, folderName(context.getContentResolver(), tree), plan.titleId);
+            GameMetadata.store(stage, name);
+            File data = new File(stage, "data"); mkdir(data);
+            File user = new File(context.getFilesDir(), "savedata/" + plan.titleId + "/user"); mkdir(user);
+            Os.symlink(user.getAbsolutePath(), new File(data, "user").getAbsolutePath());
+            android.util.AtomicFile pointer = new android.util.AtomicFile(new File(imports, plan.titleId + ".active"));
             synchronized (POINTER_LOCK) {
                 FileOutputStream stream = null;
                 try {
                     stream = pointer.startWrite();
-                    stream.write(stage.getName().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    byte[] expected = stage.getName().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    stream.write(expected);
+                    stream.getFD().sync();
+                    // Once activation is attempted, retain its target if the outcome is uncertain.
+                    keepStage = true;
                     pointer.finishWrite(stream);
+                    stream = null;
+                    try (InputStream saved = pointer.openRead()) {
+                        for (byte value : expected) if (saved.read() != (value & 255)) throw new IOException("Could not confirm game activation");
+                        if (saved.read() != -1) throw new IOException("Could not confirm game activation");
+                    }
                 } catch (Exception e) { if (stream != null) pointer.failWrite(stream); throw e; }
             }
-            committed = true;
-            return id;
-        } finally { if (!committed) remove(stage); }
+            return plan.titleId;
+        } finally { if (!keepStage) remove(stage); }
     }
-    static void remove(File f) {
-        // Never follow the user-data symlink during failed import cleanup.
-        if (f.isDirectory() && !java.nio.file.Files.isSymbolicLink(f.toPath())) {
-            File[] files = f.listFiles(); if (files != null) for (File c : files) remove(c);
+    static void remove(File file) {
+        if (file.isDirectory() && !Files.isSymbolicLink(file.toPath())) {
+            File[] files = file.listFiles(); if (files != null) for (File child : files) remove(child);
         }
-        f.delete();
+        file.delete();
     }
     static File active(android.content.Context context, String id) throws IOException {
         File imports = new File(context.getFilesDir(), "imports");

@@ -228,7 +228,7 @@ public final class Launcher extends Activity {
         private final Handler main = new Handler(Looper.getMainLooper());
         @Override public void onCreate(Bundle state) { super.onCreate(state); setRetainInstance(true); }
         void start(Context context, Uri uri) {
-            if (busy) return; busy = true; error = null; message = "Adding game… Keep Zakuro open."; refresh(true);
+            if (busy) return; busy = true; error = null; message = "Checking game folder… No files copied yet."; refresh(true);
             new Thread(() -> {
                 String failure = null;
                 try { GameImport.install(context, uri, (bytes, files, name) -> main.post(() -> {
