@@ -1199,12 +1199,21 @@ mod tests {
         }
     }
 
-    /// the unit's program compiles, as it has to wherever there is a
-    /// compiler.
-    fn assert_compiled(unit: &ShaderUnit) {
+    /// the unit's program compiles at each tier, as it has to wherever there
+    /// is a compiler, and shades the inputs as one vertex at a time does.
+    #[cfg_attr(not(feature = "jit"), allow(unused_variables))]
+    fn assert_compiled(unit: &ShaderUnit, inputs: &[[Vec4; INPUT_REGISTERS]], single: &[[Vec4; OUTPUT_REGISTERS]]) {
         #[cfg(feature = "jit")]
-        if let Err(error) = jit::compile(unit.decoded.as_ref().expect("a prepared unit"), unit.entry_point) {
-            panic!("the program did not compile, {error}");
+        for tier in [jit::Tier::Quick, jit::Tier::Full] {
+            let program = unit.decoded.as_ref().expect("a prepared unit");
+            let compiled = jit::compile(program, unit.entry_point, tier).unwrap_or_else(|error| panic!("the program did not compile, {error}"));
+            let mut outputs = vec![[ZERO; OUTPUT_REGISTERS]; inputs.len()];
+            let uniforms = batch::Uniforms::new(unit);
+            let (mut blocks, mut forks) = (Vec::new(), Vec::new());
+            jit::run_vertices(&compiled, unit, program, inputs, &mut outputs, |inputs, outputs| {
+                batch::run(unit, &uniforms, program, inputs, outputs, &mut blocks, &mut forks)
+            });
+            assert!(same(&outputs, single), "compiled {tier:?}");
         }
     }
 
@@ -1322,7 +1331,7 @@ mod tests {
                 .collect();
             let single = one_by_one(&unit, &inputs);
             assert!(same(&run_vertices(&unit, &inputs), &single), "program {program:08X?}");
-            assert_compiled(&unit);
+            assert_compiled(&unit, &inputs, &single);
             assert!(same(&batched(&unit, &inputs), &single), "program {program:08X?} batched");
         }
     }
@@ -1405,7 +1414,7 @@ mod tests {
                 .collect();
             let single = one_by_one(&unit, &inputs);
             assert!(same(&run_vertices(&unit, &inputs), &single), "program {program:08X?}");
-            assert_compiled(&unit);
+            assert_compiled(&unit, &inputs, &single);
             assert!(same(&batched(&unit, &inputs), &single), "program {program:08X?} batched");
         }
     }
@@ -1742,8 +1751,9 @@ mod tests {
         let mut unit = unit_with(&[0x2C << 26], &[IDENTITY]);
         unit.prepare();
         let inputs = vec![[[1.0; 4]; INPUT_REGISTERS]; 4];
-        assert_compiled(&unit);
-        assert!(same(&run_vertices(&unit, &inputs), &one_by_one(&unit, &inputs)));
+        let single = one_by_one(&unit, &inputs);
+        assert_compiled(&unit, &inputs, &single);
+        assert!(same(&run_vertices(&unit, &inputs), &single));
     }
 
     /// a program calling itself goes too deep to compile, and the batches
@@ -1754,7 +1764,9 @@ mod tests {
         let mut unit = unit_with(&[(0x24 << 26) | 1, 0x22 << 26], &[IDENTITY]);
         unit.prepare();
         #[cfg(feature = "jit")]
-        assert!(jit::compile(unit.decoded.as_ref().expect("prepared"), 0).is_err());
+        for tier in [jit::Tier::Quick, jit::Tier::Full] {
+            assert!(jit::compile(unit.decoded.as_ref().expect("prepared"), 0, tier).is_err());
+        }
         let inputs = vec![[[1.0; 4]; INPUT_REGISTERS]; 4];
         assert!(same(&run_vertices(&unit, &inputs), &one_by_one(&unit, &inputs)));
     }

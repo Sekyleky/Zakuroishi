@@ -46,6 +46,20 @@ const DEEPEST: usize = 16;
 /// how many programs' code is kept, past which it starts over.
 const KEPT: usize = 1024;
 
+/// how hard a program is compiled: quickly the first time, with the register
+/// allocator that takes a third of the time for code a fifth slower, so that
+/// it runs compiled soon after it is first drawn with, and again in full
+/// once it has shaded HOT batches, the quick code shading meanwhile.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Tier {
+    Quick,
+    Full,
+}
+
+/// how many batches a program compiled quickly shades before it is compiled
+/// again in full.
+const HOT: u32 = 4096;
+
 /// what a compiled program reads and writes, the registers as rows of lanes.
 #[repr(C, align(16))]
 pub(super) struct Context {
@@ -206,6 +220,9 @@ extern "C" fn emit(context: *mut Context) {
 pub(super) struct Compiled {
     module: Option<JITModule>,
     function: unsafe extern "C" fn(*mut Context) -> u32,
+    tier: Tier,
+    /// whether it is being compiled again in full.
+    upgrading: AtomicBool,
     /// the batches it ran and gave back, it gives up on a program whose
     /// vertices part ways often, which batch shades better.
     runs: AtomicU32,
@@ -300,7 +317,14 @@ pub(super) fn compiled(unit: &ShaderUnit, program: &Arc<Program>) -> Option<Arc<
     let key = (program.fingerprint, unit.entry_point);
     let mut kept = codes();
     match kept.get(&key) {
-        Some(Slot::Done(found)) => return found.clone().filter(|compiled| !compiled.given_up.load(Ordering::Relaxed)),
+        Some(Slot::Done(found)) => {
+            let found = found.clone().filter(|compiled| !compiled.given_up.load(Ordering::Relaxed))?;
+            if found.tier == Tier::Quick && found.runs.load(Ordering::Relaxed) >= HOT && !found.upgrading.swap(true, Ordering::Relaxed) {
+                drop(kept);
+                upgrade(program.clone(), key, found.clone());
+            }
+            return Some(found);
+        }
         Some(Slot::Compiling) => return None,
         None => {}
     }
@@ -309,7 +333,7 @@ pub(super) fn compiled(unit: &ShaderUnit, program: &Arc<Program>) -> Option<Arc<
     }
     // the tests look at what the compiled code gives from the first run
     if cfg!(test) {
-        let found = compile_logged(program, key.1);
+        let found = compile_logged(program, key.1, Tier::Full);
         kept.insert(key, Slot::Done(found.clone()));
         return found;
     }
@@ -317,8 +341,15 @@ pub(super) fn compiled(unit: &ShaderUnit, program: &Arc<Program>) -> Option<Arc<
     drop(kept);
     // remembered for the next launch once it compiles, when warming is on
     let record = saving().then(|| Saved::of(unit, key));
-    queue().push(Job { source: Source::Ready(program.clone()), key, record, warm: false });
+    queue().push(Job { source: Source::Ready(program.clone()), key, record, warm: false, tier: Tier::Quick, quick: None });
     None
+}
+
+/// compiles a program in full behind the game's own quick compiles, its
+/// quick code shading meanwhile, and puts it in the quick code's place,
+/// unless that has gone since.
+fn upgrade(program: Arc<Program>, key: (u64, u32), quick: Arc<Compiled>) {
+    queue().push(Job { source: Source::Ready(program), key, record: None, warm: false, tier: Tier::Full, quick: Some(quick) });
 }
 
 /// a program to compile.
@@ -329,6 +360,9 @@ struct Job {
     record: Option<Saved>,
     /// from the programs saved, not the game's.
     warm: bool,
+    tier: Tier,
+    /// the quick code a full compile replaces, see upgrade.
+    quick: Option<Arc<Compiled>>,
 }
 
 /// a program decoded, or the words of one saved that are decoded when its
@@ -338,11 +372,11 @@ enum Source {
     Saved(Saved),
 }
 
-/// the game's programs first, then those warmed up from earlier launches,
-/// which only one of the workers takes so that another is always free for
-/// the game.
+/// the game's programs first, then its hot ones again in full, then those
+/// warmed up from earlier launches. only one of the workers takes the last
+/// two, so that another is always free for the game.
 struct Queue {
-    jobs: Mutex<(std::collections::VecDeque<Job>, std::collections::VecDeque<Job>)>,
+    jobs: Mutex<[std::collections::VecDeque<Job>; 3]>,
     ready: std::sync::Condvar,
 }
 
@@ -353,22 +387,19 @@ impl Queue {
 
     fn push(&self, job: Job) {
         let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
-        if job.warm { jobs.1.push_back(job) } else { jobs.0.push_back(job) }
+        let line = if job.warm { 2 } else if job.quick.is_some() { 1 } else { 0 };
+        jobs[line].push_back(job);
         drop(jobs);
         self.ready.notify_all();
     }
 
-    /// the next job, the game's before any warm-up one, waiting for one.
+    /// the next job, the game's before any other, waiting for one.
     fn take(&self, warms: bool) -> Job {
         let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
         loop {
-            if let Some(job) = jobs.0.pop_front() {
+            let lines = if warms { 3 } else { 1 };
+            if let Some(job) = jobs[..lines].iter_mut().find_map(std::collections::VecDeque::pop_front) {
                 return job;
-            }
-            if warms {
-                if let Some(job) = jobs.1.pop_front() {
-                    return job;
-                }
             }
             jobs = self.ready.wait(jobs).unwrap_or_else(|e| e.into_inner());
         }
@@ -387,16 +418,27 @@ fn queue() -> &'static Arc<Queue> {
             let queue = queue.clone();
             let spawned = std::thread::Builder::new().name("shader jit".to_owned()).spawn(move || loop {
                 // the lock is held only to take the next program, not while compiling it
-                let Job { source, key, record, warm } = queue.take(worker == 0);
+                let Job { source, key, record, warm, tier, quick } = queue.take(worker == 0);
                 let program = match source {
                     Source::Ready(program) => program,
                     Source::Saved(saved) => Arc::new(Program::from_saved(&saved.program, &saved.descriptors)),
                 };
-                let found = compile_logged(&program, key.1);
+                let found = compile_logged(&program, key.1, tier);
                 if let (Some(record), Some(_)) = (record, &found) {
                     record_saved(record);
                 }
-                codes().insert(key, Slot::Done(found));
+                match quick {
+                    // a full compile takes the quick code's place, unless that went
+                    Some(quick) => {
+                        let mut kept = codes();
+                        if found.is_some() && matches!(kept.get(&key), Some(Slot::Done(Some(current))) if Arc::ptr_eq(current, &quick)) {
+                            kept.insert(key, Slot::Done(found));
+                        }
+                    }
+                    None => {
+                        codes().insert(key, Slot::Done(found));
+                    }
+                }
                 if warm {
                     warmed_one();
                 }
@@ -410,10 +452,10 @@ fn queue() -> &'static Arc<Queue> {
 }
 
 /// compiles the program for an entry point, saying why not when it can't.
-fn compile_logged(program: &Program, entry: u32) -> Option<Arc<Compiled>> {
+fn compile_logged(program: &Program, entry: u32, tier: Tier) -> Option<Arc<Compiled>> {
     crate::PROGRAMS_COMPILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let start = std::time::Instant::now();
-    let found = match compile(program, entry) {
+    let found = match compile(program, entry, tier) {
         Ok(compiled) => Some(Arc::new(compiled)),
         Err(error) => {
             log::debug!(target: "zakuro_gpu::shader::jit", "the program {:016X} at {entry} is not compiled, {error}", program.fingerprint);
@@ -422,7 +464,7 @@ fn compile_logged(program: &Program, entry: u32) -> Option<Arc<Compiled>> {
     };
     log::trace!(
         target: "zakuro_gpu::shader::jit",
-        "the program {:016X} at {entry} took {:?}, {} instructions",
+        "the program {:016X} at {entry} took {:?} {tier:?}, {} instructions",
         program.fingerprint,
         start.elapsed(),
         program.ops.iter().filter(|op| op.opcode != OpCode::Nop && op.instruction.0 != 0).count()
@@ -727,12 +769,23 @@ struct Helpers {
 
 /// compiles the program for an entry point, why not when the host has no
 /// backend or the program goes too many ways.
-pub(super) fn compile(program: &Program, entry: u32) -> Result<Compiled, String> {
+pub(super) fn compile(program: &Program, entry: u32, tier: Tier) -> Result<Compiled, String> {
     let mut flags = settings::builder();
     // the verifier looks the code over for Cranelift's own sake, a quarter
     // of the time compiling took, the tests have it
     let verify = if cfg!(debug_assertions) { "true" } else { "false" };
-    for (name, value) in [("opt_level", "speed"), ("use_colocated_libcalls", "false"), ("is_pic", "false"), ("enable_verifier", verify)] {
+    let allocator = match tier {
+        Tier::Quick => "single_pass",
+        Tier::Full => "backtracking",
+    };
+    let flagged = [
+        ("opt_level", "speed"),
+        ("use_colocated_libcalls", "false"),
+        ("is_pic", "false"),
+        ("enable_verifier", verify),
+        ("regalloc_algorithm", allocator),
+    ];
+    for (name, value) in flagged {
         flags.set(name, value).map_err(|error| format!("{name}, {error}"))?;
     }
     let isa = cranelift_native::builder()?.finish(settings::Flags::new(flags)).map_err(|error| error.to_string())?;
@@ -798,6 +851,8 @@ pub(super) fn compile(program: &Program, entry: u32) -> Result<Compiled, String>
     Ok(Compiled {
         module: Some(module),
         function,
+        tier,
+        upgrading: AtomicBool::new(false),
         runs: AtomicU32::new(0),
         returned: AtomicU32::new(0),
         parted: AtomicU32::new(0),
@@ -1813,7 +1868,8 @@ pub(crate) fn start_title(path: Option<std::path::PathBuf>) {
                     continue;
                 }
                 kept.insert(saved.key, Slot::Compiling);
-                jobs.push(Job { source: Source::Saved(saved.clone()), key: saved.key, record: None, warm: true });
+                // in full at once, off the game's way, so that it needs no second compile
+                jobs.push(Job { source: Source::Saved(saved.clone()), key: saved.key, record: None, warm: true, tier: Tier::Full, quick: None });
             }
         }
         {
@@ -1887,22 +1943,31 @@ mod saved_tests {
     }
 
     #[test]
-    fn the_games_programs_are_taken_before_warm_ones() {
+    fn the_games_programs_are_taken_before_full_and_warm_ones() {
         let queue = Queue::new();
-        let job = |fingerprint, warm| Job {
-            source: Source::Ready(Arc::new(Program::decode(&ShaderUnit::new()))),
+        let mut unit = ShaderUnit::new();
+        unit.program[0] = 0x22 << 26;
+        let program = Arc::new(Program::decode(&unit));
+        let quick = Arc::new(compile(&program, 0, Tier::Quick).expect("compiled"));
+        let job = |fingerprint, warm, full: bool| Job {
+            source: Source::Ready(program.clone()),
             key: (fingerprint, 0),
             record: None,
             warm,
+            tier: if full || warm { Tier::Full } else { Tier::Quick },
+            quick: full.then(|| quick.clone()),
         };
-        queue.push(job(1, true));
-        queue.push(job(2, false));
-        queue.push(job(3, true));
-        queue.push(job(4, false));
-        let order: Vec<u64> = (0..4).map(|_| queue.take(true).key.0).collect();
-        assert_eq!(order, [2, 4, 1, 3]);
-        queue.push(job(5, true));
-        queue.push(job(6, false));
-        assert_eq!(queue.take(false).key.0, 6);
+        queue.push(job(1, true, false));
+        queue.push(job(2, false, true));
+        queue.push(job(3, false, false));
+        queue.push(job(4, true, false));
+        queue.push(job(5, false, false));
+        let order: Vec<u64> = (0..5).map(|_| queue.take(true).key.0).collect();
+        assert_eq!(order, [3, 5, 2, 1, 4]);
+        queue.push(job(6, true, false));
+        queue.push(job(7, false, true));
+        queue.push(job(8, false, false));
+        assert_eq!(queue.take(false).key.0, 8);
+        assert_eq!(queue.take(true).key.0, 7);
     }
 }
