@@ -1406,8 +1406,8 @@ impl<'a, 'b, 'c> Compiler<'a, 'b, 'c> {
         let numbers = self.builder.ins().fcmp(FloatCC::Ordered, a, b);
         let zeroed = self.builder.ins().band(nan, numbers);
         let zeroed = self.floats(zeroed);
-        let zero = self.splat(0.0);
-        self.builder.ins().bitselect(zeroed, zero, product)
+        // the bits of +0.0 are none, one and-not on x86
+        self.builder.ins().band_not(product, zeroed)
     }
 
     /// a dot product of an instruction's two sources over the first count
