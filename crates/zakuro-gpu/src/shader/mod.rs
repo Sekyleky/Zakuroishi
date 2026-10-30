@@ -1420,15 +1420,28 @@ mod tests {
     }
 
     /// ifs nested in ifs, on conditions and on booleans, jumps ahead and
-    /// ifs and elses made of jumps, and a call, whose vertices part ways at
-    /// every one, come out the same compiled as one vertex at a time,
-    /// without a batch going back.
+    /// ifs and elses made of jumps, in loops and in a call too, whose
+    /// vertices part ways at every one, come out the same compiled as one
+    /// vertex at a time, without a batch going back.
     #[test]
     fn parted_branches_shade_like_the_interpreter() {
         fn block(random: &mut Random, program: &mut Vec<u32>, depth: u32) {
             let arithmetic = [0x00, 0x01, 0x02, 0x03, 0x08, 0x0B, 0x0C, 0x0D, 0x0E, 0x12, 0x13];
             for _ in 0..1 + random.below(3) {
-                match random.below(if depth < 3 { 7 } else { 3 }) {
+                // loops only where nothing parts around them
+                let choices = match depth {
+                    0 => 8,
+                    1 | 2 => 7,
+                    _ => 3,
+                };
+                match random.below(choices) {
+                    7 => {
+                        // a loop over a block, whose jumps may land at its end
+                        let at = program.len();
+                        program.push(0);
+                        block(random, program, depth + 1);
+                        program[at] = (0x29 << 26) | (((program.len() - 1) as u32) << 10);
+                    }
                     5 | 6 => {
                         // a jump ahead over a block, or over the block that
                         // is an else, the one before it, the then, ending in
@@ -1486,6 +1499,7 @@ mod tests {
                 *descriptor = (random.next() & 0x7FFF_FFF0) | (random.below(15) + 1);
             }
             unit.bool_uniforms = random.next() as u16;
+            unit.int_uniforms[0] = [random.below(3) as u8, 0, 1, 0];
             // the address registers and conditions from the inputs first
             let mut program = vec![(0x12 << 26) | (random.below(16) << 12) | random.below(32)];
             block(&mut random, &mut program, 0);
@@ -1495,7 +1509,7 @@ mod tests {
             block(&mut random, &mut program, 2);
             program.push(0x22 << 26);
             let routine = program.len() as u32;
-            block(&mut random, &mut program, 3);
+            block(&mut random, &mut program, 1);
             let count = program.len() as u32 - routine;
             program[call] = (0x25 << 26) | (random.below(4) << 24) | (random.below(4) << 22) | (routine << 10) | count;
             for (i, &word) in program.iter().enumerate() {

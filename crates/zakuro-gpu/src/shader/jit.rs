@@ -611,6 +611,7 @@ impl Graph {
         let mut steps = vec![None];
         let (mut into, mut branched) = (vec![1], vec![false]);
         let mut unplanned = vec![0];
+        let mut masked = 0;
         while let Some(at) = unplanned.pop() {
             let state = states[at].clone();
             let mut reach = |state: State, branch: bool| -> Option<usize> {
@@ -634,7 +635,7 @@ impl Graph {
                 branched[found] |= branch;
                 Some(found)
             };
-            let step = plan(program, &state, &mut reach)?;
+            let step = plan(program, &state, &mut masked, &mut reach)?;
             steps[at] = Some(step);
         }
         let steps: Vec<Step> = steps.into_iter().map(|step| step.expect("every state planned")).collect();
@@ -662,7 +663,8 @@ impl Graph {
 
 /// what a state does, the states it goes on to found or added by reach,
 /// with whether it branches to them. none where it goes too deep.
-fn plan(program: &Program, (pc, frames): &State, reach: &mut impl FnMut(State, bool) -> Option<usize>) -> Option<Step> {
+/// masked counts the instructions compiled under masks so far, see parted.
+fn plan(program: &Program, (pc, frames): &State, masked: &mut usize, reach: &mut impl FnMut(State, bool) -> Option<usize>) -> Option<Step> {
     let (mut pc, mut frames) = (*pc, frames.clone());
     let depth = frames.len();
     // the blocks ending there, as the interpreter leaves them
@@ -720,7 +722,7 @@ fn plan(program: &Program, (pc, frames): &State, reach: &mut impl FnMut(State, b
                 }
                 _ => {
                     let (taken, other) = (reach(taken, true)?, reach(other, true)?);
-                    let parted = match parted(program, op, pc, &frames) {
+                    let parted = match parted(program, op, pc, &frames, masked) {
                         Some((parted, next)) => Some((parted, reach((next, frames), false)?)),
                         None => None,
                     };
@@ -735,10 +737,12 @@ fn plan(program: &Program, (pc, frames): &State, reach: &mut impl FnMut(State, b
 /// how the lanes of a batch run their own ways where they part at a
 /// conditional branch, an if, a call or a jump ahead over instructions that
 /// only work out values, and where all of them go on from, as they would
-/// have going each way.
-fn parted(program: &Program, op: &Op, pc: u32, frames: &[Frame]) -> Option<(Parted, u32)> {
+/// have going each way. jumps ahead overlapping one another each compile
+/// what the others jumped over, so past MOST_STATES instructions compiled
+/// under masks, counted in masked, the batch goes back instead.
+fn parted(program: &Program, op: &Op, pc: u32, frames: &[Frame], masked: &mut usize) -> Option<(Parted, u32)> {
     let (destination, count) = op.instruction.flow_target();
-    match op.opcode {
+    let parted = match op.opcode {
         OpCode::IfC => {
             let (then, otherwise, next) = if_ranges(pc, destination, count);
             (program.maskable(then, 0, &[]) && program.maskable(otherwise, 0, &[])).then_some((Parted::Bodies([then, otherwise]), next))
@@ -754,7 +758,13 @@ fn parted(program: &Program, op: &Op, pc: u32, frames: &[Frame]) -> Option<(Part
             frames.last().is_none_or(|top| !(pc + 1..end).contains(&top.end)).then_some((Parted::Ahead { lands: destination, end }, end))
         }
         _ => None,
-    }
+    }?;
+    let size = match parted.0 {
+        Parted::Bodies([first, second]) => (first.1 - first.0 + second.1 - second.0) as usize,
+        Parted::Ahead { end, .. } => (end - pc - 1) as usize,
+    };
+    *masked += size;
+    (*masked <= MOST_STATES).then_some(parted)
 }
 
 /// the helpers compiled code calls.
@@ -1630,30 +1640,23 @@ impl Program {
     /// they run apart is maskable.
     fn ahead(&self, pc: u32, destination: u32) -> Option<u32> {
         let mut end = destination;
-        loop {
-            let mut furthest = end;
-            let mut at = pc + 1;
-            while at < end && (at as usize) < PROGRAM_SIZE {
-                let op = &self.ops[at as usize];
-                let (target, count) = op.instruction.flow_target();
-                match op.opcode {
-                    OpCode::JmpC | OpCode::JmpU if target > at => furthest = furthest.max(target),
-                    OpCode::IfC | OpCode::IfU => {
-                        let (_, _, next) = if_ranges(at, target, count);
-                        if next > at {
-                            furthest = furthest.max(next);
-                            at = next;
-                            continue;
-                        }
+        let mut at = pc + 1;
+        while at < end && (at as usize) < PROGRAM_SIZE {
+            let op = &self.ops[at as usize];
+            let (target, count) = op.instruction.flow_target();
+            match op.opcode {
+                OpCode::JmpC | OpCode::JmpU if target > at => end = end.max(target),
+                OpCode::IfC | OpCode::IfU => {
+                    let (_, _, next) = if_ranges(at, target, count);
+                    if next > at {
+                        end = end.max(next);
+                        at = next;
+                        continue;
                     }
-                    _ => {}
                 }
-                at += 1;
+                _ => {}
             }
-            if furthest == end {
-                break;
-            }
-            end = furthest;
+            at += 1;
         }
         self.maskable((pc + 1, end), 0, &[destination]).then_some(end)
     }
