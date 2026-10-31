@@ -881,32 +881,33 @@ fn held_in_range(mut vertex: Vertex) -> Vertex {
 }
 
 /// clips a triangle to the volume the PICA draws.
-fn clip_triangle(triangle: [Vertex; 3]) -> Vec<Vertex> {
+/// clips into polygon, with spare as the second buffer: a draw reuses both
+/// for all its triangles, an allocation for each costs more than the clipping.
+fn clip_triangle(triangle: [Vertex; 3], polygon: &mut Vec<Vertex>, spare: &mut Vec<Vertex>) {
     let triangle = triangle.map(held_in_range);
-    let planes = CLIP_PLANES;
+    polygon.clear();
+    polygon.extend_from_slice(&triangle);
     if triangle.iter().all(inside) {
-        return triangle.to_vec();
+        return;
     }
-
-    let mut polygon = triangle.to_vec();
-    for plane in planes {
-        let mut clipped = Vec::with_capacity(polygon.len() + 1);
+    for plane in CLIP_PLANES {
+        spare.clear();
         for (i, current) in polygon.iter().enumerate() {
             let next = &polygon[(i + 1) % polygon.len()];
             let (d0, d1) = (plane(current), plane(next));
             if d0 >= 0.0 {
-                clipped.push(*current);
+                spare.push(*current);
             }
             if (d0 >= 0.0) != (d1 >= 0.0) {
-                clipped.push(current.lerp(next, d0 / (d0 - d1)));
+                spare.push(current.lerp(next, d0 / (d0 - d1)));
             }
         }
-        polygon = clipped;
+        std::mem::swap(polygon, spare);
         if polygon.len() < 3 {
-            return Vec::new();
+            polygon.clear();
+            return;
         }
     }
-    polygon
 }
 
 /// a texture that is rows of a buffer the GPU drew and still holds, which
@@ -2586,6 +2587,7 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
         let counter_clockwise = (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x) > 0.0;
         cull_mode != 0 && counter_clockwise == (cull_mode == 1)
     };
+    let (mut polygon, mut spare, mut screen) = (Vec::new(), Vec::new(), Vec::new());
     for (ia, ib, ic) in triangle_indices {
         let (a, b, c) = (at(ia), at(ib), at(ic));
         let [sa, sb, sc] = [slots[a], slots[b], slots[c]];
@@ -2597,8 +2599,9 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
             }
             continue;
         }
-        let polygon = clip_triangle([shaded[a], shaded[b], shaded[c]]);
-        let screen: Vec<Screen> = polygon.iter().filter_map(|v| to_screen(v, viewport)).collect();
+        clip_triangle([shaded[a], shaded[b], shaded[c]], &mut polygon, &mut spare);
+        screen.clear();
+        screen.extend(polygon.iter().filter_map(|v| to_screen(v, viewport)));
         if screen.len() < 3 || screen.len() != polygon.len() {
             clipped_away += 1;
             continue;

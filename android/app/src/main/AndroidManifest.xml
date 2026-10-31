@@ -4,6 +4,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x00403000" android:required="true" />
     <application android:label="Zakuro" android:allowBackup="false" android:extractNativeLibs="true" android:theme="@android:style/Theme.Material.NoActionBar" android:hasCode="true">
+        <profileable android:shell="true" />
         <activity android:name=".Launcher" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

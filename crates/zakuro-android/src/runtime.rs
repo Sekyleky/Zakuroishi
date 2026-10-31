@@ -353,6 +353,11 @@ impl Input {
 }
 
 pub fn run(app: &AndroidApp) -> Result<(), String> {
+    // Rayon defaults to one worker per core (8 on Snapdragon 8 Gen 2); idle workers spin in the
+    // kernel on the cores the emulation thread needs. Three cover the big cores beside it.
+    if std::env::var_os("RAYON_NUM_THREADS").is_none() {
+        std::env::set_var("RAYON_NUM_THREADS", "3");
+    }
     let launch = platform::launch(app)?;
     let _session = bridge::Session::start(app);
     let mut settings = launch.advanced.clone();
@@ -693,8 +698,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         if Instant::now() + Duration::from_millis(2) < next_frame {
             continue;
         }
-        while Instant::now() < next_frame {
-            std::thread::yield_now();
+        // FIFO already waits for vsync; spinning here would only burn the main core.
+        if !(s.presenter.waits_for_display() && settings.frame_cap == 60) {
+            while Instant::now() < next_frame {
+                std::thread::yield_now();
+            }
         }
         input.read(app, Some(s), &settings);
         let motion = if settings.motion_enabled {
