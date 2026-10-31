@@ -46,6 +46,11 @@ struct Surface {
 impl Surface {
     fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry) -> Result<Self, String> {
         let window = Window(window);
+        // Fixed 60 Hz source lets a 120 Hz panel hold an even 2-vsync cadence.
+        let rate = unsafe {
+            ndk_sys::ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), 60.0, 1)
+        };
+        log::info!("ANativeWindow_setFrameRate(60, fixed_source) = {rate}");
         let size = (
             window.0.width().max(1) as u32,
             window.0.height().max(1) as u32,
@@ -387,7 +392,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     loop {
         let active = resumed && focused && !paused && surface.is_some();
         let timeout = if active {
-            next_frame.saturating_duration_since(Instant::now())
+            // ms-granular wakeup: stop 1 ms short, the tail is spun below.
+            next_frame
+                .saturating_duration_since(Instant::now())
+                .saturating_sub(Duration::from_millis(1))
         } else {
             Duration::from_millis(250)
         };
@@ -673,8 +681,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             system = Some(loaded);
             next_frame = Instant::now();
         }
-        if Instant::now() < next_frame {
+        if Instant::now() + Duration::from_millis(2) < next_frame {
             continue;
+        }
+        while Instant::now() < next_frame {
+            std::thread::yield_now();
         }
         input.read(app, Some(s), &settings);
         let motion = if settings.motion_enabled {

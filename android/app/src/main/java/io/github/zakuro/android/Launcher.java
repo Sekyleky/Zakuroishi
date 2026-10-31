@@ -226,7 +226,8 @@ public final class Launcher extends Activity {
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(intent, REPLACE_TEXTURES);
     }
-    private android.content.SharedPreferences settings() { return getSharedPreferences("games", MODE_PRIVATE); }
+    // The game process edits these too; the shared accessor reloads cross-process changes.
+    private android.content.SharedPreferences settings() { return GameSettings.preferences(this); }
     private String name(String id) {
         String saved = settings().getString(id + ".name", "").trim(); if (!saved.isEmpty()) return saved;
         try { return GameMetadata.name(GameImport.active(this, id), id); } catch (Exception e) { return "Game " + id.substring(8); }

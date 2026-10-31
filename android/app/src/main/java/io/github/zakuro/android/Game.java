@@ -209,7 +209,13 @@ public final class Game extends NativeActivity {
     private void confirmRestart() {
         menuOpen=false;
         new AlertDialog.Builder(this).setTitle("Restart game?").setMessage("Unsaved progress will be lost. Saved states and in-game saves are kept.")
-                .setPositiveButton("Restart",(d,w) -> nativeCommand(RESTART)).setNegativeButton("Cancel",null)
+                // Relaunch from saved settings: a core-only restart would keep this launch's options (e.g. HD textures).
+                .setPositiveButton("Restart",(d,w) -> {
+                    String id=getIntent().getStringExtra("game_id");
+                    android.content.Intent next=new android.content.Intent(getIntent());
+                    try { GameSettings.load(this,id).apply(next,GameImport.active(this,id)); pendingRestart=next; finish(); }
+                    catch(Exception e) { nativeCommand(RESTART); }
+                }).setNegativeButton("Cancel",null)
                 .setOnDismissListener(d -> nativeCommand(RESUME)).show();
     }
     private void openSettings() {
