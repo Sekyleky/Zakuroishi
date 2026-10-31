@@ -262,6 +262,7 @@ impl Compiled {
 
 /// whether compiling is on, ZAKURO_SHADER_JIT=0 turns it off.
 fn enabled() -> bool {
+    if let Some(options) = crate::backend::renderer_options() { return options.cpu_shader_jit; }
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("ZAKURO_SHADER_JIT").map_or(true, |value| value != "0"))
 }

@@ -2,6 +2,7 @@ param(
     [string]$Sdk = '',
     [string]$JavaHome = '',
     [string]$Ndk = '',
+    [string]$CMake = '',
     [string]$OutputDirectory = '',
     [string]$BuildTools = '36.0.0',
     [string]$Platform = 'android-37.0'
@@ -14,12 +15,13 @@ if (!$Sdk) { $Sdk = Join-Path ([Environment]::GetFolderPath('LocalApplicationDat
 if (!$JavaHome) { $JavaHome = 'C:/Program Files/Android/Android Studio/jbr' }
 if (!(Test-Path "$JavaHome/bin/javac.exe")) { $JavaHome = $env:JAVA_HOME }
 if (!$Ndk) { $Ndk = Join-Path $repo 'build/toolchain/android-ndk-r27c' }
+if (!$CMake) { $CMake = Join-Path $repo 'build/toolchain/cmake-3.31.6-windows-x86_64/bin/cmake.exe' }
 if (!$OutputDirectory) { $OutputDirectory = Join-Path $repo 'build/android-windows' }
 $out = [IO.Path]::GetFullPath($OutputDirectory)
 $ndkBin = Join-Path $Ndk 'toolchains/llvm/prebuilt/windows-x86_64/bin'
 $tools = Join-Path $Sdk "build-tools/$BuildTools"
 $androidJar = Join-Path $Sdk "platforms/$Platform/android.jar"
-foreach ($file in @("$ndkBin/aarch64-linux-android30-clang.cmd", "$ndkBin/llvm-strip.exe",
+foreach ($file in @($CMake, "$Ndk/prebuilt/windows-x86_64/bin/make.exe", "$ndkBin/aarch64-linux-android30-clang.cmd", "$ndkBin/llvm-strip.exe",
     "$JavaHome/bin/javac.exe", "$JavaHome/bin/jar.exe", "$tools/aapt2.exe",
     "$tools/aapt.exe", "$tools/d8.bat", "$tools/zipalign.exe", "$tools/apksigner.bat", $androidJar)) {
     if (!(Test-Path -LiteralPath $file)) { throw "Missing tool: $file" }
@@ -62,6 +64,20 @@ try {
     $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_RUSTFLAGS = '-C link-arg=-Wl,-z,max-page-size=16384'
     $env:CC_aarch64_linux_android = $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
     $env:AR_aarch64_linux_android = "$ndkBin/llvm-ar.exe"
+    $driverBuild = Join-Path $env:CARGO_TARGET_DIR 'adrenotools'
+    # MinGW Makefiles uses an 8.3 compiler name, losing clang++'s C++ driver selection.
+    Invoke-Tool $CMake @('-S',"$repo/android/third_party/libadrenotools",'-B',$driverBuild,'-G','MinGW Makefiles',
+        "-DCMAKE_MAKE_PROGRAM=$Ndk/prebuilt/windows-x86_64/bin/make.exe",
+        "-DCMAKE_TOOLCHAIN_FILE=$Ndk/build/cmake/android.toolchain.cmake",
+        '-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-30','-DANDROID_STL=c++_static',
+        '-DCMAKE_CXX_FLAGS=--driver-mode=g++',
+        '-DBUILD_SHARED_LIBS=ON','-DCMAKE_BUILD_TYPE=Release','-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384')
+    Invoke-Tool $CMake @('--build',$driverBuild,'--parallel','4')
+    foreach ($library in @('libadrenotools.so','libhook_impl.so','libmain_hook.so','libfile_redirect_hook.so','libgsl_alloc_hook.so')) {
+        $found = @(Get-ChildItem $driverBuild -Recurse -File -Filter $library)
+        if ($found.Count -ne 1) { throw "Missing or duplicate driver support library: $library" }
+        Invoke-Tool "$ndkBin/llvm-strip.exe" @('-o',"$work/lib/arm64-v8a/$library",$found[0].FullName)
+    }
     Invoke-Tool 'rustup' @('target','add','--toolchain','1.95.0','aarch64-linux-android')
     Invoke-Tool 'cargo' @('+1.95.0','build','--release','--locked','--target','aarch64-linux-android',
         '-p','zakuro-android','--lib','--features','zakuro-gpu/vulkan')
@@ -74,8 +90,13 @@ try {
     Invoke-Tool "$JavaHome/bin/javac.exe" (@('-nowarn','--release','11','-classpath',$androidJar,'-d',"$work/classes") + $sources)
     $classes = @(Get-ChildItem "$work/classes" -Filter '*.class' -Recurse | ForEach-Object FullName)
     Invoke-Tool "$tools/d8.bat" (@('--min-api','30','--lib',$androidJar,'--output',"$work/dex") + $classes)
+    # Windows aapt2 emits backslashes in nested asset names; jar writes portable ZIP paths.
+    New-Item -ItemType Directory -Force "$work/assets/licenses" | Out-Null
+    foreach ($license in @('ADRENOTOOLS','LINKERNSBYPASS','ZAKURO')) {
+        Copy-Item -LiteralPath "$repo/android/app/src/main/assets/licenses/$license.txt" -Destination "$work/assets/licenses/$license.txt"
+    }
     Invoke-Tool "$JavaHome/bin/jar.exe" @('--update','--file',"$work/unsigned.apk",'--no-manifest',
-        '--no-compress','-C',"$work/dex",'classes.dex','-C',$work,'lib')
+        '--no-compress','-C',"$work/dex",'classes.dex','-C',$work,'lib','-C',$work,'assets')
     Invoke-Tool "$tools/zipalign.exe" @('-P','16','-f','4',"$work/unsigned.apk","$work/aligned.apk")
     # The Windows fallback has its own local test identity; no Docker key is exported.
     $private = Join-Path $out 'private-signing'
@@ -115,7 +136,11 @@ try {
     try {
         $entries = @($archive.Entries | ForEach-Object FullName)
         if ('lib/arm64-v8a/libzakuro_android.so' -notin $entries) { throw 'Native library missing' }
-        if ($entries -match '^assets/') { throw 'Unexpected bundled assets' }
+        $allowedAssets = @('assets/licenses/ADRENOTOOLS.txt','assets/licenses/LINKERNSBYPASS.txt','assets/licenses/ZAKURO.txt')
+        if (@($entries | Where-Object { $_ -match '^assets/' -and !$_.EndsWith('/') -and $_ -notin $allowedAssets }).Count) { throw 'Unexpected bundled assets' }
+        foreach ($library in @('libadrenotools.so','libhook_impl.so','libmain_hook.so','libfile_redirect_hook.so','libgsl_alloc_hook.so')) {
+            if ("lib/arm64-v8a/$library" -notin $entries) { throw "Driver support missing: $library" }
+        }
     } finally { $archive.Dispose() }
     $hash = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLower()
     "$hash  $([IO.Path]::GetFileName($apk))" | Set-Content -Encoding ascii "$apk.sha256"

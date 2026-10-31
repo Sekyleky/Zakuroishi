@@ -64,6 +64,11 @@ D3000000 30000000
 D2000000 00000000
 
 = 00040000001B5100 Pokémon Ultra Moon (USA)
+# No Outlines: user-supplied CTRPF code, also used by the existing no_outlines.c override.
+# https://github.com/JourneyOver/CTRPF-AR-CHEAT-CODES/blob/master/Cheats/Pok%C3%A9mon%20Ultra%20Moon%20(GLO)/00040000001B5100.txt
+No Outlines | rev0 | community | Ultra Moon v1.0 only. This removes character outlines without changing game speed.
+0042E2B8 E320F000
+
 60 FPS | rev0 | Reshiban | The whole game runs twice as fast with it.
 D3000000 30000000
 23F67FE9 00000000

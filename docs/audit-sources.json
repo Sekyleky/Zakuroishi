@@ -1,0 +1,72 @@
+[
+  {
+    "path": "pocket-native-src/frontend/src/settings.rs",
+    "sha256": "FCD9FD0E9D2AEEF47C65C2324C137E3A1A765C8C68E2E8CC68BDEA66F2B65A81",
+    "lines": 479
+  },
+  {
+    "path": "pocket-native-src/frontend/src/menu.rs",
+    "sha256": "9F2CE62D8051733B358306C27D4EB9D5904A42DD340485747FC00F6F6FDC03C3",
+    "lines": 758
+  },
+  {
+    "path": "pocket-native-src/frontend/src/input.rs",
+    "sha256": "58F484341BEFF66F807C6BB42B817A053B9A01DF73B9CC0FC862C28571075776",
+    "lines": 522
+  },
+  {
+    "path": "pocket-native-src/frontend/src/touch.rs",
+    "sha256": "9657E8420FF71B1A66903A7FC75B623EE748388617A5D70789468C64D49E9CF1",
+    "lines": 428
+  },
+  {
+    "path": "pocket-native-src/scripts/android/java/io/github/pocketnative/Launcher.java",
+    "sha256": "32078157C7CB3AA91CD20ADF30BD27DF81AE2C2B0E37A197E16912A138AB7425",
+    "lines": 1325
+  },
+  {
+    "path": "pocket-native-src/scripts/android/java/io/github/pocketnative/Game.java",
+    "sha256": "CF49D6DAD709F852759131B84D97B2C732539858904E78E34F4B39872389538F",
+    "lines": 87
+  },
+  {
+    "path": "pocket-native-src/scripts/android/java/io/github/pocketnative/SecondScreen.java",
+    "sha256": "23CA62BF7D0378B7FCD19E2EA1341A8A7AAF46B10CE698E5D929E5054CF17E7A",
+    "lines": 105
+  },
+  {
+    "path": "pocket-native-src/scripts/android/java/io/github/pocketnative/DriverPack.java",
+    "sha256": "E40BAF0004AF256C0C461F340B4789CF101B1923D3ACB51973E19F4CFD5E30B6",
+    "lines": 56
+  },
+  {
+    "path": "pocket-native-src/scripts/android/java/io/github/pocketnative/TextureFolder.java",
+    "sha256": "0A58805750D51D4E6154FE9E97537F182B2F9E976BCCE3DFE92999EBA38F3457",
+    "lines": 52
+  },
+  {
+    "path": "pocket-native-src/engine/core/src/loader.rs",
+    "sha256": "C6392049D3BD3293F06175CF3F7EFDDF2F42E6FDCE6ECA01BEDE0D8FE5C844F9",
+    "lines": 310
+  },
+  {
+    "path": "pocket-native-src/engine/gpu/src/vulkan.rs",
+    "sha256": "E2C9652B8A75E8D517DCE6A037381C2B56DB8EF3696AD1DA9C3C893323C07183",
+    "lines": 44
+  },
+  {
+    "path": "pocket-native-src/recompiler/abi/src/lib.rs",
+    "sha256": "CD2CFEF207DA1D21C20B657B951626046EF78531F97894DFE56C87499B89E449",
+    "lines": 353
+  },
+  {
+    "path": "zakuro-android/crates/zakuro/src/settings.rs",
+    "sha256": "95DF886B4FEC28860A460D912D8DDB0B49003AC31E14DB9612DB2C9B46DE08EB",
+    "lines": 664
+  },
+  {
+    "path": "zakuro-android/crates/zakuro/src/menus.rs",
+    "sha256": "5A35CB5B720D2CDF0B47FD834B67ACCD76A9AF9F22BE294347163B4F7066FF20",
+    "lines": 1024
+  }
+]

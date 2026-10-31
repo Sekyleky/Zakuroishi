@@ -145,18 +145,19 @@ impl MemoryType {
 /// Old3DS system mode, which decides the FCRAM split between the application
 /// and the system. ORAS ships as Prod (64 MiB for the game).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
 pub enum SystemMode {
     /// 64 MiB application / 32 MiB system / 32 MiB base
     #[default]
-    Prod,
+    Prod = 0,
     /// 96 MiB application
-    Dev1,
+    Dev1 = 2,
     /// 80 MiB application
-    Dev2,
+    Dev2 = 3,
     /// 72 MiB application
-    Dev3,
+    Dev3 = 4,
     /// 32 MiB application
-    Dev4,
+    Dev4 = 5,
 }
 
 impl SystemMode {
@@ -315,9 +316,9 @@ impl ExHeader {
             ideal_processor: flag0 & 0x3,
             affinity_mask: (flag0 >> 2) & 0x3,
             system_mode: SystemMode::from_raw((flag0 >> 4) & 0xF),
-            n3ds_system_mode: (flag1 >> 4) & 0xF,
-            n3ds_cpu_speed: (flag2 >> 1) & 0x1,
-            enable_l2_cache: flag2 & 0x1 != 0,
+            n3ds_system_mode: flag2 & 0xF,
+            n3ds_cpu_speed: (flag1 >> 1) & 0x1,
+            enable_l2_cache: flag1 & 0x1 != 0,
             resource_limit_category: aci.u8(0x16F)?,
             service_access,
             memory_type,
@@ -333,11 +334,45 @@ impl ExHeader {
         let end = self.data.address + self.data.num_pages * 0x1000 + self.bss_size;
         end.saturating_sub(self.text.address)
     }
+
+    /// Extended modes apply only on a New3DS; legacy/unknown modes retain the title's old limit.
+    pub fn application_memory(&self, new3ds: bool) -> u32 {
+        if new3ds {
+            match self.n3ds_system_mode {
+                1 | 3 => return 124 * 1024 * 1024,
+                2 => return 178 * 1024 * 1024,
+                _ => {}
+            }
+        }
+        self.system_mode.application_memory()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extended_memory_and_clock_flags_are_independent() {
+        let mut data = vec![0u8; 0x800];
+        data[0x20C] = 3;
+        data[0x20E] = 0x34;
+        for (mode, mib) in [(0, 80), (1, 124), (2, 178), (3, 124), (15, 80)] {
+            data[0x20D] = mode;
+            let header = ExHeader::parse(&data).unwrap();
+            assert_eq!(header.n3ds_system_mode, mode);
+            assert_eq!(header.n3ds_cpu_speed, 1);
+            assert!(header.enable_l2_cache);
+            assert_eq!(header.application_memory(true), mib * 1024 * 1024);
+            assert_eq!(header.application_memory(false), 80 * 1024 * 1024);
+        }
+        data[0x20C] = 0;
+        data[0x20D] = 2;
+        let header = ExHeader::parse(&data).unwrap();
+        assert_eq!(header.n3ds_cpu_speed, 0);
+        assert!(!header.enable_l2_cache);
+        assert_eq!(header.application_memory(true), 178 * 1024 * 1024);
+    }
 
     /// a syscall mask descriptor names one of eight tables of 24 calls,
     /// the last ones past the calls the console has, which a dump can

@@ -112,15 +112,22 @@ public final class GameImportCheck {
             header[4] = 2; header[5] = 1; header[16] = 3; header[18] = (byte) 183;
             Files.write(elf.toPath(), header); require(GameImport.arm64(elf));
             header[18] = 62; Files.write(elf.toPath(), header); require(!GameImport.arm64(elf));
-            File rom = new File(dir, "game.3ds");
-            try (RandomAccessFile f = new RandomAccessFile(rom, "rw")) {
-                f.setLength(1024); f.seek(0x100); f.writeBytes("NCSD"); f.seek(0x120); f.write(1); f.seek(0x124); f.write(1);
-                f.seek(0x300); f.writeBytes("NCCH"); f.seek(0x304); f.write(1); f.seek(0x318);
-                f.write(new byte[]{0, 0, 0x1b, 0, 0, 0, 4, 0}); f.seek(0x38f); f.write(4);
+            Files.write(elf.toPath(), NativeFixture.elf(4, false));
+            require(GameImport.arm64(elf));
+            try (java.nio.channels.SeekableByteChannel source = Files.newByteChannel(elf.toPath())) {
+                NativeLibrary.inspect(source).requireCompatible();
             }
+            File rom = new File(dir, "game.3ds");
+            byte[] ncch = NativeFixture.rom(0xA00, Long.parseUnsignedLong(id, 16));
+            byte[] cartridge = new byte[512 + ncch.length];
+            put32(cartridge, 0x100, 0x4453434e); put32(cartridge, 0x120, 1); put32(cartridge, 0x124, ncch.length / 512);
+            System.arraycopy(ncch, 0, cartridge, 512, ncch.length); Files.write(rom.toPath(), cartridge);
             require(GameImport.title(rom).equals("00040000001B0000"));
             try (RandomAccessFile f = new RandomAccessFile(rom, "rw")) { f.seek(0x38f); f.write(0); }
             rejects(() -> GameImport.title(rom));
+            byte[] headerOnly = java.util.Arrays.copyOf(ncch, 512); put32(headerOnly, 0x104, 1);
+            put32(headerOnly, 0x180, 0); put32(headerOnly, 0x1a0, 0); put32(headerOnly, 0x1a4, 0);
+            Files.write(rom.toPath(), headerOnly); rejects(() -> GameImport.title(rom));
             try (RandomAccessFile f = new RandomAccessFile(rom, "rw")) { f.setLength(10); }
             rejects(() -> GameImport.title(rom));
             File saves = new File(dir, "saves"); saves.mkdir();

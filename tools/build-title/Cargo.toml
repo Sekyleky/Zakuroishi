@@ -1,0 +1,9 @@
+[package]
+name = "zakuro-build-title"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+recomp3ds = { git = "https://github.com/fearkov/3dsrecomp" }
+recomp-abi.workspace = true

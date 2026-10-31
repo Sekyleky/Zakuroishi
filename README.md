@@ -1,92 +1,70 @@
-# Zakuro
+# Zakuro Android
 
-This working copy adds an experimental Android frontend for ARM64 handhelds.
-See [Android build and installation](docs/android.md) and the
-[benchmark procedure](docs/benchmark.md). Source baseline: upstream Zakuro
-v0.2.30, commit `e174910`.
+Experimental Android frontend for [Zakuro](https://github.com/fearkov/zakuro), based on
+v0.2.30 (`e174910`). It runs legally obtained decrypted 3DS games with separately
+built native game code. It includes no games, firmware, keys or texture packs.
 
-The Android app uses the existing Vulkan renderer, AOT game libraries and runtime
-HD texture replacement. It imports one built game folder and keeps its own saves.
-It does not include games or texture packs. Faster performance than Azahar is a
-benchmark target, not an established result. Android device compatibility is
-still under test. Both 3DS screens currently share the main display; a separate
-window on the Thor's second display is not implemented.
+**Start here:** [Install, import and play](docs/android.md). For an existing import
+that reports an incompatible native library, use the
+[native-code compatibility and repair guide](docs/native-library.md). An ARM64
+file from Pocket Native is not automatically compatible: this host uses ABI 4,
+while the inspected Pocket Native fastmem generator uses ABI 5.
 
-A WIP HLE Nintendo 3DS emulator written in Rust that uses ahead-of-time (AOT) recompilation instead of a JIT.
+## Documentation
 
-Bug reports, progress and everything else are on the [Discord server](https://discord.gg/7dduXVv2xm).
+| Need | Canonical page |
+| --- | --- |
+| Requirements, game folder, optional textures, controls and saves | [Android user guide](docs/android.md) |
+| Build a matching Android game library; repair without recopying a ROM | [Native library contract](docs/native-library.md) |
+| Every audited Pocket Native setting and upstream Zakuro feature | [Feature parity matrix](docs/feature-parity.md) |
+| Architecture, APK toolchains, developer tests | [Development](docs/development.md) |
+| What actually ran, on which source and architecture | [Verification record](docs/testing.md) |
+| Versioned changes, limitations and integration status | [Changelog](docs/changelog.md) |
+| Controlled Azahar comparison without performance claims | [Benchmark protocol](docs/benchmark.md) |
+| Desktop Zakuro usage from the pinned upstream baseline | [Upstream desktop reference](docs/upstream-desktop.md) |
 
-The games tested so far are in [COMPATIBILITY.md](COMPATIBILITY.md).
+## Current scope
 
-<p>
-  <img width="266" alt="Pokémon Y running in Zakuro" src="docs/screenshots/pokemon-y.png" />
-  <img width="266" alt="The Legend of Zelda: Majora's Mask 3D running in Zakuro" src="docs/screenshots/majoras-mask-3d.png" />
-  <img width="266" alt="Persona Q running in Zakuro" src="docs/screenshots/persona-q.png" />
-</p>
+The Android app is `io.github.zakuro.android`, with a native Android library UI,
+validate-first game import and the existing Zakuro Vulkan renderer. Per-game
+settings control HD texture replacement, display layout/stretch/stereo, compiled
+code, supported shader/debug paths, motion, controllers, audio and console mode.
+A pause menu provides save/load, restart, screen swap and gyro recalibration.
 
+Dual-display Presentation routing and optional custom Adreno Vulkan driver packs
+are implemented, with system-driver recovery. The external display uses a
+readback path; physical Thor routing, sensors and driver compatibility still need
+device verification. Original ROMs and Pocket Native installations are separate.
 
-I started developing this project in October 2025, before
-[feargba](https://github.com/fearkov/feargba). 
+Version 0.1.3 repairs the ABI mismatch through a pinned Android game-code builder
+and code-only replacement. Texture packs are optional at import and can be
+attached later without copying a ROM again. In-game saves stay at a stable
+per-title path. Settings are saved only on confirmation.
 
-I first wrote it in C++, but I was learning Rust at the time and noticed there wasn't a working 3DS emulator written in Rust, so I switched.
+The [feature matrix](docs/feature-parity.md) maps every audited source setting to
+its actual consumer or an explicit limitation. Pocket Native's GLES-specific
+speed hacks are not automatically equivalent to this Vulkan backend; unsupported
+heuristics are not presented as working controls. This is an experimental test
+build, with [recorded checks and hardware limits](docs/testing.md). A performance
+win over Azahar remains a benchmark goal rather than a measured result.
 
-This is a personal experimental project. You can use it to play games, but that was never the main goal. Some games boot. Instead of translating code while the game runs, like a JIT does, Zakuro runs code recompiled ahead of time by [3dsrecomp](https://github.com/fearkov/3dsrecomp), and tested games run at full speed that way. On the interpreter alone they run below full speed.
+## Build the APK
 
-Builds for Windows and Linux are on the [releases page](https://github.com/fearkov/zakuro/releases): on Windows, unzip it and run zakuro.exe, and on Linux, extract it and run ./zakuro.
+From this repository in PowerShell, with the documented tools installed:
 
-To build it yourself you need Rust 1.95 or newer. On Linux, building also needs pkg-config and the ALSA and udev development files (libasound2-dev and libudev-dev on Debian and Ubuntu, alsa-lib and systemd-libs on Arch). On Windows, nothing else is needed:
+```powershell
+./android/scripts/build-windows.ps1
+# Or Docker Desktop with a working Linux engine:
+./android/scripts/build.ps1
+```
 
-    cargo install --git https://github.com/fearkov/zakuro --locked zakuro
+These build the emulator APK, not a game's `title.so`. Both use the lockfile and
+write uniquely named signed test APKs. Tool versions, signing identities and the
+separate native game-code build are explained in [Development](docs/development.md)
+and [Native library contract](docs/native-library.md). No publication or installation
+on a physical device is performed by these commands.
 
-Cargo puts it in ~/.cargo/bin, which has to be on your PATH. Then `zakuro` in a terminal opens it. To play you need a decrypted ROM:
-
-    zakuro path/to/rom.3ds
-
-Without a ROM it opens a library with the games in a folder you pick, where you can also recompile them. Esc brings up a menu over the game, and the settings (controls, sound, graphics, a background for the library) are in there too.
-
-Games run faster with their code recompiled ahead of time by [3dsrecomp](https://github.com/fearkov/3dsrecomp), which comes with Zakuro: press Recompile next to a game in the library, once per game. It takes around ten minutes and needs a C compiler. If your computer has gcc or clang, Zakuro uses it, and if it has neither, Zakuro offers to download Zig, which comes with one and needs no installing, into its own folder. From then on Zakuro runs the recompiled code on its own, and anything it doesn't cover still goes through the interpreter.
-
-3dsrecomp also works on its own, from the terminal:
-
-    cargo install --git https://github.com/fearkov/3dsrecomp --locked recomp3ds
-    3dsrecomp build path/to/rom.3ds
-
---recompiled points it at another library, and --interpreter runs everything in the interpreter.
-
-You can use mods too. I kept the same folders Luma3DS and Azahar use, so if a mod works there, it should work here as it is. Each game has its own folder, `mods/<title ID>/`, inside Zakuro's data folder (`~/.local/share/zakuro/mods/` on Linux, `%APPDATA%\zakuro\mods\` on Windows), and the Mods button next to the game in the library opens it for you:
-
-- `romfs/` is for files that replace the game's own, or add new ones.
-- `romfs_ext/` is for .ips and .bps patches to the game's files, and .stub files to remove one.
-- `code.bin`, `code.ips` or `code.bps`, in the folder or in `exefs/`, change the game's code.
-- `exheader.bin`, in the game's folder, replaces the game's exheader, which code mods that make the game's code longer come with.
-- `textures/` is for texture packs made for Citra or Azahar. Put in it what the pack puts in `load/textures/<title ID>/`, its pack.json and its folders of PNGs.
-
-If your mod changes the game's code, recompile the game with the mod already in its folder, and everything keeps running at full speed. Otherwise the parts the mod touches go through the interpreter and run slower, and if you recompiled the game before 0.2.19, the whole game goes through it until you recompile it again.
-
-Texture packs need "Draw the 3D on the GPU", which is on by default. Their pictures load in the background, so the first time something shows up you may see the game's own texture for a moment. Only PNGs are read for now, which is what almost every pack uses.
-
-Got updates or DLC for a game? Just drop them in the same folder as your games and Zakuro figures out which game they belong to, and uses them when you play it. They need to be decrypted, same as the games. If you have more than one update for the same game, it picks the newest. And if you recompiled the game before adding its update, recompile it again, or the parts the update changed will run slower.
-
-Cheats work too, the same files Citra and Azahar use, so if you already have them there, just copy them over to the cheats folder in Zakuro's data folder. You can also turn them on and off, or paste a new one, from the Cheats button in the menu while you're playing.
-
-For some games, the Cheats window also has a 60 FPS switch. It's a code someone from the community made (their name is right there), and I only list it for the exact version of the game I tested it on, so it might not show up for your copy. One thing to know: most of these games count time in frames, so with 60 FPS on, the whole game runs twice as fast too. Great for grinding in Pokémon, maybe less so for everything else.
-
-No copyrighted data is included. I do not condone piracy, and I will not help you with that. So, don't ask me about that.
-
-Controls:
-
-| 3DS | Keyboard | Controller |
-|---|---|---|
-| A / B / X / Y | X / Z / S / A | Right / bottom / top / left face buttons |
-| L / R | Q / W | LB / RB (L1 / R1) |
-| Start / Select | Enter / Backspace | Start / Back (Select) |
-| D-pad | Arrow keys | D-pad |
-| Circle pad | I / J / K / L | Left stick |
-| Touch screen | Mouse (click) | |
-| Menu / Pause / Fullscreen | Esc / F1 / F11 | Home |
-
-Keys and controller buttons can be changed in the settings. Xbox, PlayStation, Switch Pro and most other controllers work.
-
-Contributions are welcome. Using AI is fine sometimes, but the code must always be reviewed by a human. Code that is entirely vibecoded will be discarded.
-
-MIT license.
+Zakuro and the upstream Pocket Native work are credited in the source-backed
+[matrix source inventory](docs/feature-parity.md#sources-and-counting). This repository retains the
+[MIT license](LICENSE). Upstream desktop game reports remain in
+[COMPATIBILITY.md](COMPATIBILITY.md); they are not Android device-test results.

@@ -238,18 +238,51 @@ impl Title {
     /// the title whose NCCH is at ncch_offset in image.
     fn from_image(image: Arc<RomImage>, ncch_offset: u64) -> Result<Title, FsError> {
         let data = image.data();
-        let ncch_data = data.get(ncch_offset as usize..).ok_or(FsError::NoExecutablePartition)?;
+        let start = usize::try_from(ncch_offset).map_err(|_| FsError::NoExecutablePartition)?;
+        let ncch_data = data.get(start..).ok_or(FsError::NoExecutablePartition)?;
         let ncch = NcchHeader::parse(ncch_data)?;
 
         if !ncch.is_decrypted() && ncch.crypto_method() != 0 {
             return Err(FsError::Encrypted(ncch.crypto_method()));
         }
 
-        let exheader_raw = &ncch_data[NcchHeader::SIZE..NcchHeader::SIZE + ExHeader::HASHED_SIZE];
+        let ncch_data = if ncch.content_size != 0 {
+            let end = usize::try_from(ncch.content_size)
+                .map_err(|_| FsError::Truncated { offset: usize::MAX, len: ncch_data.len() })?;
+            ncch_data.get(..end)
+                .ok_or(FsError::Truncated { offset: end, len: ncch_data.len() })?
+        } else {
+            ncch_data
+        };
+
+        let exheader_end = NcchHeader::SIZE + ExHeader::HASHED_SIZE;
+        let exheader_raw = ncch_data.get(NcchHeader::SIZE..exheader_end)
+            .ok_or(FsError::Truncated { offset: exheader_end, len: ncch_data.len() })?;
         let exheader = ExHeader::parse(exheader_raw)?;
 
-        let exefs_offset = ncch_offset + ncch.exefs_offset;
-        let exefs = ExeFs::parse(&data[exefs_offset as usize..])?;
+        let exefs_start = usize::try_from(ncch.exefs_offset).ok()
+            .filter(|&offset| offset <= ncch_data.len())
+            .ok_or(FsError::Truncated { offset: usize::MAX, len: ncch_data.len() })?;
+        let exefs_data = &ncch_data[exefs_start..];
+        let exefs_data = if ncch.exefs_size != 0 {
+            let end = usize::try_from(ncch.exefs_size)
+                .map_err(|_| FsError::Truncated { offset: usize::MAX, len: exefs_data.len() })?;
+            exefs_data.get(..end)
+                .ok_or(FsError::Truncated { offset: end, len: exefs_data.len() })?
+        } else {
+            exefs_data
+        };
+        let exefs = ExeFs::parse(exefs_data)?;
+        for entry in &exefs.entries {
+            let end = exefs::HEADER_SIZE.checked_add(entry.offset)
+                .and_then(|offset| offset.checked_add(entry.size))
+                .and_then(|end| usize::try_from(end).ok())
+                .ok_or(FsError::Truncated { offset: usize::MAX, len: exefs_data.len() })?;
+            if end > exefs_data.len() {
+                return Err(FsError::Truncated { offset: end, len: exefs_data.len() });
+            }
+        }
+        let exefs_offset = (start + exefs_start) as u64;
 
         // a game reads its data from the RomFS, without one that reads it
         // stops on its first file
@@ -330,8 +363,8 @@ impl Title {
             return Some(file);
         }
         let entry = self.exefs.find(name)?;
-        let start = (self.exefs_offset + exefs::HEADER_SIZE + entry.offset) as usize;
-        let end = start.checked_add(entry.size as usize)?;
+        let start = usize::try_from(self.exefs_offset.checked_add(exefs::HEADER_SIZE)?.checked_add(entry.offset)?).ok()?;
+        let end = start.checked_add(usize::try_from(entry.size).ok()?)?;
         self.image.data().get(start..end)
     }
 
@@ -382,6 +415,40 @@ mod addon_tests {
     const GAME: u64 = 0x0004_0000_00AB_CD00;
     const UPDATE: u64 = 0x0004_000E_00AB_CD00;
     const DLC: u64 = 0x0004_008C_00AB_CD00;
+
+    #[test]
+    fn truncated_executable_regions_return_errors_without_panicking() {
+        let valid = ncch(GAME, Some(&[1; 8]), &[]);
+        for len in [0x200, 0x5ff, 0x600, 0x7ff, 0x807] {
+            let path = write("bounds", &format!("truncated-{len}.cxi"), &valid[..len]);
+            assert!(matches!(Title::load(&path), Err(FsError::Truncated { .. })), "length {len:#x}");
+            std::fs::remove_file(path).unwrap();
+        }
+        for (field, value) in [(0x1a0, u32::MAX), (0x1a4, 1), (0x104, 1), (0x104, u32::MAX), (0x608, u32::MAX), (0x60c, u32::MAX)] {
+            let mut bytes = valid.clone();
+            bytes[field..field + 4].copy_from_slice(&value.to_le_bytes());
+            let path = write("bounds", &format!("invalid-{field}-{value}.cxi"), &bytes);
+            assert!(matches!(Title::load(&path), Err(FsError::Truncated { .. })), "field {field:#x} = {value:#x}");
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn decrypted_ncch_executable_accepts_exact_region_boundaries() {
+        let mut bytes = ncch(GAME, Some(&[1; 8]), &[]);
+        let units = (bytes.len() / 0x200) as u32;
+        bytes[0x104..0x108].copy_from_slice(&units.to_le_bytes());
+        bytes[0x1a4..0x1a8].copy_from_slice(&2u32.to_le_bytes());
+        let path = write("bounds", "valid.cxi", &bytes);
+        let mut title = Title::load(&path).unwrap();
+        assert_eq!(title.code().unwrap(), [1; 8]);
+        assert_eq!(title.exheader_bytes().len(), ExHeader::HASHED_SIZE);
+        let entry = &mut title.exefs.entries[0];
+        entry.offset = u64::MAX;
+        assert!(title.exefs_file(".code").is_none());
+        drop(title);
+        std::fs::remove_file(path).unwrap();
+    }
 
     /// a game runs its update's code and exheader, and has the update's
     /// RomFS besides its own.

@@ -1613,7 +1613,7 @@ impl Hardware {
             let blits = blits_into(COLOR_FORMAT);
             // ZAKURO_DEPTH_BLITS=0 scales depth buffers the other way all the
             // same, to tell the two apart
-            let depth_blits = blits_into(depth_format) && std::env::var("ZAKURO_DEPTH_BLITS").map_or(true, |v| v != "0");
+            let depth_blits = blits_into(depth_format) && crate::backend::renderer_options().map_or_else(|| std::env::var("ZAKURO_DEPTH_BLITS").map_or(true, |v| v != "0"), |options| options.depth_blits);
             if !depth_blits {
                 log::info!("the GPU can't blit depth buffers, they are scaled on the CPU on their way to and from memory");
             }
@@ -1654,21 +1654,21 @@ impl Hardware {
                 // read each vertex's inputs and uniforms out of storage
                 // buffers, a load after another. ZAKURO_GPU_SHADERS=1 has
                 // it shade all the same
-                shades: match (std::env::var_os("ZAKURO_CPU_SHADERS"), std::env::var_os("ZAKURO_GPU_SHADERS")) {
+                shades: crate::backend::renderer_options().map_or_else(|| match (std::env::var_os("ZAKURO_CPU_SHADERS"), std::env::var_os("ZAKURO_GPU_SHADERS")) {
                     (Some(_), _) => false,
                     (None, Some(_)) => true,
                     (None, None) => properties.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU,
-                },
+                }, |options| options.gpu_shaders.unwrap_or(properties.device_type != vk::PhysicalDeviceType::INTEGRATED_GPU)),
                 // interpreting them all instead, to tell the two apart
-                translates: std::env::var_os("ZAKURO_INTERPRET_SHADERS").is_none(),
+                translates: crate::backend::renderer_options().map_or_else(|| std::env::var_os("ZAKURO_INTERPRET_SHADERS").is_none(), |options| options.translate_shaders),
                 scratch: Vec::new(),
                 translated: QuickMap::default(),
                 last_translation: None,
                 modules: HashMap::new(),
                 // to draw through the pipeline made for each draw from the
                 // first on, as the tests do
-                waits: cfg!(test) || std::env::var_os("ZAKURO_WAIT_FOR_SHADERS").is_some(),
-                generic: std::env::var_os("ZAKURO_GENERIC_SHADERS").is_some(),
+                waits: cfg!(test) || crate::backend::renderer_options().map_or_else(|| std::env::var_os("ZAKURO_WAIT_FOR_SHADERS").is_some(), |options| options.wait_for_shaders),
+                generic: crate::backend::renderer_options().map_or_else(|| std::env::var_os("ZAKURO_GENERIC_SHADERS").is_some(), |options| options.generic_shaders),
                 compiler,
                 logic_ops,
                 dynamic,
@@ -5486,7 +5486,7 @@ fn depth_format(instance: &ash::Instance, device: vk::PhysicalDevice) -> Option<
         features.contains(vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT)
     };
     let mut formats = [DEPTH_FORMAT, FLOAT_DEPTH_FORMAT];
-    if std::env::var_os("ZAKURO_FLOAT_DEPTH").is_some() {
+    if crate::backend::renderer_options().map_or_else(|| std::env::var_os("ZAKURO_FLOAT_DEPTH").is_some(), |options| options.float_depth) {
         formats.reverse();
     }
     formats.into_iter().find(|&format| draws_into(format))
@@ -5565,7 +5565,7 @@ pub(crate) fn render_device(
 /// which of the blend state the device lets draws set as they go, none
 /// with ZAKURO_STATIC_BLEND set, to compare the two.
 fn dynamic_state(instance: &ash::Instance, physical: vk::PhysicalDevice, logic_ops: bool) -> Dynamic {
-    if std::env::var_os("ZAKURO_STATIC_BLEND").is_some() {
+    if crate::backend::renderer_options().map_or_else(|| std::env::var_os("ZAKURO_STATIC_BLEND").is_some(), |options| options.static_blend) {
         return Dynamic::default();
     }
     // SAFETY: the physical device came from this instance

@@ -10,8 +10,7 @@ import java.util.*;
 public final class ImportPlanCheck {
     private static final String TITLE = "00040000001B0000";
     private static final long FOUR_GIB = 4L * 1024 * 1024 * 1024;
-    private static final byte[] PNG = Base64.getDecoder().decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=");
+    private static final byte[] PNG = NativeFixture.png();
     private interface Attempt { void run() throws Exception; }
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
@@ -25,13 +24,7 @@ public final class ImportPlanCheck {
         for (int i = 0; i < 4; i++) bytes[at + i] = (byte) (value >>> (8 * i));
     }
     private static byte[] romHeader(long length) {
-        byte[] bytes = new byte[512];
-        bytes[0x100] = 'N'; bytes[0x101] = 'C'; bytes[0x102] = 'C'; bytes[0x103] = 'H';
-        u32(bytes, 0x104, length / 512);
-        byte[] id = {0, 0, 0x1b, 0, 0, 0, 4, 0};
-        System.arraycopy(id, 0, bytes, 0x118, id.length);
-        bytes[0x18d] = 2; bytes[0x18f] = 4;
-        return bytes;
+        return NativeFixture.rom(length, Long.parseUnsignedLong(TITLE, 16));
     }
     private static byte[] elf(int machine) {
         byte[] bytes = new byte[64];
@@ -59,11 +52,13 @@ public final class ImportPlanCheck {
         byte[] prefix;
         long length;
         long read;
+        long readLimit = 65536;
+        int maxRequest;
         int opens;
         boolean readable = true;
         Blob(byte[] prefix, long length) { this.prefix = prefix; this.length = length; }
     }
-    /** Sparse readable channel: a four-GB ROM occupies only a 512-byte prefix. */
+    /** Sparse readable channel: a four-GB ROM occupies only a small executable prefix. */
     private static final class SparseChannel implements SeekableByteChannel {
         final Blob blob;
         long position;
@@ -74,7 +69,8 @@ public final class ImportPlanCheck {
             if (!target.hasRemaining()) return 0;
             if (position >= blob.length) return -1;
             int count = (int) Math.min(target.remaining(), blob.length - position);
-            if (blob.read + count > 65536) throw new IOException("Preflight attempted to read a whole payload");
+            blob.maxRequest = Math.max(blob.maxRequest, target.remaining());
+            if (blob.read + count > blob.readLimit) throw new IOException("Preflight attempted to read a whole payload");
             for (int i = 0; i < count; i++, position++)
                 target.put(position < blob.prefix.length ? blob.prefix[(int) position] : (byte) 0);
             blob.read += count;
@@ -94,6 +90,7 @@ public final class ImportPlanCheck {
     private static final class Tree implements ImportPlan.Source {
         final Map<String, List<ImportPlan.Entry>> folders = new LinkedHashMap<>();
         final Map<String, Blob> blobs = new LinkedHashMap<>();
+        final Set<String> listed = new HashSet<>();
         int opens;
         Tree() { folders.put("root", new ArrayList<>()); }
         void directory(String parent, String id, String name) {
@@ -108,6 +105,7 @@ public final class ImportPlanCheck {
             blobs.put(id, new Blob(bytes, size));
         }
         @Override public List<ImportPlan.Entry> children(String id) throws IOException {
+            listed.add(id);
             List<ImportPlan.Entry> children = folders.get(id);
             if (children == null) throw new IOException("Unknown folder " + id);
             return children;
@@ -126,7 +124,7 @@ public final class ImportPlanCheck {
         tree.directory("root", "title-folder", TITLE);
         tree.file("title-folder", "rom", "game.3ds", romHeader(FOUR_GIB), FOUR_GIB);
         tree.directory("title-folder", "arm", "arm64");
-        tree.file("arm", "code", "title.so", elf(183));
+        tree.file("arm", "code", "title.so", NativeFixture.elf(4, false));
         tree.directory("title-folder", "x86", "x86_64");
         tree.file("x86", "x86-code", "title.so", elf(62));
         tree.directory("title-folder", "textures", "textures");
@@ -168,7 +166,7 @@ public final class ImportPlanCheck {
         expected.put("font", "data/sysdata/shared_font.bin"); expected.put("mii", "data/sysdata/CFL_Res.dat");
         check(selected.equals(expected), "Wrong selected items: " + selected);
         check(plan.bytes == expectedBytes && plan.bytes > Integer.MAX_VALUE, "Incorrect long byte total");
-        check(tree.blobs.get("rom").read < 1024, "ROM preflight read more than a small header");
+        check(tree.blobs.get("rom").read <= 8192, "ROM preflight read beyond executable metadata");
         for (String id : new String[]{"junk", "outside-png", "texture-junk", "sys-junk"})
             check(tree.blobs.get(id).opens == 0, "Ignored junk opened: " + id);
         List<ImportPlan.Item> snapshot = new ArrayList<>(plan.files);
@@ -241,15 +239,148 @@ public final class ImportPlanCheck {
         final Tree badFont = tree; rejects(() -> ImportPlan.inspect(badFont, "root"), "unreadable selected sysdata");
         tree = valid(); tree.blobs.get("pack").readable = false;
         final Tree badPack = tree; rejects(() -> ImportPlan.inspect(badPack, "root"), "unreadable selected pack manifest");
-        tree = valid(); tree.file("arm", "another-arm64", "other.so", elf(183));
+        tree = valid(); tree.file("arm", "another-arm64", "other.so", NativeFixture.elf(4, false));
         tree.directory("root", "second-arm64-dir", "other-build");
-        tree.file("second-arm64-dir", "second-arm64", "title.so", elf(183));
+        tree.file("second-arm64-dir", "second-arm64", "title.so", NativeFixture.elf(4, false));
         final Tree duplicateArm64 = tree; rejects(() -> ImportPlan.inspect(duplicateArm64, "root"), "multiple ARM64 libraries");
         tree = valid(); reportedSize(tree, "title-folder", "rom", FOUR_GIB - 512);
         final Tree changedSize = tree; rejects(() -> ImportPlan.inspect(changedSize, "root"), "reported size mismatch");
-        tree = valid(); tree.file("textures", "overflow1", "first.png", PNG, Long.MAX_VALUE);
-        tree.file("textures", "overflow2", "second.png", PNG, Long.MAX_VALUE);
+        tree = valid(); tree.blobs.get("font").length = Long.MAX_VALUE;
+        reportedSize(tree, "sysdata", "font", Long.MAX_VALUE);
         final Tree overflow = tree; rejects(() -> ImportPlan.inspect(overflow, "root"), "byte size overflow");
+    }
+    private static void incompatibleCode() throws Exception {
+        for (byte[] bytes : new byte[][]{elf(183), NativeFixture.elf(5, true),
+                NativeFixture.elf(5, false), NativeFixture.elf(4, true)}) {
+            Tree tree = valid();
+            tree.blobs.get("code").prefix = bytes;
+            tree.blobs.get("code").length = bytes.length;
+            reportedSize(tree, "arm", "code", bytes.length);
+            rejects(() -> ImportPlan.inspect(tree, "root"), "incompatible native exports");
+        }
+    }
+    private static void rejectedRom(byte[] bytes, String label) throws Exception {
+        Tree tree = valid();
+        tree.blobs.get("rom").prefix = bytes;
+        tree.blobs.get("rom").length = bytes.length;
+        reportedSize(tree, "title-folder", "rom", bytes.length);
+        rejects(() -> ImportPlan.inspect(tree, "root"), label);
+        check(tree.blobs.get("code").opens == 0 && tree.blobs.get("texture").opens == 0,
+                label + " opened code/textures before rejecting ROM");
+    }
+    private static void executableStructure() throws Exception {
+        byte[] headerOnly = Arrays.copyOf(romHeader(512), 512);
+        u32(headerOnly, 0x180, 0); u32(headerOnly, 0x1a0, 0); u32(headerOnly, 0x1a4, 0);
+        rejectedRom(headerOnly, "512-byte NCCH without exheader");
+        byte[] bytes = romHeader(0xA00); u32(bytes, 0x180, 0x3ff);
+        rejectedRom(bytes, "short declared exheader");
+        bytes = romHeader(0xA00); u32(bytes, 0x180, 0x1000);
+        rejectedRom(bytes, "exheader beyond content");
+        bytes = romHeader(0xA00); u32(bytes, 0x1a0, 1);
+        rejectedRom(bytes, "ExeFS overlaps exheader");
+        bytes = romHeader(0xA00); u32(bytes, 0x1a4, 0);
+        rejectedRom(bytes, "missing ExeFS");
+        bytes = romHeader(0xA00); bytes[0x600] = 'x';
+        rejectedRom(bytes, "missing .code entry");
+        bytes = romHeader(0xA00); u32(bytes, 0x60c, 0);
+        rejectedRom(bytes, "empty .code entry");
+        bytes = romHeader(0xA00); u32(bytes, 0x608, 0x200);
+        rejectedRom(bytes, ".code outside ExeFS");
+        bytes = romHeader(0xA00); System.arraycopy(bytes, 0x600, bytes, 0x610, 16);
+        rejectedRom(bytes, "duplicate .code entry");
+        byte[] cartridge = new byte[0xC00];
+        u32(cartridge, 0x100, 0x4453434e); u32(cartridge, 0x120, 1); u32(cartridge, 0x124, 5);
+        System.arraycopy(romHeader(0xA00), 0, cartridge, 512, 0xA00);
+        try (SeekableByteChannel file = new SparseChannel(new Blob(cartridge, cartridge.length))) {
+            check(TITLE.equals(ImportPlan.title(file)), "Valid NCSD executable rejected");
+        }
+    }
+    private static void rejectedPng(byte[] bytes, String label) throws Exception {
+        Tree tree = valid(); tree.blobs.get("texture").prefix = bytes; tree.blobs.get("texture").length = bytes.length;
+        reportedSize(tree, "texture-sub", "texture", bytes.length);
+        rejects(() -> ImportPlan.inspect(tree, "root"), label);
+        rejects(() -> ImportPlan.texturePack(tree, "textures", TITLE), label + " replacement");
+    }
+    private static void completePngs() throws Exception {
+        rejectedPng(Arrays.copyOf(PNG, 33), "IHDR-only PNG");
+        rejectedPng(Arrays.copyOf(PNG, PNG.length - 12), "PNG without IEND");
+        rejectedPng(Arrays.copyOf(PNG, PNG.length - 1), "truncated IEND CRC");
+        byte[] bytes = PNG.clone(); bytes[41] ^= 1;
+        rejectedPng(bytes, "bad IDAT CRC");
+        bytes = PNG.clone(); bytes[bytes.length - 1] ^= 1;
+        rejectedPng(bytes, "bad IEND CRC");
+        bytes = PNG.clone(); ByteBuffer.wrap(bytes).putInt(33, Integer.MAX_VALUE);
+        rejectedPng(bytes, "chunk extends beyond file");
+        bytes = new byte[45]; System.arraycopy(PNG, 0, bytes, 0, 33);
+        System.arraycopy(PNG, PNG.length - 12, bytes, 33, 12);
+        rejectedPng(bytes, "IEND without IDAT");
+        rejectedPng(Arrays.copyOf(PNG, PNG.length + 1), "bytes after IEND");
+        java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
+        raw.write(PNG, 0, 33);
+        NativeFixture.chunk(new java.io.DataOutputStream(raw), "vpAg", new byte[140000]);
+        raw.write(PNG, 33, PNG.length - 33);
+        Tree tree = valid(); Blob large = tree.blobs.get("texture");
+        large.prefix = raw.toByteArray(); large.length = large.prefix.length; large.readLimit = 300000;
+        reportedSize(tree, "texture-sub", "texture", large.length);
+        check(ImportPlan.texturePack(tree, "textures", TITLE).files.size() == 2, "Large valid PNG chunk rejected");
+        check(large.read >= large.length && large.maxRequest <= 65536, "PNG scan did not stream in bounded reads");
+    }
+    private static void optionalTextures() throws Exception {
+        Tree noTextures = valid();
+        noTextures.folders.get("title-folder").removeIf(entry -> entry.id.equals("textures"));
+        check(ImportPlan.inspect(noTextures, "root").files.size() == 4, "Base game without textures rejected");
+        Tree emptyTextures = valid();
+        emptyTextures.folders.get("textures").clear();
+        check(ImportPlan.inspect(emptyTextures, "root").files.size() == 4, "Empty textures folder rejected");
+        Tree manifestOnly = valid();
+        manifestOnly.folders.get("textures").removeIf(entry -> !entry.id.equals("pack"));
+        manifestOnly.blobs.get("pack").readable = false;
+        check(ImportPlan.inspect(manifestOnly, "root").files.size() == 4, "Manifest-only optional pack rejected");
+        check(manifestOnly.blobs.get("pack").opens == 0, "Ignored manifest-only pack opened");
+        Tree broken = valid();
+        broken.blobs.get("pack").readable = false;
+        broken.blobs.get("texture").prefix[0] = 0;
+        ImportPlan plan = ImportPlan.inspect(broken, "root", false);
+        check(plan.files.size() == 4, "Excluded textures entered plan");
+        for (ImportPlan.Item item : plan.files)
+            check(!item.destination.contains("/textures/"), "Texture destination included despite opt out");
+        check(broken.blobs.get("pack").opens == 0 && broken.blobs.get("texture").opens == 0,
+                "Excluded broken texture pack was opened");
+        check(!broken.listed.contains("textures") && !broken.listed.contains("texture-sub"),
+                "Excluded texture metadata was traversed");
+        rejects(() -> ImportPlan.inspect(broken, "root"), "broken texture pack included by default");
+    }
+    private static void componentPlans() throws Exception {
+        Tree nativeOnly = new Tree();
+        byte[] code = NativeFixture.elf(4, false);
+        nativeOnly.file("root", "code", "replacement.so", code);
+        ImportPlan nativePlan = ImportPlan.nativeCode(nativeOnly,
+                new ImportPlan.Entry("code", "replacement.so", false, code.length), TITLE);
+        check(nativePlan.rom == null && nativePlan.files.size() == 1 && TITLE.equals(nativePlan.titleId),
+                "Native replacement included unrelated components");
+        check(nativePlan.code.id.equals("code") && nativePlan.bytes == code.length
+                && item(nativePlan, "code").destination.equals("code/title.so"), "Wrong native replacement plan");
+        check(nativeOnly.listed.isEmpty() && nativeOnly.opens == 1, "Native replacement scanned other source files");
+        nativeOnly.blobs.get("code").prefix = NativeFixture.elf(5, true);
+        rejects(() -> ImportPlan.nativeCode(nativeOnly,
+                new ImportPlan.Entry("code", "replacement.so", false, code.length), TITLE), "ABI 5 replacement");
+
+        Tree textures = valid();
+        ImportPlan pack = ImportPlan.texturePack(textures, "textures", TITLE);
+        check(pack.rom == null && pack.code == null && pack.files.size() == 2 && TITLE.equals(pack.titleId),
+                "Texture replacement included game components");
+        check(item(pack, "texture").destination.equals("data/mods/" + TITLE + "/textures/battle/tex.png")
+                && item(pack, "pack").destination.equals("data/mods/" + TITLE + "/textures/pack.json"),
+                "Wrong texture replacement destinations");
+        check(pack.bytes == PNG.length + 2 && textures.blobs.get("rom").opens == 0
+                && textures.blobs.get("code").opens == 0, "Texture replacement opened game payloads");
+        try (SeekableByteChannel channel = textures.open("texture")) { item(pack, "texture").checkHeader(channel); }
+        textures.blobs.get("texture").prefix[0] = 0;
+        rejects(() -> ImportPlan.texturePack(textures, "textures", TITLE), "broken replacement PNG");
+        Tree empty = new Tree();
+        rejects(() -> ImportPlan.texturePack(empty, "root", TITLE), "empty explicit texture pack");
+        empty.file("root", "manifest", "pack.json", new byte[]{'{', '}'});
+        rejects(() -> ImportPlan.texturePack(empty, "root", TITLE), "manifest-only explicit texture pack");
     }
     private static void unknownSizes() throws Exception {
         Tree tree = valid();
@@ -257,18 +388,19 @@ public final class ImportPlanCheck {
         reportedSize(tree, "arm", "code", -1);
         reportedSize(tree, "texture-sub", "texture", -1);
         ImportPlan plan = ImportPlan.inspect(tree, "root");
-        check(plan.rom.size == FOUR_GIB && plan.code.size == 64, "Unknown sizes were not resolved");
+        check(plan.rom.size == FOUR_GIB && plan.code.size == NativeFixture.elf(4, false).length,
+                "Unknown sizes were not resolved");
         for (ImportPlan.Item item : plan.files) check(item.source.size >= 0, "Unknown size leaked into plan");
         long total = 0; for (ImportPlan.Item item : plan.files) total += item.source.size;
         check(plan.bytes == total, "Resolved sizes missing from byte total");
-        check(tree.blobs.get("rom").read < 1024, "Unknown size caused a full ROM read");
+        check(tree.blobs.get("rom").read <= 8192, "Unknown size caused a full ROM read");
     }
     private static void directHeaders() throws Exception {
         Blob rom = new Blob(romHeader(FOUR_GIB), FOUR_GIB);
         try (SeekableByteChannel channel = new SparseChannel(rom)) {
             check(TITLE.equals(ImportPlan.title(channel)), "Direct title parsing failed");
         }
-        check(rom.read < 1024, "Direct title read unbounded data");
+        check(rom.read <= 8192, "Direct title read unbounded data");
         for (int machine : new int[]{183, 62}) {
             try (SeekableByteChannel channel = new SparseChannel(new Blob(elf(machine), 64))) {
                 check(ImportPlan.arm64(channel) == (machine == 183), "Wrong ELF machine accepted");
@@ -338,6 +470,8 @@ public final class ImportPlanCheck {
     public static void main(String[] args) throws Exception {
         validPlan(); badStructure(); badPayloads(); unknownSizes(); directHeaders();
         destinationBounds(); capturedHeaders();
-        System.out.println("Import plan checks passed: preflight ordering, sparse ROM, selected items, malformed inputs, destination bounds, captured headers");
+        incompatibleCode(); optionalTextures(); componentPlans();
+        executableStructure(); completePngs();
+        System.out.println("Import plan checks passed: preflight ordering, sparse ROM, strict ABI, optional textures, component replacements, destination bounds, captured headers");
     }
 }

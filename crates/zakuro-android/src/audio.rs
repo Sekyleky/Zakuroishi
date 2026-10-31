@@ -81,12 +81,14 @@ impl Audio {
             disconnected,
         })
     }
-    pub fn push(&self, frames: &[[i16; 2]]) {
+    pub fn push(&self, frames: &[[i16; 2]], volume: f32) {
         if let Ok(mut queue) = self.queue.lock() {
             let frames = &frames[frames.len().saturating_sub(CAPACITY)..];
             let excess = (queue.frames.len() + frames.len()).saturating_sub(CAPACITY);
             queue.frames.drain(..excess);
-            queue.frames.extend(frames.iter().copied());
+            queue.frames.extend(frames.iter().map(|frame| {
+                frame.map(|v| (f32::from(v) * volume).round().clamp(-32768.0, 32767.0) as i16)
+            }));
         }
     }
     pub fn disconnected(&self) -> bool {

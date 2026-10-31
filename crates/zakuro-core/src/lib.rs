@@ -44,6 +44,8 @@ pub struct Config {
     /// a library 3dsrecomp built for the title, or a directory holding one
     /// named after its title id.
     pub recompiled: Option<std::path::PathBuf>,
+    /// Refuse startup when an explicitly requested native library cannot be used.
+    pub require_recompiled: bool,
     /// recompiled code linked into the program, which comes before a
     /// library.
     pub linked: Option<recompiled::Linked>,
@@ -102,6 +104,7 @@ impl Default for Config {
             language: services::cfg::LANGUAGE_ENGLISH,
             slider_3d: 0.0,
             recompiled: None,
+            require_recompiled: false,
             linked: None,
             find_recompiled: false,
             data_dir: None,

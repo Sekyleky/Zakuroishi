@@ -4664,14 +4664,26 @@ name = "zakuro-android"
 version = "0.2.30"
 dependencies = [
  "android-activity",
+ "ash",
  "jni 0.21.1",
+ "libloading",
  "log",
  "ndk",
  "ndk-sys",
  "raw-window-handle",
+ "serde",
+ "serde_json",
  "zakuro-common",
  "zakuro-core",
  "zakuro-gpu",
+]
+
+[[package]]
+name = "zakuro-build-title"
+version = "0.2.30"
+dependencies = [
+ "recomp-abi",
+ "recomp3ds",
 ]
 
 [[package]]

@@ -10,14 +10,19 @@ test -d "$java"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/classes" "$work/dex" "$work/lib/arm64-v8a"
-# Deliberately no assets directory: users supply their own game files at runtime.
-"$BUILD_TOOLS_BIN/aapt2" link -o "$work/unsigned.apk" --manifest "$manifest" -I "$ANDROID_JAR"
+# Only license notices are bundled; game files and driver packs remain user supplied.
+"$BUILD_TOOLS_BIN/aapt2" link -o "$work/unsigned.apk" --manifest "$manifest" -I "$ANDROID_JAR" -A "$app/src/main/assets"
 mapfile -t sources < <(find "$java" -name '*.java' | LC_ALL=C sort)
 ((${#sources[@]} > 0))
 javac -nowarn --release 11 -classpath "$ANDROID_JAR" -d "$work/classes" "${sources[@]}"
 mapfile -t classes < <(find "$work/classes" -name '*.class' | LC_ALL=C sort)
 "$BUILD_TOOLS_BIN/d8" --min-api 30 --lib "$ANDROID_JAR" --output "$work/dex" "${classes[@]}"
 cp "$engine" "$work/lib/arm64-v8a/libzakuro_android.so"
+for library in libadrenotools.so libhook_impl.so libmain_hook.so libfile_redirect_hook.so libgsl_alloc_hook.so; do
+    mapfile -t found < <(find /work/adrenotools -type f -name "$library")
+    ((${#found[@]} == 1))
+    "$NDK_BIN/llvm-strip" -o "$work/lib/arm64-v8a/$library" "${found[0]}"
+done
 (cd "$work/dex" && zip -q "$work/unsigned.apk" classes.dex)
 (cd "$work" && zip -q -r -0 unsigned.apk lib)
 "$BUILD_TOOLS_BIN/zipalign" -P 16 -f 4 "$work/unsigned.apk" "$work/aligned.apk"
@@ -36,4 +41,9 @@ grep -q "package: name='io.github.zakuro.android'" "$work/badging"
 grep -q "launchable-activity: name='io.github.zakuro.android.Launcher'" "$work/badging"
 unzip -Z1 "$out" > "$work/entries"
 grep -qx 'lib/arm64-v8a/libzakuro_android.so' "$work/entries"
-if grep -q '^assets/' "$work/entries"; then echo 'Unexpected bundled assets' >&2; exit 1; fi
+if grep '^assets/' "$work/entries" | grep -Ev '^assets/licenses/(ADRENOTOOLS|LINKERNSBYPASS|ZAKURO)\.txt$'; then
+    echo 'Unexpected bundled assets' >&2; exit 1
+fi
+for library in libadrenotools.so libhook_impl.so libmain_hook.so libfile_redirect_hook.so libgsl_alloc_hook.so; do
+    grep -qx "lib/arm64-v8a/$library" "$work/entries"
+done

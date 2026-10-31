@@ -8,6 +8,7 @@ members = [
     "crates/zakuro-core",
     "crates/zakuro",
     "crates/zakuro-android",
+    "tools/build-title",
 ]
 
 [workspace.package]

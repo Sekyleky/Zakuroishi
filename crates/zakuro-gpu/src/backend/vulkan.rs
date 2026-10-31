@@ -8,7 +8,7 @@ use ash::vk;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::vulkan_overlay::OverlayPainter;
-use super::{place, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, Shown, Stereo, StereoMode, Viewport};
+use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, Shown, Stereo, StereoMode, Viewport};
 use crate::raster::hardware::{can_render, render_device};
 use crate::SharedDevice;
 
@@ -125,11 +125,17 @@ pub struct VulkanPresenter {
     filter: ScreenFilter,
     integer: bool,
     stereo: Stereo,
+    stretch: bool,
+    swap_screens: bool,
     /// set when the swapchain no longer matches the window.
     stale: bool,
 }
 
 impl VulkanPresenter {
+    pub fn set_geometry(&mut self, stretch: bool, swap_screens: bool) {
+        self.stretch = stretch;
+        self.swap_screens = swap_screens;
+    }
     pub fn new(
         window: &(impl HasDisplayHandle + HasWindowHandle),
         size: (u32, u32),
@@ -138,7 +144,16 @@ impl VulkanPresenter {
         // documented way to start.
         let entry = unsafe { ash::Entry::load() }
             .map_err(|e| fail(format!("no Vulkan loader: {e}")))?;
+        Self::with_entry(window, size, entry)
+    }
 
+    /// The caller must retain any external library backing the entry until
+    /// every presenter and renderer made from it has been destroyed.
+    pub fn with_entry(
+        window: &(impl HasDisplayHandle + HasWindowHandle),
+        size: (u32, u32),
+        entry: ash::Entry,
+    ) -> Result<VulkanPresenter, PresentError> {
         let display = window
             .display_handle()
             .map_err(|e| fail(format!("no display handle: {e}")))?;
@@ -410,6 +425,8 @@ impl VulkanPresenter {
             filter: ScreenFilter::default(),
             integer: false,
             stereo: Stereo::default(),
+            stretch: false,
+            swap_screens: false,
             stale: false,
         };
 
@@ -776,7 +793,7 @@ impl VulkanPresenter {
                     Some((self.gpu_sets[self.frame][index], [x, y, width, height, left, top, right, bottom]))
                 }
             };
-            let places = place(self.extent.width, self.extent.height, self.arrangement, self.top_width, self.integer, self.stereo, right);
+            let places = place_configured(self.extent.width, self.extent.height, self.arrangement, self.top_width, self.integer, self.stereo, right, self.stretch, self.swap_screens);
             for (viewport, shown) in places {
                 let index = match shown {
                     Shown::Top | Shown::Both => 0,

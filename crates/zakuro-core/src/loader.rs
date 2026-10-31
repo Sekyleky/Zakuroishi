@@ -13,6 +13,8 @@ pub enum LoadError {
     Fs(#[from] zakuro_fs::FsError),
     #[error("the code image is too small for the segments the exheader describes")]
     ShortCodeImage,
+    #[error("Native game code could not be loaded: {0}")]
+    NativeLibrary(String),
 }
 
 /// whether a title id is the same game's, its update's or its DLC's, which
@@ -70,7 +72,6 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
     let dlc = load_dlc(&title, &config.dlc);
 
     let exheader = &title.exheader;
-    let app_bytes = exheader.system_mode.application_memory();
     let region = match exheader.memory_type {
         MemoryType::Application => memory::MemoryRegion::Application,
         MemoryType::System => memory::MemoryRegion::System,
@@ -85,6 +86,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
     if config.new3ds {
         config.model = ConsoleModel::New3ds;
     }
+    let app_bytes = exheader.application_memory(config.new3ds);
 
     // the console's region follows the title's own, so a European or
     // Japanese dump finds its localised files instead of the Americas'.
@@ -116,7 +118,12 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
     );
     system.kernel.shared_device_memory = exheader.shared_device_memory;
 
-    map_special_pages(&mut system, app_bytes);
+    let app_mem_type = match app_bytes / (1024 * 1024) {
+        124 => 6,
+        178 => 7,
+        _ => exheader.system_mode as u32,
+    };
+    map_special_pages(&mut system, app_bytes, app_mem_type);
     let modded = map_code(&mut system, &title)?;
     map_stack(&mut system, exheader.stack_size);
 
@@ -175,11 +182,11 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
             // code a mod or the update changed would go on running as it was
             // recompiled. a library that can't tell is older than recompiling
             // with the update, it was made from the game without it
-            Ok(library) if (modded || updated) && !library.checks_itself() => log::warn!(
-                "{} changed the game's code and {} can't tell where, which code recompiled again can, interpreting everything",
-                if modded { "a mod" } else { "the update" },
-                path.display()
-            ),
+            Ok(library) if (modded || updated) && !library.checks_itself() => {
+                let reason = format!("{} changed the game's code, but this native library cannot verify changed functions. Rebuild it from the same game and update.", if modded { "A mod" } else { "An update" });
+                if system.config.require_recompiled { return Err(LoadError::NativeLibrary(reason)); }
+                log::warn!("{reason} Interpreting instead.");
+            }
             Ok(mut library) => {
                 log::info!("running recompiled code from {}, {}", path.display(), library.describe());
                 if library.outdated() {
@@ -195,10 +202,18 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
                 let text = exheader_text(&title);
                 system.hints = Some(crate::hints::Hints::new(&path, text));
             }
-            Err(error) => log::warn!("could not load {}, {error}, interpreting everything", path.display()),
+            Err(error) => {
+                if system.config.require_recompiled {
+                    return Err(LoadError::NativeLibrary(format!("{error}. Use an Android library built for this Zakuro ABI; Pocket Native ABI 5/fast-memory libraries need rebuilding for this runtime.")));
+                }
+                log::warn!("could not load {}, {error}, interpreting everything", path.display());
+            }
         }
     }
 
+    if system.config.require_recompiled && system.recompiled.is_none() {
+        return Err(LoadError::NativeLibrary("No compatible native library was supplied. Select this game's Android title.so or explicitly choose interpreter mode in Performance settings.".into()));
+    }
     let mut on_gpu = false;
     if system.config.hardware_renderer {
         match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), Some(title.program_id())) {
@@ -290,11 +305,8 @@ fn installed(system: &System, title: &Title) -> Option<std::path::PathBuf> {
     found
 }
 
-fn map_special_pages(system: &mut System, app_bytes: u32) {
+fn map_special_pages(system: &mut System, app_bytes: u32, app_mem_type: u32) {
     let model = system.config.model;
-    let app_mem_type = system.title.as_ref().map_or(0, |t| {
-        t.exheader.system_mode as u32
-    });
     let sys = system
         .memory
         .phys
@@ -490,6 +502,44 @@ mod tests {
         let path = std::env::temp_dir().join(format!("zakuro-loader-{}-{test}.cxi", std::process::id()));
         std::fs::write(&path, out).unwrap();
         path
+    }
+
+    #[test]
+    fn new3ds_extended_memory_reaches_allocator_and_config_page() {
+        let rom = rom("extended-memory", &[0; 8]);
+        let mut bytes = std::fs::read(&rom).unwrap();
+        bytes[0x40D] = 2; // ExHeader ACI+0x0D, 178 MiB mode.
+        bytes[0x40E] = 0x30; // Old3DS 80 MiB fallback.
+        std::fs::write(&rom, bytes).unwrap();
+        for (new3ds, mib) in [(false, 80), (true, 178)] {
+            let mut system = load(&rom, Config { new3ds, ..Config::default() }).unwrap();
+            assert_eq!(system.memory.phys.region_size(memory::MemoryRegion::Application), mib * 1024 * 1024);
+            let page = system.memory.phys.config_mem_mut();
+            assert_eq!(u32::from_le_bytes(page[0x40..0x44].try_into().unwrap()), mib * 1024 * 1024);
+            assert_eq!(u32::from_le_bytes(page[0x30..0x34].try_into().unwrap()), if new3ds { 7 } else { 3 });
+        }
+        std::fs::remove_file(rom).unwrap();
+    }
+
+    #[test]
+    fn required_native_code_reports_loader_error_instead_of_silent_fallback() {
+        let rom = rom("required-native", &[0; 8]);
+        let missing = rom.with_extension("missing-native-library");
+        let config = Config {
+            recompiled: Some(missing.clone()),
+            require_recompiled: true,
+            ..Config::default()
+        };
+        match load(&rom, config) {
+            Err(LoadError::NativeLibrary(reason)) => {
+                assert!(reason.contains("Android library"), "{reason}");
+                assert!(reason.contains("ABI 5"), "{reason}");
+            }
+            _ => panic!("required native code must fail with an actionable error"),
+        }
+        let system = load(&rom, Config { recompiled: Some(missing), ..Config::default() }).unwrap();
+        assert!(system.recompiled.is_none(), "desktop's optional AOT fallback must remain available");
+        std::fs::remove_file(rom).unwrap();
     }
 
     /// a mod's code past .data, in a BSS its exheader.bin makes bigger, is

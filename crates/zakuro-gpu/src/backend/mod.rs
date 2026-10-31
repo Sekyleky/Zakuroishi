@@ -1,5 +1,48 @@
 //! presentation backends.
 
+/// Startup overrides for the upstream renderer's environment switches. None
+/// installed keeps the desktop environment behavior; Android supplies a snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RendererOptions {
+    /// None lets the renderer choose for the device, true forces GPU, false CPU.
+    pub gpu_shaders: Option<bool>,
+    pub translate_shaders: bool,
+    pub cpu_shader_jit: bool,
+    pub wait_for_shaders: bool,
+    pub generic_shaders: bool,
+    pub depth_blits: bool,
+    pub float_depth: bool,
+    pub static_blend: bool,
+}
+impl RendererOptions {
+    fn encode(self) -> u32 {
+        let placement = match self.gpu_shaders { None => 0, Some(false) => 1, Some(true) => 2 };
+        (1 << 31) | placement | ((self.translate_shaders as u32) << 2)
+            | ((self.cpu_shader_jit as u32) << 3) | ((self.wait_for_shaders as u32) << 4)
+            | ((self.generic_shaders as u32) << 5) | ((self.depth_blits as u32) << 6)
+            | ((self.float_depth as u32) << 7) | ((self.static_blend as u32) << 8)
+    }
+    fn decode(bits: u32) -> Option<Self> {
+        if bits & (1 << 31) == 0 { return None; }
+        Some(Self {
+            gpu_shaders: match bits & 3 { 1 => Some(false), 2 => Some(true), _ => None },
+            translate_shaders: bits & (1 << 2) != 0, cpu_shader_jit: bits & (1 << 3) != 0,
+            wait_for_shaders: bits & (1 << 4) != 0, generic_shaders: bits & (1 << 5) != 0,
+            depth_blits: bits & (1 << 6) != 0, float_depth: bits & (1 << 7) != 0,
+            static_blend: bits & (1 << 8) != 0,
+        })
+    }
+}
+static RENDERER_OPTIONS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// Install before constructing devices/renderers and after destroying the old session.
+pub fn set_renderer_options(options: RendererOptions) {
+    RENDERER_OPTIONS.store(options.encode(), std::sync::atomic::Ordering::Release);
+}
+pub(crate) fn renderer_options() -> Option<RendererOptions> {
+    RendererOptions::decode(RENDERER_OPTIONS.load(std::sync::atomic::Ordering::Acquire))
+}
+
 #[cfg(feature = "opengl")]
 pub mod gl;
 #[cfg(feature = "vulkan")]
@@ -294,6 +337,57 @@ pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, t
     }
 }
 
+/// Presentation geometry shared by Vulkan drawing and frontend touch hit tests.
+/// Stretch fills the display with the arrangement's bounding rectangle.
+pub fn place_configured(window_width: u32, window_height: u32, arrangement: ScreenLayout, top_width: f32, integer: bool, stereo: Stereo, right: bool, stretch: bool, swap: bool) -> Vec<(Viewport, Shown)> {
+    let mut places = place(window_width, window_height, arrangement, top_width, integer && !stretch, stereo, right);
+    if swap {
+        for (viewport, shown) in &mut places {
+            *shown = match *shown {
+                Shown::Top | Shown::Right | Shown::Both => Shown::Bottom,
+                Shown::Bottom => match stereo.mode {
+                    StereoMode::Anaglyph | StereoMode::Interlaced if right => Shown::Both,
+                    StereoMode::SideBySide | StereoMode::HalfSideBySide if right => {
+                        let second = viewport.x + viewport.width / 2.0 >= window_width as f32 / 2.0;
+                        if second ^ stereo.swap { Shown::Right } else { Shown::Top }
+                    }
+                    _ => Shown::Top,
+                },
+            };
+            if !stretch {
+                let source_width = if *shown == Shown::Bottom { 320.0 } else { top_width }
+                    * if stereo.mode == StereoMode::HalfSideBySide { 0.5 } else { 1.0 };
+                let mut scale = (viewport.width / source_width).min(viewport.height / 240.0);
+                if integer && scale >= 1.0 { scale = scale.floor(); }
+                let width = source_width * scale;
+                let height = 240.0 * scale;
+                viewport.x += (viewport.width - width) / 2.0;
+                viewport.y += (viewport.height - height) / 2.0;
+                if integer { viewport.x = viewport.x.floor(); viewport.y = viewport.y.floor(); }
+                viewport.width = width;
+                viewport.height = height;
+            }
+        }
+    }
+    if stretch && !places.is_empty() {
+        let left = places.iter().map(|(v, _)| v.x).fold(f32::INFINITY, f32::min);
+        let top = places.iter().map(|(v, _)| v.y).fold(f32::INFINITY, f32::min);
+        let right = places.iter().map(|(v, _)| v.x + v.width).fold(0.0, f32::max);
+        let bottom = places.iter().map(|(v, _)| v.y + v.height).fold(0.0, f32::max);
+        let span_x = (right - left).max(1.0);
+        let span_y = (bottom - top).max(1.0);
+        for (viewport, _) in &mut places {
+            let end_x = (viewport.x + viewport.width - left) / span_x * window_width as f32;
+            let end_y = (viewport.y + viewport.height - top) / span_y * window_height as f32;
+            viewport.x = (viewport.x - left) / span_x * window_width as f32;
+            viewport.y = (viewport.y - top) / span_y * window_height as f32;
+            viewport.width = end_x - viewport.x;
+            viewport.height = end_y - viewport.y;
+        }
+    }
+    places
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum PresentError {
     #[error("{0}")]
@@ -336,6 +430,22 @@ pub trait Presenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renderer_overrides_round_trip_all_flags_without_global_test_state() {
+        assert_eq!(RendererOptions::decode(0), None);
+        for gpu_shaders in [None, Some(false), Some(true)] {
+            for flags in 0u32..128 {
+                let options = RendererOptions {
+                    gpu_shaders, translate_shaders: flags & 1 != 0,
+                    cpu_shader_jit: flags & 2 != 0, wait_for_shaders: flags & 4 != 0,
+                    generic_shaders: flags & 8 != 0, depth_blits: flags & 16 != 0,
+                    float_depth: flags & 32 != 0, static_blend: flags & 64 != 0,
+                };
+                assert_eq!(RendererOptions::decode(options.encode()), Some(options));
+            }
+        }
+    }
 
     #[test]
     fn layout_keeps_the_aspect_ratio_and_centers() {
@@ -472,5 +582,46 @@ mod tests {
         let (top, bottom) = layout(1680, 720, ScreenLayout::LargeTop, TOP_WIDTH, true);
         assert_eq!(top.unwrap().width, 1200.0);
         assert_eq!((bottom.unwrap().width, bottom.unwrap().height), (320.0, 240.0));
+    }
+
+    #[test]
+    fn swapping_squeezed_stereo_keeps_eye_order_and_half_width_aspects() {
+        let stereo = Stereo { mode: StereoMode::HalfSideBySide, swap: true };
+        let places = place_configured(1600, 960, ScreenLayout::Stacked, 400.0, false, stereo, true, false, true);
+        assert_eq!(places.iter().map(|(_, s)| *s).collect::<Vec<_>>(), [Shown::Bottom, Shown::Right, Shown::Bottom, Shown::Top]);
+        for (v, shown) in places {
+            let expected = if shown == Shown::Bottom { 320.0 / 240.0 / 2.0 } else { 400.0 / 240.0 / 2.0 };
+            assert!((v.width / v.height - expected).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn swapping_preserves_whole_pixel_scaling_when_there_is_room() {
+        for (v, shown) in place_configured(1600, 960, ScreenLayout::Stacked, 400.0, true, Stereo::default(), false, false, true) {
+            let source_width = if shown == Shown::Bottom { 320.0 } else { 400.0 };
+            assert_eq!((v.width / source_width).fract(), 0.0);
+            assert_eq!((v.height / 240.0).fract(), 0.0);
+            assert_eq!((v.x.fract(), v.y.fract()), (0.0, 0.0));
+        }
+    }
+
+    #[test]
+    fn configured_geometry_stays_inside_the_window_for_all_arrangements() {
+        for arrangement in [ScreenLayout::Stacked, ScreenLayout::SideBySide, ScreenLayout::LargeTop, ScreenLayout::TopOnly, ScreenLayout::BottomOnly] {
+            for mode in [StereoMode::Off, StereoMode::Anaglyph, StereoMode::SideBySide, StereoMode::HalfSideBySide, StereoMode::Interlaced] {
+                for swap in [false, true] { for stretch in [false, true] {
+                    let places = place_configured(1280, 720, arrangement, 560.0, true, Stereo { mode, swap: true }, true, stretch, swap);
+                    for (v, _) in &places {
+                        assert!(v.width > 0.0 && v.height > 0.0);
+                        assert!(v.x >= -0.01 && v.y >= -0.01 && v.x + v.width <= 1280.01 && v.y + v.height <= 720.01, "{arrangement:?} {mode:?} {v:?}");
+                    }
+                    if stretch {
+                        let right = places.iter().map(|(v, _)| v.x + v.width).fold(0.0, f32::max);
+                        let bottom = places.iter().map(|(v, _)| v.y + v.height).fold(0.0, f32::max);
+                        assert!((right - 1280.0).abs() < 0.01 && (bottom - 720.0).abs() < 0.01);
+                    }
+                } }
+            }
+        }
     }
 }

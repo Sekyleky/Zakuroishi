@@ -17,7 +17,8 @@ impl log::Log for AndroidLog {
         }
         // android-activity 0.6 treats normal sensor looper callbacks as errors.
         if record.target().starts_with("android_activity::")
-            && record.args().as_str() == Some("Spurious ALOOPER_POLL_CALLBACK from ALooper_pollOnce() (ignored)")
+            && record.args().as_str()
+                == Some("Spurious ALOOPER_POLL_CALLBACK from ALooper_pollOnce() (ignored)")
         {
             return;
         }
@@ -64,10 +65,22 @@ pub struct Launch {
     pub data: PathBuf,
     pub texture_packs: bool,
     pub resolution: u32,
+    pub advanced: crate::settings::Advanced,
+    pub driver: Option<crate::driver::DriverSpec>,
 }
 
 pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
-    let (game, code, data, texture_packs, resolution) = with_activity(app, |env, activity| {
+    let (
+        game,
+        code,
+        data,
+        texture_packs,
+        resolution,
+        advanced_json,
+        driver_dir,
+        driver_name,
+        hooks,
+    ) = with_activity(app, |env, activity| {
         let intent = env
             .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])?
             .l()?;
@@ -81,11 +94,28 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
                     &[JValue::Object(&key)],
                 )?
                 .l()?;
+            if value.is_null() {
+                return Ok(PathBuf::new());
+            }
             let value = JString::from(value);
             let value: String = env.get_string(&value)?.into();
             Ok(PathBuf::from(value))
         };
         let paths = (extra("game")?, extra("code")?, extra("data")?);
+        let driver_dir = extra("driver_dir")?;
+        let driver_name = extra("driver_name")?;
+        let info = env
+            .call_method(
+                activity,
+                "getApplicationInfo",
+                "()Landroid/content/pm/ApplicationInfo;",
+                &[],
+            )?
+            .l()?;
+        let hooks = env
+            .get_field(info, "nativeLibraryDir", "Ljava/lang/String;")?
+            .l()?;
+        let hooks: String = env.get_string(&JString::from(hooks))?.into();
         let key = env.new_string("texture_packs")?;
         let texture_packs = env
             .call_method(
@@ -105,9 +135,44 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             )?
             .i()?
             .clamp(1, 3) as u32;
-        Ok((paths.0, paths.1, paths.2, texture_packs, resolution))
+        let key = env.new_string("advanced")?;
+        let value = env
+            .call_method(
+                &intent,
+                "getStringExtra",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[JValue::Object(&key)],
+            )?
+            .l()?;
+        let advanced_json: String = if value.is_null() {
+            "{}".into()
+        } else {
+            env.get_string(&JString::from(value))?.into()
+        };
+        Ok((
+            paths.0,
+            paths.1,
+            paths.2,
+            texture_packs,
+            resolution,
+            advanced_json,
+            driver_dir,
+            driver_name,
+            PathBuf::from(hooks),
+        ))
     })?;
+    let advanced = crate::settings::Advanced::parse(&advanced_json)?;
     let internal = app.internal_data_path().ok_or("no app internal storage")?;
+    let driver = if advanced.custom_driver {
+        Some(crate::driver::DriverSpec::validate(
+            &driver_dir,
+            &driver_name.to_string_lossy(),
+            &internal,
+            hooks,
+        )?)
+    } else {
+        None
+    };
     let mut roots = vec![internal.clone()];
     if let Some(external) = app.external_data_path() {
         roots.push(external);
@@ -115,11 +180,14 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
     let game = crate::transform::owned_path(&game, &roots)?;
     let data = crate::transform::owned_path(&data, &roots)?;
     // Executable imports must stay in private internal storage.
-    let code = crate::transform::owned_path(&code, &[internal])?;
+    let code = if advanced.aot {
+        crate::transform::owned_path(&code, &[internal])?
+    } else {
+        code
+    };
     if !game.is_dir()
         || !data.is_dir()
-        || !code.is_file()
-        || code.extension().is_none_or(|s| s != "so")
+        || (advanced.aot && (!code.is_file() || code.extension().is_none_or(|s| s != "so")))
     {
         return Err("game/data must be directories and code must be a .so file".into());
     }
@@ -133,7 +201,41 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         data,
         texture_packs,
         resolution,
+        advanced,
+        driver,
     })
+}
+
+pub fn stats(app: &AndroidApp, text: &str) {
+    java_text(app, "updateNativeStats", text);
+}
+pub fn pause_menu(app: &AndroidApp) {
+    let _ = with_activity(app, |env, activity| {
+        env.call_method(activity, "showPauseMenu", "()V", &[])
+            .map(|_| ())
+    });
+}
+pub fn close_second_display(app: &AndroidApp) {
+    let _ = with_activity(app, |env, activity| {
+        env.call_method(activity, "closeSecondDisplay", "()V", &[])
+            .map(|_| ())
+    });
+}
+pub fn message(app: &AndroidApp, text: &str) {
+    log::info!("{text}");
+    java_text(app, "showNativeMessage", text);
+}
+fn java_text(app: &AndroidApp, method: &str, text: &str) {
+    let _ = with_activity(app, |env, activity| {
+        let text = env.new_string(text)?;
+        env.call_method(
+            activity,
+            method,
+            "(Ljava/lang/String;)V",
+            &[JValue::Object(&text)],
+        )
+        .map(|_| ())
+    });
 }
 
 /// Game may show a dialog on the UI thread and finish after dismissal.

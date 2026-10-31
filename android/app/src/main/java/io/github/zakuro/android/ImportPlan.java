@@ -56,6 +56,8 @@ final class ImportPlan {
             throw new IOException("Unsafe or unsupported document name");
     }
     private static final class Scan {
+        final boolean includeTextures;
+        Scan(boolean includeTextures) { this.includeTextures = includeTextures; }
         final List<Entry> roms = new ArrayList<>(), libraries = new ArrayList<>();
         final List<Item> assets = new ArrayList<>();
         int documents, textures, sysdata;
@@ -74,6 +76,7 @@ final class ImportPlan {
                     String path = relative + entry.name;
                     if (entry.directory) {
                         if (kind.isEmpty() && lower.equals("textures")) {
+                            if (!includeTextures) continue;
                             if (++textures > 1) throw new IOException("Multiple textures folders. Select one game's build folder.");
                             walk(source, entry.id, "textures", "", ancestors, depth + 1);
                         } else if (kind.isEmpty() && lower.equals("sysdata")) {
@@ -94,26 +97,32 @@ final class ImportPlan {
         }
     }
     static ImportPlan inspect(Source source, String rootId) throws IOException {
-        Scan scan = new Scan(); scan.walk(source, rootId, "", "", new HashSet<>(), 0);
+        return inspect(source, rootId, true);
+    }
+    static ImportPlan inspect(Source source, String rootId, boolean includeTextures) throws IOException {
+        Scan scan = new Scan(includeTextures); scan.walk(source, rootId, "", "", new HashSet<>(), 0);
         if (scan.roms.size() != 1) throw new IOException("No game found. Choose a folder with one decrypted .3ds, .cci or .cxi game.");
         if (scan.libraries.isEmpty()) throw new IOException("Missing Android ARM64 title.so. Choose the built game's folder.");
         int pngs = 0;
         for (Item item : scan.assets) if (item.destination.toLowerCase(Locale.ROOT).endsWith(".png")) pngs++;
-        if (scan.textures != 0 && pngs == 0) throw new IOException("The textures folder has no PNG images. Extract the texture pack first.");
+        if (pngs == 0) scan.assets.removeIf(item -> item.destination.startsWith("textures/"));
         Entry rom = scan.roms.get(0), code = null;
         String title;
         try (SeekableByteChannel file = source.open(rom.id)) {
             rom = sized(rom, file); title = title(file);
         }
+        String incompatible = null;
         for (Entry candidate : scan.libraries) {
             try (SeekableByteChannel file = source.open(candidate.id)) {
                 Entry sized = sized(candidate, file);
                 if (!arm64(file)) continue;
+                try { NativeLibrary.inspect(file).requireCompatible(); }
+                catch (IOException e) { incompatible = e.getMessage(); continue; }
                 if (code != null) throw new IOException("Multiple ARM64 title.so files. Select one Android build.");
                 code = sized;
             }
         }
-        if (code == null) throw new IOException("No valid ARM64 title.so found. A desktop build cannot be used on Android.");
+        if (code == null) throw new IOException(incompatible != null ? incompatible : "No valid ARM64 title.so found. A desktop build cannot be used on Android.");
         List<Item> files = new ArrayList<>();
         files.add(new Item(rom, "game/game.3ds")); files.add(new Item(code, "code/title.so"));
         for (Item asset : scan.assets) {
@@ -132,6 +141,29 @@ final class ImportPlan {
         try { for (Item file : files) total = Math.addExact(total, file.source.size); }
         catch (ArithmeticException e) { throw new IOException("Import is too large", e); }
         return new ImportPlan(title, rom, code, files, total);
+    }
+    static ImportPlan nativeCode(Source source, Entry entry, String titleId) throws IOException {
+        try (SeekableByteChannel file = source.open(entry.id)) {
+            Entry code = sized(entry, file);
+            NativeLibrary.inspect(file).requireCompatible();
+            return new ImportPlan(titleId, null, code, Collections.singletonList(new Item(code, "code/title.so")), code.size);
+        }
+    }
+    static ImportPlan texturePack(Source source, String rootId, String titleId) throws IOException {
+        Scan scan = new Scan(true); scan.walk(source, rootId, "textures", "", new HashSet<>(), 0);
+        List<Item> files = new ArrayList<>(); long total = 0; boolean hasPng = false;
+        for (Item item : scan.assets) {
+            try (SeekableByteChannel file = source.open(item.source.id)) {
+                Entry entry = sized(item.source, file); byte[] header = null;
+                if (item.destination.toLowerCase(Locale.ROOT).endsWith(".png")) { header = png(file, entry.name); hasPng = true; }
+                else read(file, 0, 1);
+                files.add(new Item(entry, "data/mods/" + titleId + "/" + item.destination, header));
+                try { total = Math.addExact(total, entry.size); }
+                catch (ArithmeticException e) { throw new IOException("Texture pack is too large", e); }
+            }
+        }
+        if (!hasPng) throw new IOException("No PNG images found. Select the extracted texture pack folder.");
+        return new ImportPlan(titleId, null, null, files, total);
     }
     private static Entry sized(Entry entry, SeekableByteChannel file) throws IOException {
         long size = file.size();
@@ -154,20 +186,37 @@ final class ImportPlan {
     private static boolean fits(long offset, long size, long limit) { return offset >= 0 && size >= 0 && offset <= limit && size <= limit - offset; }
     static String title(SeekableByteChannel file) throws IOException {
         byte[] header = read(file, 0, 512);
-        long limit = file.size();
+        long base = 0, limit = file.size();
         if (little(header, 0x100, 4) == 0x4453434eL) {
-            long base = little(header, 0x120, 4) * 512, size = little(header, 0x124, 4) * 512;
+            base = little(header, 0x120, 4) * 512;
+            long size = little(header, 0x124, 4) * 512;
             if (base < 512 || size < 512 || !fits(base, size, limit)) throw new IOException("Invalid or truncated cartridge partition");
             header = read(file, base, 512); limit = size;
         }
         if (little(header, 0x100, 4) != 0x4843434eL) throw new IOException("Expected an original decrypted NCSD/NCCH game");
         long content = little(header, 0x104, 4) * 512;
-        if (content < 512 || content > limit) throw new IOException("Game file is truncated or has an invalid size");
+        if (content < 0x800 || content > limit) throw new IOException("Game file is truncated or has an invalid size");
         if ((header[0x18f] & 4) == 0) throw new IOException("Game is encrypted. Decrypt your dump before adding it.");
+        long exheader = little(header, 0x180, 4);
+        if (exheader < 0x400 || !fits(0x200, exheader, content)) throw new IOException("Game has a missing or truncated executable header");
         for (int offset : new int[]{0x1a0, 0x1b0}) {
             long start = little(header, offset, 4) * 512, size = little(header, offset + 4, 4) * 512;
             if (size != 0 && (start < 512 || !fits(start, size, content))) throw new IOException("Invalid game filesystem bounds");
         }
+        long executable = little(header, 0x1a0, 4) * 512, executableSize = little(header, 0x1a4, 4) * 512;
+        if (executable < 0x200 + exheader || executableSize < 512) throw new IOException("Game has no valid executable filesystem");
+        byte[] entries = read(file, base + executable, 512);
+        boolean code = false;
+        for (int at = 0; at < 10 * 16; at += 16) {
+            if (entries[at] == '.' && entries[at + 1] == 'c' && entries[at + 2] == 'o'
+                    && entries[at + 3] == 'd' && entries[at + 4] == 'e'
+                    && entries[at + 5] == 0 && entries[at + 6] == 0 && entries[at + 7] == 0) {
+                long offset = little(entries, at + 8, 4), size = little(entries, at + 12, 4);
+                if (code || size == 0 || !fits(512 + offset, size, executableSize)) throw new IOException("Game executable is missing, duplicated or truncated");
+                code = true;
+            }
+        }
+        if (!code) throw new IOException("Game has no executable .code file");
         long id = little(header, 0x118, 8);
         if (id == 0) throw new IOException("Game has no title ID");
         return String.format(Locale.ROOT, "%016X", id);
@@ -178,13 +227,60 @@ final class ImportPlan {
         return h[0] == 127 && h[1] == 'E' && h[2] == 'L' && h[3] == 'F'
                 && h[4] == 2 && h[5] == 1 && h[16] == 3 && h[17] == 0 && (h[18] & 255) == 183 && h[19] == 0;
     }
-    private static byte[] png(SeekableByteChannel file, String name) throws IOException {
+    static byte[] png(SeekableByteChannel file, String name) throws IOException {
         byte[] header = read(file, 0, 33), signature = {(byte)137, 80, 78, 71, 13, 10, 26, 10};
         for (int i = 0; i < signature.length; i++) if (header[i] != signature[i]) throw new IOException("Invalid PNG: " + name);
         ByteBuffer bytes = ByteBuffer.wrap(header);
         CRC32 crc = new CRC32(); crc.update(header, 12, 17);
         if (bytes.getInt(8) != 13 || bytes.getInt(12) != 0x49484452 || bytes.getInt(16) <= 0 || bytes.getInt(20) <= 0
                 || Integer.toUnsignedLong(bytes.getInt(29)) != crc.getValue()) throw new IOException("Invalid PNG header: " + name);
-        return header;
+        int depth = header[24] & 255, color = header[25] & 255;
+        boolean validDepth = color == 0 ? (depth == 1 || depth == 2 || depth == 4 || depth == 8 || depth == 16)
+                : color == 3 ? (depth == 1 || depth == 2 || depth == 4 || depth == 8)
+                : (color == 2 || color == 4 || color == 6) && (depth == 8 || depth == 16);
+        if (!validDepth || header[26] != 0 || header[27] != 0 || (header[28] != 0 && header[28] != 1))
+            throw new IOException("Unsupported PNG header: " + name);
+        long at = 33, length = file.size(); int chunks = 0;
+        boolean data = false, seenIdat = false, dataEnded = false, palette = false;
+        ByteBuffer buffer = ByteBuffer.allocate(65536);
+        while (at < length && ++chunks <= 100000) {
+            byte[] chunk = read(file, at, 8);
+            long size = Integer.toUnsignedLong(ByteBuffer.wrap(chunk).getInt());
+            int type = ByteBuffer.wrap(chunk).getInt(4);
+            if (size > Integer.MAX_VALUE || !fits(at + 8, size + 4, length)) throw new IOException("Truncated PNG chunk: " + name);
+            for (int i = 4; i < 8; i++) if (!((chunk[i] >= 'A' && chunk[i] <= 'Z') || (chunk[i] >= 'a' && chunk[i] <= 'z')))
+                throw new IOException("Invalid PNG chunk name: " + name);
+            if (chunk[6] < 'A' || chunk[6] > 'Z') throw new IOException("Invalid PNG reserved chunk flag: " + name);
+            if (type == 0x49484452 || (chunk[4] >= 'A' && chunk[4] <= 'Z'
+                    && type != 0x504c5445 && type != 0x49444154 && type != 0x49454e44))
+                throw new IOException("Invalid PNG structure: " + name);
+            if (type == 0x504c5445) {
+                if (palette || seenIdat || size == 0 || size > 768 || size % 3 != 0 || color == 0 || color == 4
+                        || (color == 3 && size / 3 > (1 << depth)))
+                    throw new IOException("Invalid PNG palette: " + name);
+                palette = true;
+            }
+            if (type == 0x49444154) {
+                if (dataEnded || (color == 3 && !palette)) throw new IOException("Invalid PNG image data order: " + name);
+                seenIdat = true;
+                if (size > 0) data = true;
+            } else if (seenIdat) dataEnded = true;
+            crc.reset(); crc.update(chunk, 4, 4); file.position(at + 8);
+            long remaining = size;
+            while (remaining > 0) {
+                buffer.clear(); buffer.limit((int)Math.min(buffer.capacity(), remaining));
+                int n = file.read(buffer);
+                if (n <= 0) throw new IOException("Cannot read PNG data: " + name);
+                crc.update(buffer.array(), 0, n); remaining -= n;
+            }
+            long expected = Integer.toUnsignedLong(ByteBuffer.wrap(read(file, at + 8 + size, 4)).getInt());
+            if (crc.getValue() != expected) throw new IOException("Invalid PNG chunk checksum: " + name);
+            at += size + 12;
+            if (type == 0x49454e44) {
+                if (!data || size != 0 || at != length) throw new IOException("Incomplete PNG image: " + name);
+                return header;
+            }
+        }
+        throw new IOException("PNG has no complete image data/end: " + name);
     }
 }

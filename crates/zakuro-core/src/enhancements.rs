@@ -64,7 +64,11 @@ pub fn cheats(program_id: u64, build: &str, on: &[String]) -> Vec<Cheat> {
     for_title(program_id, build)
         .into_iter()
         .map(|enhancement| {
-            let credit = format!("Code by {}, from the 60 FPS thread on GBAtemp.", enhancement.author);
+            let credit = if enhancement.name == "No Outlines" {
+                "Community code from the CTRPF code archive; matches the existing Ultra Moon v1.0 override.".to_owned()
+            } else {
+                format!("Code by {}, from the 60 FPS thread on GBAtemp.", enhancement.author)
+            };
             let notes = [enhancement.note, credit].into_iter().filter(|line| !line.is_empty()).collect();
             let mut cheat = Cheat::new(&enhancement.name, enhancement.lines, notes);
             cheat.builtin = true;
@@ -94,6 +98,19 @@ mod tests {
         let cheats = cheats(0x0004_0000_0008_C300, "rev2", &["60 FPS".to_owned()]);
         assert!(cheats[0].enabled && cheats[0].builtin);
         assert_eq!(cheats[0].notes.len(), 2);
+    }
+
+    #[test]
+    fn ultra_moon_outlines_patch_is_limited_to_the_original_build() {
+        let id = 0x0004_0000_001B_5100;
+        let original = for_title(id, "rev0");
+        let outlines = original.iter().find(|code| code.name == "No Outlines").unwrap();
+        assert_eq!(outlines.lines, ["0042E2B8 E320F000"]);
+        assert!(!for_title(id, "rev1").iter().any(|code| code.name == "No Outlines"));
+        assert!(!for_title(id, "update 1.2").iter().any(|code| code.name == "No Outlines"));
+        let cheats = cheats(id, "rev0", &["No Outlines".into()]);
+        assert!(cheats.iter().find(|cheat| cheat.name == "No Outlines").unwrap().enabled);
+        assert!(!cheats.iter().find(|cheat| cheat.name == "60 FPS").unwrap().enabled);
     }
 
     #[test]

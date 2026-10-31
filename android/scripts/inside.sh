@@ -10,6 +10,12 @@ mkdir -p /work /keys
 exec 9>/work/build.lock
 flock 9
 rustc +1.95.0 --version
+cmake -S android/third_party/libadrenotools -B /work/adrenotools -G Ninja \
+    -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+    -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-30 -DANDROID_STL=c++_static \
+    -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384
+cmake --build /work/adrenotools --parallel 4
 cargo +1.95.0 build --release --locked --target aarch64-linux-android \
     -p zakuro-android --lib --features zakuro-gpu/vulkan
 "$NDK_BIN/llvm-strip" -o /work/libzakuro_android.so \

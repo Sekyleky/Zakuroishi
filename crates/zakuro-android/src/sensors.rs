@@ -61,6 +61,11 @@ pub struct Sensors {
 }
 
 impl Sensors {
+    pub fn recalibrate(&mut self) {
+        self.samples.calibration = GyroCalibration::default();
+        self.samples.gyro = None;
+        log::info!("gyro calibration reset: hold the handheld still briefly");
+    }
     pub fn new() -> Option<Self> {
         // Use a callback so android-activity never sees an unknown looper ident.
         unsafe {

@@ -2,11 +2,22 @@
 #[cfg(target_os = "android")]
 mod audio;
 #[cfg(target_os = "android")]
+mod bridge;
+#[cfg(any(target_os = "android", test))]
+mod driver;
+#[cfg(any(target_os = "android", test))]
+mod geometry;
+#[cfg(any(target_os = "android", test))]
+mod input;
+#[cfg(target_os = "android")]
 mod platform;
 #[cfg(target_os = "android")]
 mod runtime;
 #[cfg(target_os = "android")]
 mod sensors;
+pub mod settings;
+#[cfg(any(target_os = "android", test))]
+mod storage;
 mod transform;
 
 #[cfg(target_os = "android")]
@@ -22,11 +33,13 @@ pub fn android_main(app: android_activity::AndroidApp) {
                 return;
             }
         }
-        Err(_) => {
-            if platform::report_error(
-                &app,
-                "The native runtime stopped unexpectedly. See Zakuro logcat for details.",
-            ) {
+        Err(payload) => {
+            let detail = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown native panic");
+            if platform::report_error(&app, &format!("The native runtime stopped: {detail}")) {
                 platform::wait_for_destroy(&app);
                 return;
             }

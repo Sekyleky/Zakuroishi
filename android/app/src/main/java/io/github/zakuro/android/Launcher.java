@@ -16,7 +16,9 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4;
+    private String pendingCodeId, pendingTextureId, pendingDriverId;
+    private boolean pendingIncludeTextures;
     private LinearLayout list;
     private ScrollView library;
     private TextView status, count;
@@ -30,6 +32,11 @@ public final class Launcher extends Activity {
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         setTheme(dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(state);
+        if (state != null) {
+            pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId");
+            pendingDriverId = state.getString("pendingDriverId");
+            pendingIncludeTextures = state.getBoolean("pendingIncludeTextures", false);
+        }
         background = dark ? 0xff121917 : 0xfff4f6f2; surface = dark ? 0xff1e2924 : 0xfffcfdfa;
         ink = dark ? 0xffeef3eb : 0xff192a23; muted = dark ? 0xffaabcb1 : 0xff52665a;
         accent = dark ? 0xffb5d2ab : 0xff365b41; border = dark ? 0xff41574b : 0xffb9c9bb; tint = dark ? 0xff314c3b : 0xffdcebd8;
@@ -134,7 +141,52 @@ public final class Launcher extends Activity {
     @Override protected void onResume() { super.onResume(); if (list != null) { showLibrary(); update(); } }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
-        if (request == IMPORT && result == RESULT_OK && intent != null && intent.getData() != null) task.start(getApplicationContext(), intent.getData());
+        if (request == IMPORT && result == RESULT_OK && intent != null && intent.getData() != null)
+            task.start(getApplicationContext(), intent.getData(), pendingIncludeTextures);
+        if (request == IMPORT_DRIVER) {
+            String id = pendingDriverId; pendingDriverId = null;
+            if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
+                task.importDriver(getApplicationContext(), id, intent.getData());
+        }
+        if (request == REPLACE_CODE) {
+            String id = pendingCodeId; pendingCodeId = null;
+            if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
+                task.replaceCode(getApplicationContext(), id, intent.getData());
+        }
+        if (request == REPLACE_TEXTURES) {
+            String id = pendingTextureId; pendingTextureId = null;
+            if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
+                task.replaceTextures(getApplicationContext(), id, intent.getData());
+        }
+    }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        if (pendingDriverId != null) state.putString("pendingDriverId", pendingDriverId);
+        if (pendingCodeId != null) state.putString("pendingCodeId", pendingCodeId);
+        if (pendingTextureId != null) state.putString("pendingTextureId", pendingTextureId);
+        state.putBoolean("pendingIncludeTextures", pendingIncludeTextures);
+        super.onSaveInstanceState(state);
+    }
+    void importDriver(String id) {
+        if (task.busy) return;
+        pendingDriverId = id;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(intent, IMPORT_DRIVER);
+    }
+    private void replaceCode(String id) {
+        if (task.busy) return;
+        pendingCodeId = id;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("*/*"); intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(intent, REPLACE_CODE);
+    }
+    private void replaceTextures(String id) {
+        if (task.busy) return;
+        pendingTextureId = id;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        startActivityForResult(intent, REPLACE_TEXTURES);
     }
     private android.content.SharedPreferences settings() { return getSharedPreferences("games", MODE_PRIVATE); }
     private String name(String id) {
@@ -143,12 +195,21 @@ public final class Launcher extends Activity {
     }
     private void help(boolean importing) {
         String body = "1. Choose one game's Android build folder. It needs the original decrypted game and its Android ARM64 title.so.\n\n"
-                + "2. For HD textures, put the extracted texture pack inside a textures folder alongside the game.\n\n"
+                + "2. Texture packs are optional. Leave Include texture pack off to add just the game. You can attach a pack later from the game's Settings.\n\n"
                 + "3. Add the folder, then select Play. Reimporting keeps this app's saves.\n\n"
+                + "Native game code must be built for Zakuro Android ABI 4. If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
                 + "Only add builds you trust: native game code can access this app's files and saves.\n\n"
-                + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.";
-        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(importing ? "Add a game" : "Getting started").setMessage(body);
+                + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.\n\n"
+                + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/cec1270db38411f9c02d3f356fc3ed6c3f007424/docs/interface.md";
+        LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
+        TextView instructions = text(body, 16, ink); instructions.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
+        instructions.setMovementMethod(android.text.method.LinkMovementMethod.getInstance()); content.addView(instructions);
+        CheckBox include = new CheckBox(this); include.setText("Include texture pack (optional)"); include.setTextColor(ink); include.setMinHeight(dp(56));
+        include.setChecked(false); if (importing) content.addView(include);
+        ScrollView scroll = new ScrollView(this); scroll.addView(content);
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(importing ? "Add a game" : "Getting started").setView(scroll);
         if (importing) dialog.setPositiveButton("Choose folder", (d, which) -> {
+            pendingIncludeTextures = include.isChecked();
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE); intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION); startActivityForResult(intent, IMPORT);
         }).setNegativeButton("Cancel", null); else dialog.setPositiveButton("Got it", null); controllerDialog(dialog.create()).show();
     }
@@ -187,31 +248,25 @@ public final class Launcher extends Activity {
         if (focus != null) { View restore = list.findViewWithTag(focus); if (restore != null) restore.requestFocus(); } library.post(() -> library.scrollTo(0, scroll));
     }
     private void options(String id) {
-        LinearLayout content = column(); content.setBackgroundColor(surface); content.setPadding(dp(24), dp(8), dp(24), dp(16)); content.addView(text("Game name", 14, muted));
-        EditText title = new EditText(this); title.setSingleLine(true); title.setText(name(id)); title.setContentDescription("Game name"); title.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)}); title.setTextColor(ink); title.setMinHeight(dp(48)); content.addView(title);
-        TextView label = text("Resolution", 18, ink); label.setPadding(0, dp(18), 0, dp(4)); content.addView(label);
-        RadioGroup resolutions = new RadioGroup(this); resolutions.setContentDescription("Rendering resolution"); String[] labels = {"1×  Best performance", "2×  Sharper picture", "3×  Highest detail"};
-        for (int scale = 1; scale <= 3; scale++) {
-            RadioButton option = new RadioButton(this); option.setId(scale); option.setText(labels[scale - 1]); option.setTextColor(ink); option.setMinHeight(dp(48)); option.setButtonTintList(ColorStateList.valueOf(accent)); resolutions.addView(option);
+        try {
+            SettingsDialog.show(this, id, GameImport.active(this, id), name(id), false,
+                    this::showLibrary, null, () -> replaceCode(id), () -> replaceTextures(id));
+        } catch (Exception e) {
+            controllerDialog(new AlertDialog.Builder(this).setTitle("Settings unavailable")
+                    .setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
         }
-        resolutions.check(Math.max(1, Math.min(3, settings().getInt(id + ".resolution", 1)))); content.addView(resolutions);
-        Switch textures = new Switch(this); textures.setText("HD texture pack"); textures.setTextColor(ink); textures.setMinHeight(dp(56)); textures.setChecked(settings().getBoolean(id + ".textures", true)); content.addView(textures);
-        textures.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{accent, muted}));
-        textures.setTrackTintList(ColorStateList.valueOf(border));
-        boolean pack = false; try { pack = new File(GameImport.active(this, id), "data/mods/" + id + "/textures").isDirectory(); } catch (Exception ignored) {} textures.setEnabled(pack);
-        content.addView(text(pack ? "Uses your imported texture pack. Higher resolution can reduce performance." : "No texture pack added. Add this game again with its textures folder to enable HD textures.", 14, muted));
-        TextView identity = text("Game ID: " + id, 12, muted); identity.setPadding(0, dp(20), 0, 0); content.addView(identity);
-        ScrollView scroll = new ScrollView(this); scroll.setBackgroundColor(surface); scroll.addView(content);
-        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Game settings").setView(scroll).setNegativeButton("Cancel", null).setPositiveButton("Save", (d, which) -> {
-            settings().edit().putString(id + ".name", title.getText().toString().trim()).putInt(id + ".resolution", resolutions.getCheckedRadioButtonId()).putBoolean(id + ".textures", textures.isChecked()).apply(); showLibrary();
-        }).create(); dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN); controllerDialog(dialog).show();
     }
     private void play(String id) {
         try {
-            File version = GameImport.active(this, id); Intent intent = new Intent(this, Game.class);
+            File version = GameImport.active(this, id);
+            GameSettings selected = GameSettings.load(this, id);
+            if (selected.flag("aot")) try (java.nio.channels.FileChannel code = new java.io.FileInputStream(new File(version, "code/title.so")).getChannel()) {
+                NativeLibrary.inspect(code).requireCompatible();
+            }
+            Intent intent = new Intent(this, Game.class);
             intent.putExtra("game", new File(version, "game").getAbsolutePath()); intent.putExtra("code", new File(version, "code/title.so").getAbsolutePath()); intent.putExtra("data", new File(version, "data").getAbsolutePath());
-            intent.putExtra("texture_packs", settings().getBoolean(id + ".textures", true)); intent.putExtra("resolution", Math.max(1, Math.min(3, settings().getInt(id + ".resolution", 1)))); startActivity(intent);
-        } catch (Exception e) { controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't open this game").setMessage("Add the game again to repair its files. Your existing saves will be kept.\n\n" + e.getMessage()).setPositiveButton("OK", null).create()).show(); }
+            GameSettings.load(this, id).apply(intent, version); startActivity(intent);
+        } catch (Exception e) { controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't open this game").setMessage("Open Settings to replace native game code without copying the ROM.\n\n" + e.getMessage()).setPositiveButton("OK", null).create()).show(); }
     }
     private void update() {
         if (task == null || status == null) return;
@@ -222,20 +277,95 @@ public final class Launcher extends Activity {
         if (task.error != null && !isFinishing()) { String error = task.error; task.error = null;
             controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't add this game").setMessage(error + "\n\nCheck the folder with Setup help, then try again. Existing games and saves are kept.").setPositiveButton("OK", null).create()).show(); }
     }
-    /** Rotation retains the worker, never the Activity or its views. */
+    private static void installDriver(Context context, String id, Uri uri) throws Exception {
+        File home = new File(context.getFilesDir(),"drivers");
+        if (!home.isDirectory() && !home.mkdirs()) throw new java.io.IOException("Cannot create driver storage");
+        String key = UUID.randomUUID().toString();
+        File stage = new File(home,key+".stage"), target = new File(home,key);
+        if (!stage.mkdir()) throw new java.io.IOException("Cannot stage driver");
+        boolean installed = false;
+        try {
+            try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new java.io.IOException("Cannot read driver ZIP");
+                extractDriver(input,stage);
+            }
+            String library = GameSettings.driverLibrary(stage);
+            try (java.io.InputStream input = new java.io.FileInputStream(new File(stage,library))) {
+                byte[] header = input.readNBytes(64);
+                if (!arm64Driver(header)) throw new java.io.IOException("Driver library must be an Android ARM64 shared library");
+            }
+            if (!stage.renameTo(target)) throw new java.io.IOException("Cannot install driver");
+            installed = true;
+            if (!GameSettings.preferences(context).edit().putString(id+".driver",key).putBoolean(id+".advanced.custom_driver",true).commit())
+                throw new java.io.IOException("Driver imported but selection could not be saved. Choose it in Performance settings.");
+        } finally {
+            if (!installed) try (java.util.stream.Stream<java.nio.file.Path> paths = java.nio.file.Files.walk(stage.toPath())) {
+                for (java.nio.file.Path path : (Iterable<java.nio.file.Path>)paths.sorted(Comparator.reverseOrder())::iterator) java.nio.file.Files.deleteIfExists(path);
+            }
+        }
+    }
+    static boolean arm64Driver(byte[] h) {
+        return h.length >= 64 && h[0]==127 && h[1]=='E' && h[2]=='L' && h[3]=='F'
+                && h[4]==2 && h[5]==1 && h[16]==3 && h[17]==0 && (h[18]&255)==183 && h[19]==0;
+    }
+    static void extractDriver(java.io.InputStream input, File stage) throws java.io.IOException {
+        String root = stage.getCanonicalPath()+File.separator;
+        long total=0; int count=0; byte[] buffer=new byte[32768];
+        try (java.util.zip.ZipInputStream zip = new java.util.zip.ZipInputStream(input)) {
+            java.util.zip.ZipEntry entry;
+            while ((entry=zip.getNextEntry())!=null) {
+                String name=entry.getName();
+                if (++count>512 || name.isEmpty() || name.startsWith("/") || name.contains("\\") || name.contains(":")) throw new java.io.IOException("Unsafe driver ZIP entry");
+                File output=new File(stage,name);
+                if (!output.getCanonicalPath().startsWith(root)) throw new java.io.IOException("Driver ZIP escapes its folder");
+                if (entry.isDirectory()) { if(!output.isDirectory() && !output.mkdirs()) throw new java.io.IOException("Cannot create driver directory"); continue; }
+                if (output.exists()) throw new java.io.IOException("Duplicate driver ZIP entry");
+                if (!output.getParentFile().isDirectory() && !output.getParentFile().mkdirs()) throw new java.io.IOException("Cannot create driver directory");
+                long size=0;
+                try (java.io.FileOutputStream stream=new java.io.FileOutputStream(output)) {
+                    if (!output.setReadOnly()) throw new java.io.IOException("Cannot protect imported driver file");
+                    int n;
+                    while ((n=zip.read(buffer))!=-1) {
+                        total+=n; size+=n;
+                        if (total>256L*1024*1024 || size>128L*1024*1024) throw new java.io.IOException("Driver ZIP exceeds size limits");
+                        stream.write(buffer,0,n);
+                    }
+                    stream.getFD().sync();
+                }
+            }
+        }
+        if(count==0) throw new java.io.IOException("Driver ZIP is empty");
+    }    /** Rotation retains the worker, never the Activity or its views. */
     public static final class ImportTask extends Fragment {
         boolean busy; String message = "", error;
         private final Handler main = new Handler(Looper.getMainLooper());
         @Override public void onCreate(Bundle state) { super.onCreate(state); setRetainInstance(true); }
         void start(Context context, Uri uri) {
-            if (busy) return; busy = true; error = null; message = "Checking game folder… No files copied yet."; refresh(true);
+            start(context, uri, false);
+        }
+        void start(Context context, Uri uri, boolean includeTextures) { run(context, null, uri, 0, includeTextures); }
+        void importDriver(Context context, String id, Uri uri) { run(context, id, uri, 3, false); }
+        void replaceCode(Context context, String id, Uri uri) { run(context, id, uri, 1, false); }
+        void replaceTextures(Context context, String id, Uri uri) { run(context, id, uri, 2, true); }
+        private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
+            if (busy) return; busy = true; error = null;
+            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : "Importing Vulkan driver";
+            message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
                 String failure = null;
-                try { GameImport.install(context, uri, (bytes, files, name) -> main.post(() -> {
-                    message = String.format(Locale.getDefault(), "Adding game · %.1f MB copied · %d files", bytes / 1048576.0, files); refresh(false);
-                })); } catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
+                try {
+                    GameImport.Progress callback = (bytes, files, name) -> main.post(() -> {
+                        message = String.format(Locale.getDefault(), action + " · %.1f MB copied · %d files", bytes / 1048576.0, files); refresh(false);
+                    });
+                    if (operation == 0) GameImport.install(context, uri, includeTextures, callback);
+                    else if (operation == 1) GameImport.replaceCode(context, id, uri, callback);
+                    else if (operation == 2) GameImport.replaceTextures(context, id, uri, callback);
+                    else installDriver(context, id, uri);
+                } catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
                 final String outcome = failure;
-                main.post(() -> { busy = false; error = outcome; message = outcome == null ? "Game added. You're ready to play." : "The game wasn't added."; refresh(true); });
+                main.post(() -> { busy = false; error = outcome;
+                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : "Vulkan driver imported and selected. Restart the game to use it.")
+                            : (operation == 0 ? "The game wasn't added." : "Files weren't replaced. Existing files are kept."); refresh(true); });
             }, "game-import").start();
         }
         private void refresh(boolean libraryChanged) {

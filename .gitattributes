@@ -1,2 +1,4 @@
 *.sh text eol=lf
 android/scripts/Containerfile text eol=lf
+# Preserve formatting in the pinned third-party snapshot.
+android/third_party/** -whitespace
