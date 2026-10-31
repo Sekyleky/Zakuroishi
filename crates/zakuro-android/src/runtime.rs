@@ -242,8 +242,11 @@ fn picture(
             );
         }
     }
+    // Counted for the benchmark line: each fallback copies the screen on the CPU at render scale.
+    CPU_SCREENS[screen as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     (system.read_screen_scaled(screen), None)
 }
+static CPU_SCREENS: [std::sync::atomic::AtomicU32; 2] = [std::sync::atomic::AtomicU32::new(0), std::sync::atomic::AtomicU32::new(0)];
 
 impl Input {
     fn read(&mut self, app: &AndroidApp, surface: Option<&Surface>, settings: &Advanced) {
@@ -796,10 +799,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             stats_start = Instant::now();
         }
         if benchmark_frames == 300 {
-            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} resolution={} textures={} shared={}",
+            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={}",
                 300.0 / benchmark_start.elapsed().as_secs_f64(), core_time.as_secs_f64() * 1000.0 / 300.0,
                 present_time.as_secs_f64() * 1000.0 / 300.0, worst_core.as_secs_f64() * 1000.0, worst_frame.as_secs_f64() * 1000.0,
-                slow_frames, vsync, launch.resolution, launch.texture_packs, s.shared);
+                slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared);
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
             core_time = Duration::ZERO;

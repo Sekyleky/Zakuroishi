@@ -170,6 +170,10 @@ pub struct System {
     /// the title's cheats, from its file in the data folder.
     pub cheats: Vec<cheats::Cheat>,
     pub config: Config,
+    /// each screen's last picture read from memory and that grown to the GPU's
+    /// scale: a screen the CPU draws (a menu below) mostly keeps its picture,
+    /// and growing it again every frame costs scale² as many pixels.
+    grown: [Option<(Vec<u8>, Screen)>; 3],
 
     pub exited: bool,
     pub broke: bool,
@@ -266,6 +270,7 @@ impl System {
         System {
             cpu: Cpu::new(),
             memory: Memory::new(config.new3ds, app_bytes),
+            grown: [None, None, None],
             kernel: Kernel::new(0, memory::MemoryRegion::Application, linear_heap_base(0)),
             services,
             gpu: Gpu::new(),
@@ -974,7 +979,13 @@ impl System {
         if scale == 1 {
             return (std::sync::Arc::new(native), width, height);
         }
-        (std::sync::Arc::new(grow(&native, width, scale)), width * scale, height * scale)
+        let slot = &mut self.grown[if right { 2 } else { screen as usize }];
+        if let Some((_, grown)) = slot.as_ref().filter(|(last, grown)| *last == native && grown.1 == width * scale) {
+            return grown.clone();
+        }
+        let grown: Screen = (std::sync::Arc::new(grow(&native, width, scale)), width * scale, height * scale);
+        *slot = Some((native, grown.clone()));
+        grown
     }
 
     /// whether the title draws the top screen in 3D, a picture for each
