@@ -151,7 +151,10 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
         }
         // GetGyroscopeLowCalibrateParam
         0x0016 => {
-            buffer.reply(&mut system.memory, 0x0016, &[0, 0, 0, 0, 0]);
+            // each axis's zero, positive and negative unit points as s16, as a console
+            // reports them; zeros there leave a title dividing by the unit range by zero
+            log::info!("hid: gyroscope calibration asked for");
+            buffer.reply(&mut system.memory, 0x0016, &[0x1A2C_0000, 0x0000_E5D4, 0xE5D4_1A2C, 0x1A2C_0000, 0x0000_E5D4]);
             true
         }
         // GetSoundVolume
