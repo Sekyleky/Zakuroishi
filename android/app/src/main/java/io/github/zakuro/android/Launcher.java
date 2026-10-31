@@ -409,7 +409,7 @@ public final class Launcher extends Activity {
                         try (SaveArchive.Guard ignored = SaveArchive.lock(context.getFilesDir(), id)) {
                             SaveArchive.recover(context.getFilesDir(), id);
                             if (operation == 4) {
-                                try (java.io.OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
+                                try (java.io.OutputStream output = context.getContentResolver().openOutputStream(uri, "w")) {
                                     if (output == null) throw new java.io.IOException("Cannot write the selected file.");
                                     SaveArchive.exportZip(context.getFilesDir(), id, output);
                                 } catch (Exception e) {

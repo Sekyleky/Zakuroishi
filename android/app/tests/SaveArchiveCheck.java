@@ -31,6 +31,19 @@ public final class SaveArchiveCheck {
         }
         return bytes.toByteArray();
     }
+    // Name/data pairs as real tools write them; null data = manifest.
+    private static byte[] raw(String... pairs) throws IOException {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(bytes)) {
+            for (int i = 0; i < pairs.length; i += 2) {
+                zip.putNextEntry(new ZipEntry(pairs[i]));
+                zip.write(text(pairs[i + 1] == null ? "zakuro-save-archive=1\ntitle=" + TITLE + "\n" : pairs[i + 1]));
+                zip.closeEntry();
+            }
+        }
+        return bytes.toByteArray();
+    }
+    private static String read(Path path) throws IOException { return new String(Files.readAllBytes(path), StandardCharsets.UTF_8); }
     private static void restore(File root, byte[] bytes) throws IOException {
         SaveArchive.restoreZip(root, TITLE, new ByteArrayInputStream(bytes));
     }
@@ -95,12 +108,25 @@ public final class SaveArchiveCheck {
             restore(files, exported);
             require(snapshot(user).equals(original));
             require(Files.exists(previous.resolve("new.bin")));
+            // Real re-zips: wrapper folder, Windows backslashes, macOS metadata.
+            restore(files, raw("x/", "", "x/save-manifest.txt", null, "x/user/savedata/main", "wrapped"));
+            require(read(user.resolve("savedata/main")).equals("wrapped"));
+            restore(files, raw("user\\savedata\\", "", "save-manifest.txt", null, "user\\savedata\\main", "backslash"));
+            require(read(user.resolve("savedata/main")).equals("backslash"));
+            restore(files, raw("save-manifest.txt", null, "user/main", "mac", "__MACOSX/._user", "x", "user/.DS_Store", "x"));
+            require(read(user.resolve("main")).equals("mac") && !Files.exists(user.resolve(".DS_Store")));
+            restore(files, raw("save-manifest.txt", "zakuro-save-archive=1\r\ntitle=" + TITLE + "\r\n", "user/main", "crlf"));
+            require(read(user.resolve("main")).equals("crlf"));
+            restore(files, exported);
+            restore(files, exported);
+            require(snapshot(user).equals(original) && snapshot(previous).equals(original));
 
             List<byte[]> invalid = new ArrayList<>();
             invalid.add(archive("000400000012ABCE", "user/new.bin"));
             invalid.add(archive(TITLE, "user/../escape"));
             invalid.add(archive(TITLE, "/user/absolute"));
-            invalid.add(archive(TITLE, "user/back\\slash"));
+            invalid.add(archive(TITLE, "user\\..\\escape"));
+            invalid.add(raw("w/save-manifest.txt", null, "other/user/new.bin", "outside wrapper"));
             invalid.add(archive(TITLE, "user/C:drive"));
             invalid.add(archive(TITLE, "user/empty/"));
             invalid.add(archive(TITLE, "user/a", "user/a/child"));
@@ -166,7 +192,7 @@ public final class SaveArchiveCheck {
         // Android's filesDir is reached through a system symlink; that must be accepted.
         Path aliased = Files.createSymbolicLink(root.resolve("alias"), root);
         try (SaveArchive.Guard ignored = SaveArchive.lock(aliased.toFile(), TITLE)) { require(false); }
-        catch (IOException inUse) { require(inUse.getMessage().equals("Saves are in use")); }
+        catch (IOException inUse) { require(inUse.getMessage().equals(SaveArchive.IN_USE)); }
         Files.delete(aliased);
         Path previous = user.resolveSibling("user.previous");
         Files.createSymbolicLink(previous, outside);

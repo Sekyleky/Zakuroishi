@@ -1,5 +1,16 @@
 # Verification record
 
+## 0.1.7 save restore audit (2026-10-31, not released)
+
+- `build/releases/0.1.7/Zakuro-Android-0.1.7.apk`, SHA256
+  `fc91b8b2530f9ca3e66dd5220fd20dd34d90064b55bd6c234590a7b687652d28`, same certificate.
+- SaveArchiveCheck: 92 checks on Linux (eclipse-temurin:21, non-root, symlink cases
+  included), 87 on Windows (symlink cases skipped). Settings host checks pass.
+- Real-tool restores, all accepted: Zakuro export, Info-ZIP flat and wrapped, Python
+  no-directory, macOS junk, PowerShell 5.1 Compress-Archive (contents and folder),
+  .NET ZipFile (contents and folder).
+- Device verification on Thor pending before release.
+
 ## 0.1.6 save folder hotfix (2026-10-31)
 
 - Delivery: `build/releases/0.1.6/Zakuro-Android-0.1.6.apk`, SHA256

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.7 — save restore audit (unreleased, 2026-10-31)
+
+- Restore accepts ZIPs re-made by Windows PowerShell/.NET (backslash paths), ZIPs
+  with one wrapper folder, macOS metadata entries and a CRLF manifest; all safety
+  checks run on the normalized names. Errors now say what is wrong.
+- Fix lock loss on Linux/Android: a second in-process lock attempt closed a handle
+  and silently dropped the held POSIX lock.
+- Export opens the new document in plain write mode for cloud providers.
+
 ## 0.1.6 — save folder hotfix (2026-10-31)
 
 - Fix "Cannot open saves. Unsafe directory" on devices, which blocked game launch
