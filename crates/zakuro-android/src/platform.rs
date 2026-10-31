@@ -219,6 +219,32 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
 pub fn stats(app: &AndroidApp, text: &str) {
     java_text(app, "updateNativeStats", text);
 }
+/// ADPF hint session for the calling thread (must be the emulation thread).
+pub fn start_performance_hints(app: &AndroidApp) {
+    let result = with_activity(app, |env, activity| {
+        let tid = env
+            .call_static_method("android/os/Process", "myTid", "()I", &[])?
+            .i()?;
+        let tids = env.new_int_array(1)?;
+        env.set_int_array_region(&tids, 0, &[tid])?;
+        env.call_method(
+            activity,
+            "startPerformanceHints",
+            "([I)V",
+            &[JValue::Object(&tids)],
+        )
+        .map(|_| ())
+    });
+    if let Err(error) = result {
+        log::warn!("performance hints: {error}");
+    }
+}
+pub fn report_frame(app: &AndroidApp, nanos: i64) {
+    let _ = with_activity(app, |env, activity| {
+        env.call_method(activity, "reportFrame", "(J)V", &[JValue::Long(nanos)])
+            .map(|_| ())
+    });
+}
 pub fn pause_menu(app: &AndroidApp) {
     let _ = with_activity(app, |env, activity| {
         env.call_method(activity, "showPauseMenu", "()V", &[])

@@ -28,6 +28,51 @@ use crate::fog;
 use crate::pack::Material;
 use crate::proctex;
 use crate::{Picture, ScreenRef};
+
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+
+// process-wide time the emulation thread spent blocked on the GPU, as
+// (count, nanoseconds). readbacks include the fence waits inside them
+static FENCE_WAITS: (AtomicU32, AtomicU64) = (AtomicU32::new(0), AtomicU64::new(0));
+static READBACKS: (AtomicU32, AtomicU64) = (AtomicU32::new(0), AtomicU64::new(0));
+
+#[derive(Clone, Copy)]
+enum Caller {
+    Sync,
+    Fill,
+    Rows,
+    Read,
+    Flush,
+    Picture,
+    Room,
+}
+
+// per caller, count and nanoseconds. read is prepare_read, which is also
+// counted under sync when it has to write back
+static CALLERS: [(AtomicU32, AtomicU64); 7] = [const { (AtomicU32::new(0), AtomicU64::new(0)) }; 7];
+
+fn note_caller(caller: Caller, start: std::time::Instant) {
+    note_wait(&CALLERS[caller as usize], start);
+}
+
+/// returns and resets (count, time) per caller: sync, fill, rows, read,
+/// flush, picture, room.
+pub fn take_caller_stats() -> [(u32, std::time::Duration); 7] {
+    std::array::from_fn(|i| (CALLERS[i].0.swap(0, Ordering::Relaxed), std::time::Duration::from_nanos(CALLERS[i].1.swap(0, Ordering::Relaxed))))
+}
+
+fn note_wait(bucket: &(AtomicU32, AtomicU64), start: std::time::Instant) {
+    bucket.0.fetch_add(1, Ordering::Relaxed);
+    bucket.1.fetch_add(start.elapsed().as_nanos() as u64, Ordering::Relaxed);
+}
+
+/// returns and resets (fence waits, their time, readbacks, their time).
+pub fn take_wait_stats() -> (u32, std::time::Duration, u32, std::time::Duration) {
+    let take = |bucket: &(AtomicU32, AtomicU64)| (bucket.0.swap(0, Ordering::Relaxed), std::time::Duration::from_nanos(bucket.1.swap(0, Ordering::Relaxed)));
+    let (waits, wait_time) = take(&FENCE_WAITS);
+    let (reads, read_time) = take(&READBACKS);
+    (waits, wait_time, reads, read_time)
+}
 use crate::format::{morton_offset, ColorFormat};
 use crate::lighting::{Lighting, Tables};
 use crate::registers::*;
@@ -2384,7 +2429,10 @@ impl Hardware {
             .filter(|&i| i != index && self.surfaces[i].dirty_overlaps(from, to))
             .collect();
         if !others.is_empty() {
-            self.write_back(memory, others)?;
+            let t = std::time::Instant::now();
+            let done = self.write_back(memory, others);
+            note_caller(Caller::Rows, t);
+            done?;
             self.begin()?;
         }
         // into the last lookup's buffer, a surface's worth of bytes allocated
@@ -2405,7 +2453,10 @@ impl Hardware {
                 // memory changed beside rows the GPU drew and it lacks, which
                 // an upload alone would lose. they come down first, along
                 // with what changed
-                self.write_back(memory, vec![index])?;
+                let t = std::time::Instant::now();
+                let done = self.write_back(memory, vec![index]);
+                note_caller(Caller::Rows, t);
+                done?;
                 self.begin()?;
                 memory.read(addr, &mut bytes);
             }
@@ -3111,7 +3162,10 @@ impl Hardware {
     /// something reads it.
     pub(crate) fn prepare_read<M: GpuMemory>(&mut self, memory: &mut M, addr: u32, len: u32) -> Result<(), String> {
         if self.surfaces.iter().any(|s| s.dirty_overlaps(addr, len)) {
-            self.sync(memory, addr, len)?;
+            let t = std::time::Instant::now();
+            let done = self.sync(memory, addr, len);
+            note_caller(Caller::Read, t);
+            done?;
         }
         Ok(())
     }
@@ -3135,7 +3189,10 @@ impl Hardware {
         // frame, which it clears whole before drawing into it again
         let written: Vec<usize> = partial.into_iter().filter(|&i| !self.surfaces[i].supersede(addr, len)).collect();
         if !written.is_empty() {
-            self.write_back(memory, written)?;
+            let t = std::time::Instant::now();
+            let done = self.write_back(memory, written);
+            note_caller(Caller::Fill, t);
+            done?;
         }
         Ok(())
     }
@@ -3944,7 +4001,10 @@ impl Hardware {
     /// guest memory.
     pub(crate) fn flush<M: GpuMemory>(&mut self, memory: &mut M) -> Result<(), String> {
         let dirty = (0..self.surfaces.len()).filter(|&i| self.surfaces[i].dirty.is_some()).collect();
-        self.write_back(memory, dirty)?;
+        let t = std::time::Instant::now();
+        let done = self.write_back(memory, dirty);
+        note_caller(Caller::Flush, t);
+        done?;
         self.submit()?;
         self.wait()
     }
@@ -3991,7 +4051,10 @@ impl Hardware {
         let overlapping: Vec<usize> =
             (0..self.surfaces.len()).filter(|&i| kept(&self.surfaces[i]) && self.surfaces[i].overlaps(addr, len)).collect();
         let dirty: Vec<usize> = overlapping.iter().copied().filter(|&i| self.surfaces[i].dirty_overlaps(addr, len)).collect();
-        self.write_back(memory, dirty)?;
+        let t = std::time::Instant::now();
+        let done = self.write_back(memory, dirty);
+        note_caller(Caller::Sync, t);
+        done?;
         for i in overlapping {
             self.surfaces[i].checked = false;
         }
@@ -4692,7 +4755,10 @@ impl Hardware {
         if self.surfaces[index].screen.as_ref().is_none_or(|capture| capture.batch != screen.batch) {
             return Ok(None);
         }
-        self.wait_for(screen.batch)?;
+        let t = std::time::Instant::now();
+        let done = self.wait_for(screen.batch);
+        note_caller(Caller::Picture, t);
+        done?;
         if let Some(image) = picture(&self.surfaces, index) {
             return Ok(crop(image));
         }
@@ -4864,7 +4930,10 @@ impl Hardware {
         }
         self.retire_finished()?;
         if self.free.is_empty() {
-            self.block(Wait::Room)?;
+            let t = std::time::Instant::now();
+            let done = self.block(Wait::Room);
+            note_caller(Caller::Room, t);
+            done?;
         }
         // SAFETY: the command buffer is recording and gets submitted once
         unsafe {
@@ -5006,7 +5075,10 @@ impl Hardware {
         // SAFETY: the fence belongs to the batch, and the command buffer is
         // reset only once the GPU is done with it
         unsafe {
-            self.device.wait_for_fences(&[frame.fence], true, u64::MAX).map_err(vk_error("wait for the GPU"))?;
+            let start = std::time::Instant::now();
+            let waited = self.device.wait_for_fences(&[frame.fence], true, u64::MAX);
+            note_wait(&FENCE_WAITS, start);
+            waited.map_err(vk_error("wait for the GPU"))?;
             self.device.reset_fences(&[frame.fence]).map_err(vk_error("reset a fence"))?;
             self.device
                 .reset_command_buffer(frame.commands, vk::CommandBufferResetFlags::empty())
@@ -5038,6 +5110,13 @@ impl Hardware {
     /// when those still hold them, else running the batch and reading them
     /// back.
     fn write_back<M: GpuMemory>(&mut self, memory: &mut M, dirty: Vec<usize>) -> Result<(), String> {
+        let start = std::time::Instant::now();
+        let result = self.write_back_inner(memory, dirty);
+        note_wait(&READBACKS, start);
+        result
+    }
+
+    fn write_back_inner<M: GpuMemory>(&mut self, memory: &mut M, dirty: Vec<usize>) -> Result<(), String> {
         self.mark(Work::Download, false);
         let (captured, others): (Vec<usize>, Vec<usize>) =
             dirty.into_iter().partition(|&i| self.surfaces[i].captured().is_some());

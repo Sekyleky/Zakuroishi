@@ -283,7 +283,26 @@ public final class Game extends NativeActivity {
         if (runtimeError != null) state.putString("runtimeError", runtimeError);
         super.onSaveInstanceState(state);
     }
+    private android.os.PerformanceHintManager.Session hintSession;
+    /** ADPF: asks the scheduler to size CPU/GPU clocks for the given threads' 60 Hz frame work. */
+    public void startPerformanceHints(int[] tids) {
+        if (android.os.Build.VERSION.SDK_INT < 31 || hintSession != null) return;
+        try {
+            android.os.PerformanceHintManager manager = getSystemService(android.os.PerformanceHintManager.class);
+            if (manager != null) hintSession = manager.createHintSession(tids, 16_666_667L);
+        } catch (Throwable e) { android.util.Log.w("Zakuro", "PerformanceHintManager", e); }
+    }
+    public void reportFrame(long actualNanos) {
+        android.os.PerformanceHintManager.Session session = hintSession;
+        if (session == null) return;
+        try { session.reportActualWorkDuration(actualNanos); }
+        catch (Throwable e) { android.util.Log.w("Zakuro", "reportActualWorkDuration", e); hintSession = null; }
+    }
     @Override protected void onDestroy() {
+        if (hintSession != null) {
+            try { hintSession.close(); } catch (Throwable e) { android.util.Log.w("Zakuro", "Closing hint session", e); }
+            hintSession = null;
+        }
         if (inputManager != null) inputManager.unregisterInputDeviceListener(inputListener);
         if (batteryRegistered) { unregisterReceiver(batteryReceiver); batteryRegistered=false; }
         if (displays != null) displays.unregisterDisplayListener(displayListener);

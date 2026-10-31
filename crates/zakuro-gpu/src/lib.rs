@@ -26,6 +26,8 @@ pub use backend::{layout, place, GpuScreen, Overlay, OverlayMesh, OverlayTexture
 pub use renderer::{DrawCall, Renderer, RendererKind, SoftwareRenderer};
 #[cfg(feature = "vulkan")]
 pub use device::SharedDevice;
+#[cfg(feature = "vulkan")]
+pub use raster::hardware::{take_caller_stats, take_wait_stats};
 
 /// how the GPU reaches guest memory.
 pub trait GpuMemory {

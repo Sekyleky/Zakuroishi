@@ -402,6 +402,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     // Averages hide hitches: track the worst frame and frames over budget.
     let (mut worst_core, mut worst_frame, mut slow_frames) = (Duration::ZERO, Duration::ZERO, 0u32);
     let mut present_time = Duration::ZERO;
+    platform::start_performance_hints(app);
     loop {
         let active = resumed && focused && !paused && surface.is_some();
         let timeout = if active {
@@ -731,7 +732,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         }
         let core_start = Instant::now();
         let outcome = system.run_frame();
-        core_time += core_start.elapsed();
+        let work = core_start.elapsed();
+        core_time += work;
+        // Emulation work only: under FIFO the present below includes the vsync wait,
+        // which would read as a full 16.7 ms frame and over-boost the clocks.
+        platform::report_frame(app, work.as_nanos() as i64);
         worst_core = worst_core.max(core_start.elapsed());
         let sound = system.take_audio();
         if audio.as_ref().is_some_and(Audio::disconnected) {
@@ -799,10 +804,15 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             stats_start = Instant::now();
         }
         if benchmark_frames == 300 {
-            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={}",
+            let waits = zakuro_gpu::take_wait_stats();
+            let by = zakuro_gpu::take_caller_stats();
+            let ms = |i: usize| format!("{}/{:.1}ms", by[i].0, by[i].1.as_secs_f64() * 1000.0);
+            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}]",
                 300.0 / benchmark_start.elapsed().as_secs_f64(), core_time.as_secs_f64() * 1000.0 / 300.0,
                 present_time.as_secs_f64() * 1000.0 / 300.0, worst_core.as_secs_f64() * 1000.0, worst_frame.as_secs_f64() * 1000.0,
-                slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared);
+                slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared,
+                waits.0 as f64 / 300.0, waits.1.as_secs_f64() * 1000.0 / 300.0, waits.2 as f64 / 300.0, waits.3.as_secs_f64() * 1000.0 / 300.0,
+                ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6));
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
             core_time = Duration::ZERO;
