@@ -670,6 +670,54 @@ impl VulkanPresenter {
         self.shared.clone()
     }
 
+    /// lets go of the window's surface and swapchain, keeping the device the
+    /// renderer draws on, for a window the platform takes away (an app switch
+    /// on Android). nothing may be presented until attach_surface.
+    pub fn detach_surface(&mut self) {
+        unsafe {
+            let _ = self.device.device_wait_idle();
+            self.destroy_swapchain_resources();
+            if self.swapchain != vk::SwapchainKHR::null() {
+                self.swapchain_device.destroy_swapchain(self.swapchain, None);
+                self.swapchain = vk::SwapchainKHR::null();
+            }
+            self.surface_instance.destroy_surface(self.surface, None);
+            self.surface = vk::SurfaceKHR::null();
+        }
+        self.stale = true;
+    }
+
+    /// presents to a new window on the same device, so the renderer's images
+    /// are still shown straight from the GPU. fails, leaving nothing attached,
+    /// when the device cannot present there in the same format.
+    pub fn attach_surface(
+        &mut self,
+        window: &(impl HasDisplayHandle + HasWindowHandle),
+        size: (u32, u32),
+    ) -> Result<(), PresentError> {
+        let display = window.display_handle().map_err(|e| fail(format!("no display handle: {e}")))?;
+        let handle = window.window_handle().map_err(|e| fail(format!("no window handle: {e}")))?;
+        let surface = unsafe {
+            ash_window::create_surface(&self._entry, &self.instance, display.as_raw(), handle.as_raw(), None)
+        }
+        .map_err(vk_fail("creating the surface"))?;
+        let supported = unsafe {
+            self.surface_instance.get_physical_device_surface_support(self.physical_device, self.queue_family, surface)
+        }
+        .unwrap_or(false);
+        // the render pass was made for the first surface's format
+        let format = choose_format(&self.surface_instance, self.physical_device, surface);
+        let same = format.is_ok_and(|f| f.format == self.surface_format.format && f.color_space == self.surface_format.color_space);
+        if !supported || !same {
+            unsafe { self.surface_instance.destroy_surface(surface, None) };
+            return Err(fail("the new window needs a different device or format"));
+        }
+        self.surface = surface;
+        self.window = (size.0.max(1), size.1.max(1));
+        self.stale = true;
+        Ok(())
+    }
+
     /// presents in FIFO from the next swapchain on, so each frame lands on
     /// its own vsync where the display runs at the console's rate.
     pub fn pace_to_display(&mut self) {

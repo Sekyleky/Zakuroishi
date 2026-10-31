@@ -26,6 +26,16 @@ use zakuro_gpu::{
 
 // Keep a NativeWindow reference until its Vulkan surface has been destroyed.
 struct Window(NativeWindow);
+/// A fixed 60 Hz source lets a 120 Hz panel hold an even 2-vsync cadence.
+fn request_frame_rate(window: &Window) {
+    // Exported by libnativewindow, not libandroid; ndk-sys alone leaves it unresolved at dlopen.
+    #[link(name = "nativewindow")]
+    extern "C" {
+        fn ANativeWindow_setFrameRate(window: *mut ndk_sys::ANativeWindow, rate: f32, compatibility: i8) -> i32;
+    }
+    let rate = unsafe { ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), 60.0, 1) };
+    log::info!("ANativeWindow_setFrameRate(60, fixed_source) = {rate}");
+}
 impl HasWindowHandle for Window {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         self.0.window_handle()
@@ -46,14 +56,7 @@ struct Surface {
 impl Surface {
     fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry) -> Result<Self, String> {
         let window = Window(window);
-        // Fixed 60 Hz source lets a 120 Hz panel hold an even 2-vsync cadence.
-        // Exported by libnativewindow, not libandroid; ndk-sys alone leaves it unresolved at dlopen.
-        #[link(name = "nativewindow")]
-        extern "C" {
-            fn ANativeWindow_setFrameRate(window: *mut ndk_sys::ANativeWindow, rate: f32, compatibility: i8) -> i32;
-        }
-        let rate = unsafe { ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), 60.0, 1) };
-        log::info!("ANativeWindow_setFrameRate(60, fixed_source) = {rate}");
+        request_frame_rate(&window);
         let size = (
             window.0.width().max(1) as u32,
             window.0.height().max(1) as u32,
@@ -70,6 +73,16 @@ impl Surface {
         };
         surface.configure(settings);
         Ok(surface)
+    }
+    /// Presents to Android's next window on the same Vulkan device, so the renderer's
+    /// images stay shared at full resolution after an app switch.
+    fn reattach(&mut self, window: NativeWindow) -> Result<(), String> {
+        let window = Window(window);
+        request_frame_rate(&window);
+        let size = (window.0.width().max(1) as u32, window.0.height().max(1) as u32);
+        self.presenter.attach_surface(&window, size).map_err(|e| e.to_string())?;
+        self.window = window;
+        Ok(())
     }
     fn configure(&mut self, settings: &Advanced) {
         self.settings = settings.clone();
@@ -382,6 +395,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     }
     let mut surface: Option<Surface> = None;
     let mut second: Option<Surface> = None;
+    // The main presenter while Android has taken its window away (app switch).
+    let mut parked: Option<Surface> = None;
     let mut system: Option<System> = None;
     let mut audio: Option<Audio> = None;
     let mut sensors = Sensors::new();
@@ -419,7 +434,22 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             };
             match event {
                 MainEvent::InitWindow { .. } => {
-                    if let Some(window) = app.native_window() {
+                    // Back from an app switch: same device, so GPU images stay shared at full resolution.
+                    let reattached = match (parked.take(), app.native_window()) {
+                        (Some(mut s), Some(window)) => match s.reattach(window) {
+                            Ok(()) => {
+                                surface = Some(s);
+                                next_frame = Instant::now();
+                                true
+                            }
+                            Err(e) => {
+                                log::warn!("could not reattach the window ({e}), starting a new presenter");
+                                false
+                            }
+                        },
+                        _ => false,
+                    };
+                    if let (false, Some(window)) = (reattached, app.native_window()) {
                         match Surface::new(window, &geometry::display(&settings, false, second.is_some()), driver.entry.clone()) {
                             Ok(mut s) => {
                                 // The panel is asked for 60 Hz above; at the default cap let its vsync pace frames.
@@ -427,7 +457,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                                     s.presenter.pace_to_display();
                                 }
                                 if system.is_some() {
-                                    // shortcut: the renderer retains its original device; use readback until upstream supports surface rebinding.
+                                    // Only when reattaching failed: the renderer keeps its device, so screens are read back.
                                     log::warn!("window recreated: presentation now uses GPU readback on the new Vulkan device");
                                 }
                                 surface = Some(s);
@@ -438,7 +468,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     }
                 }
                 MainEvent::TerminateWindow { .. } => {
-                    surface = None;
+                    // Keep the presenter's device while a game runs; only the surface goes with the window.
+                    if let (Some(mut s), true) = (surface.take(), system.is_some()) {
+                        s.presenter.detach_surface();
+                        parked = Some(s);
+                    }
                     audio = None;
                     input = Input::default();
                     bridge::clear_input();
@@ -479,6 +513,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 MainEvent::Destroy => {
                     destroy = true;
                     surface = None;
+                    parked = None;
                     audio = None;
                 }
                 MainEvent::InputAvailable => input.read(app, surface.as_ref(), &settings),
