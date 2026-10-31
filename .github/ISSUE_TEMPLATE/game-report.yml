@@ -1,7 +1,23 @@
 name: Game report
-description: How a game runs in Zakuro
-labels: ["game report"]
+description: Report a game or app problem in Zakuro Android
 body:
+  - type: markdown
+    attributes:
+      value: "Do not attach ROMs, title.so game libraries, firmware, keys or private save data. Remove personal information from logs."
+  - type: input
+    id: device
+    attributes:
+      label: Handheld / phone and Android version
+      placeholder: AYN Thor, Android version
+    validations:
+      required: true
+  - type: input
+    id: driver
+    attributes:
+      label: GPU driver
+      description: System driver or custom driver name and version
+    validations:
+      required: true
   - type: input
     id: game
     attributes:
@@ -19,15 +35,15 @@ body:
   - type: input
     id: version
     attributes:
-      label: Zakuro version
-      placeholder: v0.2.7
+      label: Zakuro Android version
+      placeholder: 0.1.4
     validations:
       required: true
   - type: dropdown
     id: recompiled
     attributes:
       label: Recompiled
-      description: Whether the game was recompiled from Zakuro's library
+      description: Whether compiled native game code is enabled in settings
       options:
         - "Yes"
         - "No"
@@ -49,12 +65,12 @@ body:
     id: what
     attributes:
       label: What happened
-      description: How far it got and what went wrong, screenshots help
+      description: Include reproduction steps, expected behavior, texture-pack use, display layout and whether the second display is enabled. Screenshots help.
     validations:
       required: true
   - type: textarea
     id: log
     attributes:
       label: Log
-      description: What Zakuro printed in the terminal, if anything looked wrong
+      description: The app error and relevant adb logcat output, with personal information removed
       render: text

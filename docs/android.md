@@ -7,7 +7,12 @@ no ROMs, native game code, firmware, keys, or texture packs.
 
 ## Install or update
 
-Install the signed APK from the current [verification record](testing.md).
+Download `Zakuro-Android-0.1.4.apk` from the
+[GitHub prerelease](https://github.com/Sekyleky/zakuro-android/releases/tag/android-v0.1.4)
+and open it on the handheld. Allow installation from that browser or file manager
+when Android asks. `SHA256SUMS.txt` is provided to verify the download. GitHub's
+automatic source archives are for developers, not installable apps.
+See the [verification record](testing.md) for test details.
 Update the existing app with the same signer; do not uninstall to repair a game,
 as uninstalling can delete saves. This app has its own package
 `io.github.zakuro.android` and does not replace Pocket Native.

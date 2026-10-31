@@ -25,6 +25,44 @@ const STEREO_CONSTANTS: u32 = 80;
 /// how many frames may be recorded before waiting on the oldest.
 const FRAMES_IN_FLIGHT: usize = 2;
 
+fn presentation_transform(capabilities: &vk::SurfaceCapabilitiesKHR) -> vk::SurfaceTransformFlagsKHR {
+    // We draw in window coordinates, so the compositor must handle panel rotation.
+    // shortcut: this can cost a composition pass; use pre-rotation only with matching geometry.
+    if capabilities.supported_transforms.contains(vk::SurfaceTransformFlagsKHR::IDENTITY) {
+        vk::SurfaceTransformFlagsKHR::IDENTITY
+    } else {
+        capabilities.current_transform
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+
+    #[test]
+    fn window_coordinates_leave_panel_rotation_to_compositor() {
+        for rotation in [
+            vk::SurfaceTransformFlagsKHR::IDENTITY,
+            vk::SurfaceTransformFlagsKHR::ROTATE_90,
+            vk::SurfaceTransformFlagsKHR::ROTATE_180,
+            vk::SurfaceTransformFlagsKHR::ROTATE_270,
+        ] {
+            let capabilities = vk::SurfaceCapabilitiesKHR::default()
+                .supported_transforms(vk::SurfaceTransformFlagsKHR::IDENTITY | rotation)
+                .current_transform(rotation);
+            assert!(presentation_transform(&capabilities) == vk::SurfaceTransformFlagsKHR::IDENTITY);
+        }
+    }
+
+    #[test]
+    fn does_not_request_an_unsupported_transform() {
+        let capabilities = vk::SurfaceCapabilitiesKHR::default()
+            .supported_transforms(vk::SurfaceTransformFlagsKHR::INHERIT)
+            .current_transform(vk::SurfaceTransformFlagsKHR::INHERIT);
+        assert!(presentation_transform(&capabilities) == vk::SurfaceTransformFlagsKHR::INHERIT);
+    }
+}
+
 /// a whole image, as the area of it a screen takes and the bounds its
 /// samples keep within, for the fragment shader.
 const WHOLE: [f32; 8] = [0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0];
@@ -509,7 +547,7 @@ impl VulkanPresenter {
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .pre_transform(capabilities.current_transform)
+            .pre_transform(presentation_transform(&capabilities))
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
             .clipped(true)

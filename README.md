@@ -1,5 +1,13 @@
 # Zakuro Android
 
+**[Download Android 0.1.4 (experimental)](https://github.com/Sekyleky/zakuro-android/releases/tag/android-v0.1.4)** ·
+[Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/zakuro-android/issues/new/choose)
+
+An unofficial community fork, not an official release from the Zakuro developers.
+Requires **64-bit ARM Android 11+ and Vulkan 1.3**. Games need a decrypted ROM and
+matching Android ABI-4 native code built on a computer; the APK does not compile
+games on your handheld. **HD texture packs are optional.**
+
 Experimental Android frontend for [Zakuro](https://github.com/fearkov/zakuro), based on
 v0.2.30 (`e174910`). It runs legally obtained decrypted 3DS games with separately
 built native game code. It includes no games, firmware, keys or texture packs.
@@ -36,7 +44,8 @@ are implemented, with system-driver recovery. The external display uses a
 readback path; physical Thor routing, sensors and driver compatibility still need
 device verification. Original ROMs and Pocket Native installations are separate.
 
-Version 0.1.3 repairs the ABI mismatch through a pinned Android game-code builder
+Version 0.1.4 fixes sideways game screens by letting Android handle panel rotation.
+The 0.1.3 foundation repairs the ABI mismatch through a pinned Android game-code builder
 and code-only replacement. Texture packs are optional at import and can be
 attached later without copying a ROM again. In-game saves stay at a stable
 per-title path. Settings are saved only on confirmation.

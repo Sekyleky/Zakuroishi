@@ -1,6 +1,26 @@
 # Verification record
 
-All checks below refer to the local 0.1.3 source and artifacts on 2026-10-31.
+## 0.1.4 rotation hotfix (2026-10-31)
+
+- Delivery: `build/releases/0.1.4/Zakuro-Android-0.1.4.apk` (9,221,205 bytes),
+  SHA256 `f65984bb6e678d5859490e7e73a570d935c1b042ffc063309ebfa1197cf3c75c`.
+- Two targeted Vulkan transform tests passed: window-coordinate rendering requests
+  identity for 0/90/180/270-degree panels; unsupported identity is not requested.
+  Log: `build/rotation-tests-0.1.4.log`.
+- ARM64 release build, v3 signing with the existing certificate, ZIP alignment,
+  package and asset checks passed. Build log:
+  `build/android-windows/build-20261031-105748-356da32c.log`.
+- The same presenter serves both Android displays. This fixes the mismatch between
+  window-coordinate rendering and claimed pre-rotation; physical orientation,
+  touchscreen alignment and composition overhead on Thor still need verification.
+  See [Khronos surface rotation guidance](https://docs.vulkan.org/samples/latest/samples/performance/surface_rotation/README.html).
+- Update the installed app directly. No native game-code replacement or ROM
+  reimport is needed. The previous complete regression results below are historical,
+  not a claim that all suites were rerun for this focused presentation change.
+
+## 0.1.3 baseline
+
+The checks below refer to the local 0.1.3 source and artifacts on 2026-10-31.
 Compilation, Android UI/storage execution and physical ARM64 gameplay are separate
 levels of evidence. A visible control or matching symbol is not a device test.
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.4 — display rotation fix (2026-10-31)
+
+- Use identity presentation transform when supported: the renderer draws in
+  window coordinates and Android handles the panel rotation. Previously the
+  swapchain claimed pre-rotated content without rotating it, leaving game screens
+  sideways on rotated panels. Applies to primary and external Vulkan presenters.
+- Keep logical window dimensions and touch coordinates unchanged. Android may
+  incur an extra composition pass on devices without hardware rotation support.
+- No game-code rebuild or reimport needed. Physical Thor verification is pending.
+
 ## 0.1.3 — signed test build (2026-10-31)
 
 - Reject incompatible ABI-5/fast-memory game libraries before copying a ROM.

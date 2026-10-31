@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   build:
+    # Preserve upstream desktop automation without publishing desktop assets in this fork.
+    if: github.repository == 'fearkov/zakuro'
     strategy:
       matrix:
         include:
@@ -44,6 +46,7 @@ jobs:
           path: ${{ matrix.archive }}
 
   release:
+    if: github.repository == 'fearkov/zakuro'
     needs: build
     runs-on: ubuntu-latest
     steps:
