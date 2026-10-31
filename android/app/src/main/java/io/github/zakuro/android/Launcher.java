@@ -16,7 +16,8 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6;
+    private String pendingSaveId;
     private String pendingCodeId, pendingTextureId, pendingDriverId;
     private boolean pendingIncludeTextures;
     private LinearLayout list;
@@ -35,6 +36,7 @@ public final class Launcher extends Activity {
         if (state != null) {
             pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId");
             pendingDriverId = state.getString("pendingDriverId");
+            pendingSaveId = state.getString("pendingSaveId");
             pendingIncludeTextures = state.getBoolean("pendingIncludeTextures", false);
         }
         background = dark ? 0xff121917 : 0xfff4f6f2; surface = dark ? 0xff1e2924 : 0xfffcfdfa;
@@ -141,6 +143,17 @@ public final class Launcher extends Activity {
     @Override protected void onResume() { super.onResume(); if (list != null) { showLibrary(); update(); } }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
+        if (request == EXPORT_SAVE || request == RESTORE_SAVE) {
+            String id = pendingSaveId; pendingSaveId = null;
+            if (result == RESULT_OK && id != null && intent != null && intent.getData() != null) {
+                Uri uri = intent.getData();
+                if (request == EXPORT_SAVE) task.transferSave(getApplicationContext(), id, uri, false);
+                else controllerDialog(new AlertDialog.Builder(this).setTitle("Restore saves for " + name(id) + "?")
+                        .setMessage("This replaces this game's in-game saves with the selected backup. Your current saves are kept as a local recovery copy. Close the game first. Quick save states are not included; start the game normally afterward.")
+                        .setPositiveButton("Restore", (d, w) -> task.transferSave(getApplicationContext(), id, uri, true))
+                        .setNegativeButton("Cancel", null).create()).show();
+            }
+        }
         if (request == IMPORT && result == RESULT_OK && intent != null && intent.getData() != null)
             task.start(getApplicationContext(), intent.getData(), pendingIncludeTextures);
         if (request == IMPORT_DRIVER) {
@@ -161,6 +174,7 @@ public final class Launcher extends Activity {
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         if (pendingDriverId != null) state.putString("pendingDriverId", pendingDriverId);
+        if (pendingSaveId != null) state.putString("pendingSaveId", pendingSaveId);
         if (pendingCodeId != null) state.putString("pendingCodeId", pendingCodeId);
         if (pendingTextureId != null) state.putString("pendingTextureId", pendingTextureId);
         state.putBoolean("pendingIncludeTextures", pendingIncludeTextures);
@@ -172,6 +186,30 @@ public final class Launcher extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivityForResult(intent, IMPORT_DRIVER);
+    }
+    void saves(String id) {
+        if (task.busy) return;
+        controllerDialog(new AlertDialog.Builder(this).setTitle("Saves · " + name(id))
+                .setMessage("Export your in-game saves to Downloads, an SD card or cloud storage. The ZIP contains ordinary save files you can extract on a computer.\n\nSave in-game and exit to the library first. Restore accepts a Zakuro save ZIP for this game. Quick save states are separate and are not included.")
+                .setPositiveButton("Export ZIP…", (d, w) -> pickSave(id, false))
+                .setNeutralButton("Restore ZIP…", (d, w) -> pickSave(id, true))
+                .setNegativeButton("Cancel", null).create()).show();
+    }
+    private void pickSave(String id, boolean restore) {
+        if (task.busy) return;
+        try (SaveArchive.Guard ignored = SaveArchive.lock(getFilesDir(), id)) {
+            SaveArchive.recover(getFilesDir(), id);
+        } catch (Exception e) {
+            controllerDialog(new AlertDialog.Builder(this).setTitle("Saves unavailable").setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
+            return;
+        }
+        Intent intent = new Intent(restore ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_CREATE_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE).setType(restore ? "*/*" : "application/zip");
+        intent.addFlags(restore ? Intent.FLAG_GRANT_READ_URI_PERMISSION : Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+        if (!restore) intent.putExtra(Intent.EXTRA_TITLE, "Zakuro-" + id + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + ".zip");
+        pendingSaveId = id;
+        try { startActivityForResult(intent, restore ? RESTORE_SAVE : EXPORT_SAVE); }
+        catch (ActivityNotFoundException e) { pendingSaveId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
     }
     private void replaceCode(String id) {
         if (task.busy) return;
@@ -219,7 +257,7 @@ public final class Launcher extends Activity {
         if (files != null) for (File file : files) if (file.getName().matches("[0-9A-F]{16}\\.active(\\.bak)?")) found.add(file.getName().substring(0, 16));
         List<String> ids = new ArrayList<>(found); Map<String, String> names = new HashMap<>(); for (String id : ids) names.put(id, name(id));
         ids.sort((a, b) -> names.get(a).compareToIgnoreCase(names.get(b))); String query = search.getText().toString().trim().toLowerCase(Locale.ROOT); int shown = 0;
-        boolean wide = getResources().getConfiguration().screenWidthDp >= 600 && getResources().getConfiguration().fontScale <= 1.3f;
+        boolean wide = getResources().getConfiguration().screenWidthDp >= 760 && getResources().getConfiguration().fontScale <= 1.3f;
         for (String id : ids) {
             String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++;
             LinearLayout row = column(); row.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); row.setGravity(Gravity.CENTER_VERTICAL);
@@ -232,11 +270,14 @@ public final class Launcher extends Activity {
             TextView detail = text(summary, 14, muted); detail.setPadding(0, dp(6), 0, wide ? 0 : dp(14)); info.addView(detail);
             row.addView(info, wide ? new LinearLayout.LayoutParams(0, -2, 1) : new LinearLayout.LayoutParams(-1, -2));
             LinearLayout actions = new LinearLayout(this);
-            if (getResources().getConfiguration().fontScale > 1.3f) actions.setOrientation(LinearLayout.VERTICAL);
+            if (getResources().getConfiguration().fontScale > 1.3f || getResources().getConfiguration().screenWidthDp < 400) actions.setOrientation(LinearLayout.VERTICAL);
             Button play = button("Play", true, id + ".play"); play.setContentDescription("Play " + title);
             play.setEnabled(!task.busy); play.setOnClickListener(v -> play(id)); actions.addView(play);
             Button options = button("Settings", false, id + ".settings"); options.setContentDescription("Settings for " + title); options.setOnClickListener(v -> options(id));
             LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.setMargins(dp(10), 0, 0, 0); actions.addView(options, gap);
+            Button saves = button("Saves", false, id + ".saves"); saves.setContentDescription("Manage saves for " + title);
+            saves.setEnabled(!task.busy); saves.setOnClickListener(v -> saves(id));
+            LinearLayout.LayoutParams saveGap = new LinearLayout.LayoutParams(-2, -2); saveGap.setMargins(dp(10), 0, 0, 0); actions.addView(saves, saveGap);
             LinearLayout.LayoutParams actionSize = new LinearLayout.LayoutParams(-2, -2); if (wide) actionSize.setMargins(dp(16), 0, 0, 0); row.addView(actions, actionSize);
             LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.setMargins(0, 0, 0, dp(12)); list.addView(row, spacing);
         }
@@ -257,6 +298,7 @@ public final class Launcher extends Activity {
         }
     }
     private void play(String id) {
+        if (task.busy) return;
         try {
             File version = GameImport.active(this, id);
             GameSettings selected = GameSettings.load(this, id);
@@ -272,10 +314,10 @@ public final class Launcher extends Activity {
         if (task == null || status == null) return;
         boolean arm64 = Arrays.asList(Build.SUPPORTED_64_BIT_ABIS).contains("arm64-v8a"); add.setEnabled(!task.busy && arm64); progress.setVisibility(task.busy ? View.VISIBLE : View.GONE);
         status.setAccessibilityLiveRegion(task.busy ? View.ACCESSIBILITY_LIVE_REGION_NONE : View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        progress.setContentDescription("Adding game");
+        progress.setContentDescription(task.message);
         status.setText(!arm64 ? "Playing games requires an ARM64 Android device." : task.message); status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
         if (task.error != null && !isFinishing()) { String error = task.error; task.error = null;
-            controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't add this game").setMessage(error + "\n\nCheck the folder with Setup help, then try again. Existing games and saves are kept.").setPositiveButton("OK", null).create()).show(); }
+            controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't complete the operation").setMessage(error).setPositiveButton("OK", null).create()).show(); }
     }
     private static void installDriver(Context context, String id, Uri uri) throws Exception {
         File home = new File(context.getFilesDir(),"drivers");
@@ -347,9 +389,10 @@ public final class Launcher extends Activity {
         void importDriver(Context context, String id, Uri uri) { run(context, id, uri, 3, false); }
         void replaceCode(Context context, String id, Uri uri) { run(context, id, uri, 1, false); }
         void replaceTextures(Context context, String id, Uri uri) { run(context, id, uri, 2, true); }
+        void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
-            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : "Importing Vulkan driver";
+            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : "Restoring saves";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
                 String failure = null;
@@ -360,12 +403,30 @@ public final class Launcher extends Activity {
                     if (operation == 0) GameImport.install(context, uri, includeTextures, callback);
                     else if (operation == 1) GameImport.replaceCode(context, id, uri, callback);
                     else if (operation == 2) GameImport.replaceTextures(context, id, uri, callback);
-                    else installDriver(context, id, uri);
+                    else if (operation == 3) installDriver(context, id, uri);
+                    else {
+                        main.post(() -> { message = action + "…"; refresh(false); });
+                        try (SaveArchive.Guard ignored = SaveArchive.lock(context.getFilesDir(), id)) {
+                            SaveArchive.recover(context.getFilesDir(), id);
+                            if (operation == 4) {
+                                try (java.io.OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
+                                    if (output == null) throw new java.io.IOException("Cannot write the selected file.");
+                                    SaveArchive.exportZip(context.getFilesDir(), id, output);
+                                } catch (Exception e) {
+                                    try { android.provider.DocumentsContract.deleteDocument(context.getContentResolver(), uri); } catch (Exception ignoredDelete) { }
+                                    throw new java.io.IOException("Export failed. A partial ZIP may remain at the destination; do not use it. " + e.getMessage(), e);
+                                }
+                            } else try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
+                                if (input == null) throw new java.io.IOException("Cannot read the selected backup.");
+                                SaveArchive.restoreZip(context.getFilesDir(), id, input);
+                            }
+                        }
+                    }
                 } catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
                 final String outcome = failure;
                 main.post(() -> { busy = false; error = outcome;
-                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : "Vulkan driver imported and selected. Restart the game to use it.")
-                            : (operation == 0 ? "The game wasn't added." : "Files weren't replaced. Existing files are kept."); refresh(true); });
+                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : "Saves restored. Start the game normally; do not load an old quick save state.")
+                            : action + " failed. See the error for recovery details."; refresh(true); });
             }, "game-import").start();
         }
         private void refresh(boolean libraryChanged) {

@@ -1,6 +1,6 @@
 # Zakuro Android
 
-**[Download Android 0.1.4 (experimental)](https://github.com/Sekyleky/zakuro-android/releases/tag/android-v0.1.4)** ·
+**[Download the latest Android release](https://github.com/Sekyleky/zakuro-android/releases/latest)** ·
 [Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/zakuro-android/issues/new/choose)
 
 An unofficial community fork, not an official release from the Zakuro developers.
@@ -44,7 +44,7 @@ are implemented, with system-driver recovery. The external display uses a
 readback path; physical Thor routing, sensors and driver compatibility still need
 device verification. Original ROMs and Pocket Native installations are separate.
 
-Version 0.1.4 fixes sideways game screens by letting Android handle panel rotation.
+Version 0.1.5 adds a **Saves** button per game to export and restore in-game saves as ZIPs. 0.1.4 fixed sideways game screens.
 The 0.1.3 foundation repairs the ABI mismatch through a pinned Android game-code builder
 and code-only replacement. Texture packs are optional at import and can be
 attached later without copying a ROM again. In-game saves stay at a stable

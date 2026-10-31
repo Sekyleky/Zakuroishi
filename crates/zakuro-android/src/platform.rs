@@ -70,6 +70,14 @@ pub struct Launch {
 }
 
 pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
+    let save_error = with_activity(app, |env, activity| {
+        let value = env.call_method(activity, "prepareSaves", "()Ljava/lang/String;", &[])?.l()?;
+        if value.is_null() { Ok(None) } else {
+            let message: String = env.get_string(&JString::from(value))?.into();
+            Ok(Some(message))
+        }
+    })?;
+    if let Some(error) = save_error { return Err(error); }
     let (
         game,
         code,

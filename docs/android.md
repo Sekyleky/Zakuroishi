@@ -7,8 +7,8 @@ no ROMs, native game code, firmware, keys, or texture packs.
 
 ## Install or update
 
-Download `Zakuro-Android-0.1.4.apk` from the
-[GitHub prerelease](https://github.com/Sekyleky/zakuro-android/releases/tag/android-v0.1.4)
+Download the latest `Zakuro-Android-*.apk` from the
+[GitHub releases page](https://github.com/Sekyleky/zakuro-android/releases/latest)
 and open it on the handheld. Allow installation from that browser or file manager
 when Android asks. `SHA256SUMS.txt` is provided to verify the download. GitHub's
 automatic source archives are for developers, not installable apps.
@@ -108,11 +108,30 @@ requires testing on the handheld. No driver pack is included with the APK.
 
 ## Saves and recovery
 
+Each game in the library has a **Saves** button (also available under **Settings →
+Manage saves**). You do not need root access or an app-data file manager.
+
+- **Export ZIP…**: first save inside the game and exit to the library. Choose a
+  destination in Android's file picker: Downloads, SD card, or an installed cloud
+  provider. The ZIP contains ordinary files you can extract on a computer.
+- **Restore ZIP…**: choose a Zakuro save backup for the same game and confirm
+  replacement. The archive is checked before replacing the current saves. The
+  previous saves are retained locally as a recovery copy.
+
+Save transfers are blocked while the game's runtime holds its saves open, including
+when it is paused in the background. Exit the game rather than just pressing Home.
+After restoring, launch normally; loading an older quick save state can overwrite
+the restored progress. These backups cover **in-game saves**, not quick save states,
+ROMs, native game code or texture packs. Keep exported ZIPs somewhere outside the
+app before uninstalling or clearing its data. Restore accepts this app's backup
+format, not arbitrary ZIPs from other emulators.
+
 The app stores files privately beneath Android's app files directory:
 
 | Path relative to `files/` | Purpose |
 | --- | --- |
 | `savedata/TITLE_ID/user/` | Stable in-game saves, linked into each import |
+| `savedata/TITLE_ID/user.previous/` | Recovery copy retained by save restoration |
 | `imports/TITLE_ID.active` | Atomically activated version UUID |
 | `imports/UUID/game/game.3ds` | Imported original ROM |
 | `imports/UUID/code/title.so` | Read-only native game library |

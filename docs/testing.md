@@ -1,5 +1,21 @@
 # Verification record
 
+## 0.1.5 save export and restore (2026-10-31)
+
+- Delivery: `build/releases/0.1.5/Zakuro-Android-0.1.5.apk` (9,241,686 bytes),
+  SHA256 `29127b672313eead36a411510a14dfd4e688c188d2f14812dd812df9b0759d56`,
+  signed with the same certificate as 0.1.4 (SHA-256 `5821ce1e…7228`).
+  Build log: `build/android-windows/build-20261031-111818-aeaa4dd9.log`.
+- `android/app/tests/run-save-archive-tests.ps1`: 79 checks passed — round trip,
+  wrong title, path traversal, case/duplicate collisions, CRC corruption, Unix
+  symlink entries, truncation, read failure, interrupted-switch recovery, blocked
+  backup path and cross-process locking. Filesystem symlink cases were skipped on
+  Windows (no privilege); they run on Linux/Android hosts.
+- `android/app/settingshosttests/run.ps1` passed, including the new
+  `prepareSaves` Java/native contract. ARM64 `cargo check` of `zakuro-android` passed.
+- Not yet verified on a device: the Android file picker flow and the lock held
+  by a paused game process.
+
 ## 0.1.4 rotation hotfix (2026-10-31)
 
 - Delivery: `build/releases/0.1.4/Zakuro-Android-0.1.4.apk` (9,221,205 bytes),

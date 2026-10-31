@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5 — accessible save backups (2026-10-31)
+
+- Add a per-game Saves button and Settings shortcut to export in-game saves as
+  ZIPs to Android's file picker and restore a matching backup with confirmation.
+- Keep the previous save on restore and recover an interrupted directory switch
+  before the next game starts. Validate backups before replacing live files.
+- Lock save access across the game and library processes so transfers cannot race
+  a paused or running game. Quick save states remain separate from in-game saves.
+
 ## 0.1.4 — display rotation fix (2026-10-31)
 
 - Use identity presentation transform when supported: the renderer draws in

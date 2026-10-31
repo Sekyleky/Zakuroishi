@@ -121,6 +121,8 @@ final class SettingsDialog {
             }
         }
         if (!inGame && activity instanceof Launcher) {
+            Button saves = button("Manage saves…");
+            saves.setOnClickListener(v -> { rootDialog.dismiss(); ((Launcher)activity).saves(settings.id); }); addButton(content, saves);
             Button driver = button("Import Vulkan driver ZIP…");
             driver.setOnClickListener(v -> {
                 AlertDialog trust=new AlertDialog.Builder(activity).setTitle("Import a trusted driver?")

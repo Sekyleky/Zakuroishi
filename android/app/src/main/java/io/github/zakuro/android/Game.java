@@ -226,6 +226,18 @@ public final class Game extends NativeActivity {
         } catch(Exception e) { showNativeMessage(e.getMessage()); nativeCommand(RESUME); }
     }
     private String runtimeError;
+    private volatile SaveArchive.Guard saveGuard;
+    /** Called before the native runtime opens any save files. */
+    public String prepareSaves() {
+        try {
+            String id = getIntent().getStringExtra("game_id");
+            saveGuard = SaveArchive.lock(getFilesDir(), id);
+            SaveArchive.recover(getFilesDir(), id);
+            return null;
+        } catch (Exception e) {
+            return "Cannot open saves. " + e.getMessage();
+        }
+    }
     private AlertDialog errorDialog;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -276,6 +288,10 @@ public final class Game extends NativeActivity {
         if (errorDialog != null) { errorDialog.dismiss(); errorDialog = null; }
         // NativeActivity unload joins android_main; only then may a new native session start.
         super.onDestroy();
+        if (saveGuard != null) {
+            try { saveGuard.close(); } catch (java.io.IOException e) { android.util.Log.w("Zakuro", "Closing save lock", e); }
+            saveGuard = null;
+        }
         if (pendingRestart != null) {
             android.content.Intent next = pendingRestart;
             pendingRestart = null;
