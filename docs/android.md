@@ -91,6 +91,17 @@ handheld still briefly after resume, then use recalibration if aiming drifts.
 Sensitivity and axis inversion are per game. The Thor's physical sensor axes,
 latency and calibration still require hardware verification.
 
+## Performance
+
+Start with **2× resolution** and the **system Vulkan driver**; on an AYN Thor
+Pokémon Ultra Moon holds 60 FPS at 2× and 3× with HD textures. Keep
+Performance → Vertex shader processing on **Auto**: on the stock Qualcomm driver
+**GPU** crashes the game, and on Turnip it was slower. Leave the 60 FPS cap on: at
+that cap the main screen is paced by the display's vsync, and the app asks Android
+for a 60 Hz panel mode and steady CPU clocks. Expect more battery use and heat at
+3×. If a game stutters, report the logcat `benchmark` line (see the
+[benchmark protocol](benchmark.md#reading-the-benchmark-line)).
+
 ## Two displays and custom drivers
 
 Enable the second-display option to route the top screen to the main display and

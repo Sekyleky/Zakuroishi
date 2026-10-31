@@ -1,15 +1,38 @@
 # Verification record
 
-## 0.1.7 save restore audit (2026-10-31, not released)
+## 0.1.7 frame pacing, performance and fixes (2026-10-31)
 
-- `build/releases/0.1.7/Zakuro-Android-0.1.7.apk`, SHA256
-  `fc91b8b2530f9ca3e66dd5220fd20dd34d90064b55bd6c234590a7b687652d28`, same certificate.
-- SaveArchiveCheck: 92 checks on Linux (eclipse-temurin:21, non-root, symlink cases
-  included), 87 on Windows (symlink cases skipped). Settings host checks pass.
-- Real-tool restores, all accepted: Zakuro export, Info-ZIP flat and wrapped, Python
-  no-directory, macOS junk, PowerShell 5.1 Compress-Archive (contents and folder),
-  .NET ZipFile (contents and folder).
-- Device verification on Thor pending before release.
+- Delivery: `build/releases/0.1.7/Zakuro-Android-0.1.7.apk` (9,262,166 bytes),
+  SHA256 `f3edd0cefd4404772ac8ee60df41fd091532a33e48d006efc29ce853047b6cfc`,
+  same certificate as 0.1.4–0.1.6. Source: `android-handheld` at the release tag.
+- Device: AYN Thor (Snapdragon 8 Gen 2, Adreno 740, Android 13), stock Qualcomm
+  Vulkan driver, Pokémon Ultra Moon, New 3DS mode, vertex shaders Auto (CPU).
+- Method: the `benchmark` logcat line (300-frame windows), SurfaceFlinger
+  `--latency` present intervals, and `simpleperf record --app` (the APK is
+  profileable). Scenes are the same save and overworld spot, not a scripted route,
+  so treat numbers as indicative.
+
+| Ultra Moon | 0.1.6 | 0.1.7 |
+|---|---|---|
+| 2×, HD on | 54–57 FPS, core ~10 ms | 59.5–60.2 FPS, core 6.4–6.8 ms |
+| 3×, HD on | 43–50 FPS, core ~10.5 ms | 59.9–60.4 FPS, core 6.1–6.6 ms |
+| 3×, present intervals | ~1 in 3 at 33 ms | 125 of 126 at 16.7 ms |
+| Swapchain rebuilds / 30 s | ~1950 | 3 (startup) |
+
+- Remaining: occasional 21–30 ms frames (about 1 in 125) in heavy scenes. GPU
+  write-backs measured at ~1 per frame, 0.3 ms (`wb[sync=…]`), so not the cause.
+- Ultra Wormhole: confirmed fixed by the tester after the HID calibration change;
+  the log shows one `hid: gyroscope calibration asked for`. Before the fix the
+  shader NaN tracer showed uniforms c10–c16 uploaded as NaN and every triangle
+  clipped, in both renderers.
+- Driver comparison: Turnip with Auto shading was slower and less even than stock;
+  GPU vertex shaders were GPU-bound on Turnip and crash the stock driver
+  (`Rust cannot catch foreign exceptions` from pipeline creation).
+- Automated: zakuro-core 145, zakuro-gpu 128 host tests; SaveArchiveCheck 92 on
+  Linux (Docker, symlink cases included) and 87 on Windows; settings, bridge and
+  driver host checks pass.
+- Not verified: other games and devices, battery/thermal behaviour of the ADPF
+  hint over long sessions, and a fair comparison with Azahar.
 
 ## 0.1.6 save folder hotfix (2026-10-31)
 

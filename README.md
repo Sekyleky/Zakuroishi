@@ -44,7 +44,7 @@ are implemented, with system-driver recovery. The external display uses a
 readback path; physical Thor routing, sensors and driver compatibility still need
 device verification. Original ROMs and Pocket Native installations are separate.
 
-Version 0.1.5 adds a **Saves** button per game to export and restore in-game saves as ZIPs. 0.1.4 fixed sideways game screens.
+Version 0.1.7 holds 60 FPS in Pokémon Ultra Moon at 3× with HD textures on an AYN Thor, fixes the Ultra Wormhole grey screen and makes save restore accept ZIPs re-made on any computer.
 The 0.1.3 foundation repairs the ABI mismatch through a pinned Android game-code builder
 and code-only replacement. Texture packs are optional at import and can be
 attached later without copying a ROM again. In-game saves stay at a stable

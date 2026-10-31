@@ -36,7 +36,7 @@ body:
     id: version
     attributes:
       label: Zakuro Android version
-      placeholder: 0.1.5
+      placeholder: 0.1.7
     validations:
       required: true
   - type: dropdown

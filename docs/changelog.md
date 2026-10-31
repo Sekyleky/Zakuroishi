@@ -1,13 +1,42 @@
 # Changelog
 
-## 0.1.7 — save restore audit (unreleased, 2026-10-31)
+## 0.1.7 — frame pacing, performance and fixes (2026-10-31)
 
-- Restore accepts ZIPs re-made by Windows PowerShell/.NET (backslash paths), ZIPs
-  with one wrapper folder, macOS metadata entries and a CRLF manifest; all safety
-  checks run on the normalized names. Errors now say what is wrong.
-- Fix lock loss on Linux/Android: a second in-process lock attempt closed a handle
-  and silently dropped the held POSIX lock.
+Performance (measured on AYN Thor, Ultra Moon; see [testing](testing.md)):
+
+- Stop rebuilding both swapchains every frame. The 0.1.4 identity pre-transform
+  made Android report every present as `SUBOPTIMAL`, and each was answered with
+  `device_wait_idle` plus a rebuild (~65 per second). An intentional transform
+  mismatch is now ignored; resizes still rebuild through window events.
+- Pace the main screen to vsync: request a fixed 60 Hz source rate per window
+  (`ANativeWindow_setFrameRate`, linked from `libnativewindow`) and present in FIFO
+  at the default 60 FPS cap, with the timer kept only as a 61 Hz ceiling.
+- Report each frame's emulation work to Android's performance-hint API (ADPF, API
+  31+) against a 16.7 ms target so the governor holds CPU clocks. The vsync wait is
+  excluded from the report so it does not over-boost.
+- Stop the JIT flood: `cranelift_jit` logged every shader's IR at info level (35k
+  lines in 40 s). Only Zakuro crates log at info; others at warning.
+- Cap rayon at 3 workers (8 idle-spun in the kernel on the emulation thread's
+  cores), skip the spin-wait under FIFO, reuse clipping buffers per draw, and reuse
+  a CPU-drawn screen's upscaled picture while it is unchanged.
+- The benchmark log line now reports worst frame, frames over budget, CPU screen
+  fallbacks and GPU waits per caller. The app is `profileable` from the shell.
+
+Fixes:
+
+- Pokémon Ultra Sun/Moon: the Ultra Wormhole showed a grey top screen. HID
+  `GetGyroscopeLowCalibrateParam` returned zeros; the game divides by the unit
+  range, so its camera matrices became NaN. It now returns the console's ±6700.
+- Turning HD textures off now holds: pause-menu Restart relaunches from saved
+  settings, and the library reads settings across processes.
+- Save restore accepts ZIPs re-made by Windows PowerShell/.NET (backslash paths),
+  with one wrapper folder, macOS metadata or a CRLF manifest; all safety checks run
+  on the normalized names, and errors say what is wrong.
+- Save lock: a second in-process lock attempt no longer drops the held POSIX lock.
 - Export opens the new document in plain write mode for cloud providers.
+
+Known issue: on the stock Qualcomm driver, Performance → Vertex shader processing →
+GPU crashes the game (the driver throws inside pipeline creation). Keep it on Auto.
 
 ## 0.1.6 — save folder hotfix (2026-10-31)
 

@@ -27,6 +27,35 @@ input sequence and route. Prefer portable in-game saves over emulator-specific
 save states; document any conversion. Keep these files private. Record setup and
 verification outside the timed window.
 
+## Reading the benchmark line
+
+Every 300 frames the runtime logs (tag `Zakuro`, `adb logcat -s Zakuro:*`):
+
+```
+benchmark frames=300 fps=60.10 core_ms=5.6 present_ms=10.7 worst_core_ms=20.4 worst_frame_ms=21.2
+  slow=204 vsync=true cpu_top=0 cpu_bottom=300 resolution=3 textures=true shared=true
+  gpu_waits=1.00 gpu_wait_ms=0.003 readbacks=1.02 readback_ms=0.30 wb[sync=305/91.2ms …]
+```
+
+- `core_ms`: emulation work per frame (game code, GPU command processing, CPU
+  vertex shading). Over ~16.7 ms means emulation-bound.
+- `present_ms`: presenting, including the wait for vsync when `vsync=true`. A
+  high value with low `core_ms` is idle time, not a problem. `slow` counts frames
+  over 16 ms *including* that wait, so it is only meaningful when `vsync=false`.
+- `cpu_top`/`cpu_bottom`: frames whose screen the CPU copied because the GPU did
+  not draw it. `gpu_*`, `readbacks` and `wb[…]`: renderer waits on the GPU, by
+  caller, totals over the window.
+- Real smoothness is the present interval, not `fps`:
+  `adb shell dumpsys SurfaceFlinger --latency '<Game layer>'` (layer name from
+  `dumpsys SurfaceFlinger --list`). All intervals at 16.7 ms is smooth; 33/50 ms
+  entries are visible hitches.
+
+To profile, the APK is `profileable`: push the NDK's
+`simpleperf/bin/android/arm64/simpleperf` to `/data/local/tmp`, run
+`simpleperf record --app io.github.zakuro.android -g --duration 10`, and report on
+the host with `--symfs` pointing at the unstripped `libzakuro_android.so` from the
+Cargo target directory. Off-CPU waits do not appear in these samples.
+
 ## Fixed-duration runs
 
 1. Install both exact APKs and prepare equivalent settings and saves. Verify the
