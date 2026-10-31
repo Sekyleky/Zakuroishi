@@ -47,9 +47,12 @@ impl Surface {
     fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry) -> Result<Self, String> {
         let window = Window(window);
         // Fixed 60 Hz source lets a 120 Hz panel hold an even 2-vsync cadence.
-        let rate = unsafe {
-            ndk_sys::ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), 60.0, 1)
-        };
+        // Exported by libnativewindow, not libandroid; ndk-sys alone leaves it unresolved at dlopen.
+        #[link(name = "nativewindow")]
+        extern "C" {
+            fn ANativeWindow_setFrameRate(window: *mut ndk_sys::ANativeWindow, rate: f32, compatibility: i8) -> i32;
+        }
+        let rate = unsafe { ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), 60.0, 1) };
         log::info!("ANativeWindow_setFrameRate(60, fixed_source) = {rate}");
         let size = (
             window.0.width().max(1) as u32,

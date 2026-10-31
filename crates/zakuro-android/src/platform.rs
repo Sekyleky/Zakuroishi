@@ -9,7 +9,9 @@ struct AndroidLog;
 static LOG: AndroidLog = AndroidLog;
 impl log::Log for AndroidLog {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.level() <= log::Level::Info
+        // cranelift_jit logs each shader's whole IR at info; logcat writes stall frames.
+        metadata.level() <= log::Level::Warn
+            || (metadata.level() <= log::Level::Info && metadata.target().starts_with("zakuro"))
     }
     fn log(&self, record: &log::Record<'_>) {
         if !self.enabled(record.metadata()) {
