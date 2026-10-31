@@ -102,6 +102,16 @@ for a 60 Hz panel mode and steady CPU clocks. Expect more battery use and heat a
 3×. If a game stutters, report the logcat `benchmark` line (see the
 [benchmark protocol](benchmark.md#reading-the-benchmark-line)).
 
+Drivers compared on an AYN Thor (Ultra Moon, 3× + HD, same scene, 0.1.7):
+
+| Driver | Result |
+|---|---|
+| System Qualcomm (recommended) | 60 FPS, ~4.0 ms emulation per frame, no artifacts |
+| Balemuni Apex Ultimate, Mesa 26.3.0-devel (Turnip) | 60 FPS, ~4.4 ms; a black block in the top screen's bottom-left corner |
+
+Custom Turnip drivers give no measurable gain here. If you see a small black
+rectangle in a screen corner, switch Performance back to the system driver.
+
 ## Two displays and custom drivers
 
 Enable the second-display option to route the top screen to the main display and
