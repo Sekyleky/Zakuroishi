@@ -144,6 +144,11 @@ pub struct VulkanPresenter {
     shared: Option<Arc<SharedDevice>>,
     /// whether a present waits for the display, as FIFO does.
     waits: bool,
+    /// FIFO wanted: the display's vsync, not a timer, paces the frames.
+    vsync: bool,
+    /// the transform differs from the panel's on purpose (see presentation_transform),
+    /// which Android reports as suboptimal on every present: that alone is no reason to rebuild.
+    rotated: bool,
 
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
@@ -449,6 +454,8 @@ impl VulkanPresenter {
             gpu_sets,
             shared: ManuallyDrop::into_inner(shared),
             waits: true,
+            vsync: false,
+            rotated: false,
             command_pool,
             command_buffers,
             image_available,
@@ -521,11 +528,12 @@ impl VulkanPresenter {
             Ok("fifo") => vec![vk::PresentModeKHR::FIFO],
             Ok("immediate") => vec![vk::PresentModeKHR::IMMEDIATE],
             Ok("mailbox") => vec![vk::PresentModeKHR::MAILBOX],
+            _ if self.vsync => vec![vk::PresentModeKHR::FIFO],
             _ => vec![vk::PresentModeKHR::MAILBOX, vk::PresentModeKHR::FIFO],
         };
         let present_mode = wanted.into_iter().find(|mode| present_modes.contains(mode)).unwrap_or(vk::PresentModeKHR::FIFO);
         self.waits = present_mode == vk::PresentModeKHR::FIFO;
-        if self.swapchain == vk::SwapchainKHR::null() {
+        {
             let name = |mode: vk::PresentModeKHR| match mode {
                 vk::PresentModeKHR::FIFO => "fifo".to_owned(),
                 vk::PresentModeKHR::MAILBOX => "mailbox".to_owned(),
@@ -547,7 +555,11 @@ impl VulkanPresenter {
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .pre_transform(presentation_transform(&capabilities))
+            .pre_transform({
+                let transform = presentation_transform(&capabilities);
+                self.rotated = transform != capabilities.current_transform;
+                transform
+            })
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
             .clipped(true)
@@ -656,6 +668,13 @@ impl VulkanPresenter {
     /// the device, for the renderer to draw on, when it can share it.
     pub fn shared_device(&self) -> Option<Arc<SharedDevice>> {
         self.shared.clone()
+    }
+
+    /// presents in FIFO from the next swapchain on, so each frame lands on
+    /// its own vsync where the display runs at the console's rate.
+    pub fn pace_to_display(&mut self) {
+        self.vsync = true;
+        self.stale = true;
     }
 
     /// whether a present waits for the display, rather than handing the
@@ -993,7 +1012,7 @@ impl Presenter for VulkanPresenter {
         self.frame = (self.frame + 1) % FRAMES_IN_FLIGHT;
 
         match result {
-            Ok(false) if !suboptimal => Ok(()),
+            Ok(late) if !((late || suboptimal) && !self.rotated) => Ok(()),
             Ok(_) => {
                 self.stale = true;
                 Ok(())

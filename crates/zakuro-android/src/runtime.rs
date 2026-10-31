@@ -391,6 +391,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let mut benchmark_start = Instant::now();
     let mut benchmark_frames = 0u32;
     let mut core_time = Duration::ZERO;
+    // Averages hide hitches: track the worst frame and frames over budget.
+    let (mut worst_core, mut worst_frame, mut slow_frames) = (Duration::ZERO, Duration::ZERO, 0u32);
     let mut present_time = Duration::ZERO;
     loop {
         let active = resumed && focused && !paused && surface.is_some();
@@ -410,7 +412,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 MainEvent::InitWindow { .. } => {
                     if let Some(window) = app.native_window() {
                         match Surface::new(window, &geometry::display(&settings, false, second.is_some()), driver.entry.clone()) {
-                            Ok(s) => {
+                            Ok(mut s) => {
+                                // The panel is asked for 60 Hz above; at the default cap let its vsync pace frames.
+                                if settings.frame_cap == 60 {
+                                    s.presenter.pace_to_display();
+                                }
                                 if system.is_some() {
                                     // shortcut: the renderer retains its original device; use readback until upstream supports surface rebinding.
                                     log::warn!("window recreated: presentation now uses GPU readback on the new Vulkan device");
@@ -715,6 +721,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         let core_start = Instant::now();
         let outcome = system.run_frame();
         core_time += core_start.elapsed();
+        worst_core = worst_core.max(core_start.elapsed());
         let sound = system.take_audio();
         if audio.as_ref().is_some_and(Audio::disconnected) {
             audio = None;
@@ -734,7 +741,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             FrameOutcome::Faulted => return Err(format!("game faulted: {}", system.debug_output)),
         }
         let present_start = Instant::now();
-        if present_start >= next_present {
+        // Under FIFO the display is the cap; a timer gate would drop frames that arrive a hair early.
+        let vsync = s.presenter.waits_for_display() && settings.frame_cap == 60;
+        if vsync || present_start >= next_present {
             match s.present(
                 system,
                 (settings.right_stick == RightStick::Cursor).then_some(input.cursor),
@@ -761,6 +770,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             next_present = (next_present + present_interval).max(present_start);
         }
         present_time += present_start.elapsed();
+        let frame = core_start.elapsed();
+        worst_frame = worst_frame.max(frame);
+        slow_frames += u32::from(frame > Duration::from_micros(16_000));
         benchmark_frames += 1;
         if stats_start.elapsed() >= Duration::from_secs(1) {
             if settings.show_fps {
@@ -776,15 +788,19 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             stats_start = Instant::now();
         }
         if benchmark_frames == 300 {
-            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} resolution={} textures={} shared={}",
+            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} resolution={} textures={} shared={}",
                 300.0 / benchmark_start.elapsed().as_secs_f64(), core_time.as_secs_f64() * 1000.0 / 300.0,
-                present_time.as_secs_f64() * 1000.0 / 300.0, launch.resolution, launch.texture_packs, s.shared);
+                present_time.as_secs_f64() * 1000.0 / 300.0, worst_core.as_secs_f64() * 1000.0, worst_frame.as_secs_f64() * 1000.0,
+                slow_frames, vsync, launch.resolution, launch.texture_packs, s.shared);
+            (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
             core_time = Duration::ZERO;
             present_time = Duration::ZERO;
         }
         // No catch-up burst after a slow frame or lifecycle transition.
-        next_frame = (next_frame + frame_time).max(Instant::now());
+        // With vsync pacing the timer is only a ceiling (61 Hz) in case the panel stays at 120 Hz.
+        let step = if vsync { Duration::from_secs_f64(1.0 / 61.0) } else { frame_time };
+        next_frame = (next_frame + step).max(Instant::now());
     }
     Ok(())
 }
