@@ -119,11 +119,8 @@ final class SaveArchive {
 
     private static Path parent(File filesDir, String title) throws IOException {
         if (title == null || !title.matches("[0-9A-F]{16}")) throw new IOException("Invalid title ID");
-        Path root = filesDir.toPath().toAbsolutePath().normalize();
-        // Reject symlink ancestors too, including a redirected filesDir.
-        Path current = root.getRoot();
-        for (Path part : root) { current = current.resolve(part); checkDirectory(current); }
-        if (!Files.isDirectory(root, NOFOLLOW)) throw new IOException("Missing files directory");
+        // Android's own filesDir goes through symlinks (/data/user/0 -> /data/data); only our folders must not.
+        Path root = filesDir.toPath().toRealPath();
         Path saves = root.resolve("savedata"), parent = saves.resolve(title);
         for (Path dir : Arrays.asList(saves, parent)) {
             checkDirectory(dir);

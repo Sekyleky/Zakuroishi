@@ -1,5 +1,15 @@
 # Verification record
 
+## 0.1.6 save folder hotfix (2026-10-31)
+
+- Delivery: `build/releases/0.1.6/Zakuro-Android-0.1.6.apk`, SHA256
+  `615f50fe11d6dd8c7a74c347caad1c76aed136eb772c901b62fbbcf9692bc48d`, same certificate.
+- Cause: 0.1.5 rejected every symlinked ancestor of `filesDir`; Android's
+  `/data/user/0` is one. Host tests had used an already-resolved temp path.
+- 79 SaveArchive checks pass on Windows. A new regression check (lock through an
+  aliased files directory) is in the symlink group, which Windows skips; it was not
+  run on Linux for this hotfix. Device confirmation pending.
+
 ## 0.1.5 save export and restore (2026-10-31)
 
 - Delivery: `build/releases/0.1.5/Zakuro-Android-0.1.5.apk` (9,241,686 bytes),

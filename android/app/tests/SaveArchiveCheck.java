@@ -163,6 +163,11 @@ public final class SaveArchiveCheck {
         }
         fails(() -> SaveArchive.exportZip(files, TITLE, new ByteArrayOutputStream()));
         Files.delete(link);
+        // Android's filesDir is reached through a system symlink; that must be accepted.
+        Path aliased = Files.createSymbolicLink(root.resolve("alias"), root);
+        try (SaveArchive.Guard ignored = SaveArchive.lock(aliased.toFile(), TITLE)) { require(false); }
+        catch (IOException inUse) { require(inUse.getMessage().equals("Saves are in use")); }
+        Files.delete(aliased);
         Path previous = user.resolveSibling("user.previous");
         Files.createSymbolicLink(previous, outside);
         fails(() -> restore(files, exported)); fails(() -> SaveArchive.recover(files, TITLE));

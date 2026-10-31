@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6 — save folder hotfix (2026-10-31)
+
+- Fix "Cannot open saves. Unsafe directory" on devices, which blocked game launch
+  and the Saves button: resolve Android's symlinked files directory before checking
+  Zakuro's own save folders.
+
 ## 0.1.5 — accessible save backups (2026-10-31)
 
 - Add a per-game Saves button and Settings shortcut to export in-game saves as
