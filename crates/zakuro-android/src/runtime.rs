@@ -828,6 +828,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             benchmark_start = Instant::now();
         }
         let core_start = Instant::now();
+        for part in &zakuro_gpu::FRAME_NS {
+            part.store(0, std::sync::atomic::Ordering::Relaxed);
+        }
         let cycles_before = system.cpu.cycles;
         let outcome = system.run_frame();
         let cycles = system.cpu.cycles.saturating_sub(cycles_before);
@@ -903,6 +906,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 work.as_secs_f64() * 1000.0, present.as_secs_f64() * 1000.0, frame.as_secs_f64() * 1000.0,
                 work > Duration::from_nanos(16_666_667), present > Duration::from_nanos(16_666_667),
                 take(&zakuro_gpu::PIPELINES_COMPILED), take(&zakuro_gpu::PROGRAMS_COMPILED));
+            // where this frame's emulation time went (nested: gpu holds decode/vertices/upload/submit)
+            let parts: Vec<String> = zakuro_gpu::FRAME_PARTS.iter().zip(&zakuro_gpu::FRAME_NS)
+                .map(|(name, ns)| format!("{name}_ms={:.2}", ns.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6)).collect();
+            log::info!("frame hitch parts {}", parts.join(" "));
         }
         benchmark_frames += 1;
         if stats_start.elapsed() >= Duration::from_secs(1) {

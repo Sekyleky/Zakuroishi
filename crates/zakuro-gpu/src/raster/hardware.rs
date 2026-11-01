@@ -2876,6 +2876,7 @@ impl Hardware {
     /// the smallest of its sizes to draw with. a texture pack's picture
     /// takes its place once it has been read.
     fn texture(&mut self, bound: &BoundTexture) -> Result<(vk::ImageView, u32), String> {
+        let _timed = crate::timed(3);
         let size = (bound.width, bound.height);
         if let Some(found) = bound.replacement.as_ref().and_then(|material| self.replacement(material, size)) {
             return Ok(found);
@@ -4248,6 +4249,7 @@ impl Hardware {
     /// runs what the batch recorded and writes everything it drew back to
     /// guest memory.
     pub(crate) fn flush<M: GpuMemory>(&mut self, memory: &mut M) -> Result<(), String> {
+        let _timed = crate::timed(5);
         let dirty = (0..self.surfaces.len()).filter(|&i| self.surfaces[i].dirty.is_some()).collect();
         let t = std::time::Instant::now();
         let done = self.write_back(memory, dirty);
@@ -5167,6 +5169,7 @@ impl Hardware {
     /// recording goes on in another command buffer, once the GPU is done
     /// with the batch that used it last.
     fn submit(&mut self) -> Result<(), String> {
+        let _timed = crate::timed(4);
         if !self.recording {
             return Ok(());
         }

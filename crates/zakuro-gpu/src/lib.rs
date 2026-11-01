@@ -34,6 +34,20 @@ pub use raster::hardware::{take_caller_stats, take_wait_stats};
 pub static PIPELINES_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static PROGRAMS_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// emulation-thread time this frame, in ns: GPU command lists, texture
+/// decode, vertex processing, texture upload, batch submit, flush. The
+/// runtime clears them each frame and prints them on a hitch line.
+pub static FRAME_NS: [std::sync::atomic::AtomicU64; 6] = [const { std::sync::atomic::AtomicU64::new(0) }; 6];
+pub const FRAME_PARTS: [&str; 6] = ["gpu", "decode", "vertices", "upload", "submit", "flush"];
+/// adds the time until it drops to one `FRAME_NS` slot.
+pub struct Timed(usize, std::time::Instant);
+pub fn timed(slot: usize) -> Timed { Timed(slot, std::time::Instant::now()) }
+impl Drop for Timed {
+    fn drop(&mut self) {
+        FRAME_NS[self.0].fetch_add(self.1.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// how the GPU reaches guest memory.
 pub trait GpuMemory {
     fn read(&mut self, addr: u32, out: &mut [u8]);

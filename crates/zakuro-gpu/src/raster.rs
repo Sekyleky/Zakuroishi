@@ -575,6 +575,7 @@ fn process_vertices<'a>(
     inputs: &[[Vec4; shader::INPUT_REGISTERS]],
     order: Option<&'a [usize]>,
 ) -> (Vec<Vertex>, Option<&'a [usize]>) {
+    let _timed = crate::timed(2);
     if log::log_enabled!(log::Level::Trace) {
         if let Some(input) = inputs.first() {
             let used_uniforms = vertex_shader.float_uniforms.iter().filter(|u| **u != shader::ZERO).count();
@@ -1154,6 +1155,7 @@ impl TextureCache {
     }
 
     fn decoded(&mut self, key: TextureKey, data: &[u8]) -> Found {
+        let _timed = crate::timed(1);
         let (_, format, width, height) = key;
         let hash = fingerprint(data);
         let checked = (self.list, self.written.len());

@@ -857,6 +857,7 @@ impl System {
     }
 
     pub fn submit_command_list(&mut self, paddr: u32, size: u32) {
+        let _timed = zakuro_gpu::timed(0);
         let linear_base = self.kernel.linear_base;
         let mut guest = GuestMemory {
             linear_base,
