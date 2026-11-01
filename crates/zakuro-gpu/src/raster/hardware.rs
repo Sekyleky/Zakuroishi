@@ -320,6 +320,61 @@ struct Image {
     image: vk::Image,
     memory: vk::DeviceMemory,
     view: vk::ImageView,
+    /// where in a pooled block of memory it lies, and how far that reaches,
+    /// none when the memory is its own.
+    pooled: Option<(u64, u64)>,
+}
+
+/// device memory pictures are carved from, rather than one allocation each.
+const POOL_BLOCK: u64 = 64 << 20;
+
+struct HeapBlock {
+    memory: vk::DeviceMemory,
+    kind: u32,
+    size: u64,
+    /// the free (offset, length) ranges, by offset, none touching.
+    free: Vec<(u64, u64)>,
+}
+
+/// takes size bytes at align from the first free range with room.
+fn carve(free: &mut Vec<(u64, u64)>, size: u64, align: u64) -> Option<u64> {
+    let (index, start) = free.iter().enumerate().find_map(|(i, &(at, len))| {
+        let start = at.next_multiple_of(align.max(1));
+        (start + size <= at + len).then_some((i, start))
+    })?;
+    let (at, len) = free.remove(index);
+    let mut put = index;
+    if start > at {
+        free.insert(put, (at, start - at));
+        put += 1;
+    }
+    if start + size < at + len {
+        free.insert(put, (start + size, at + len - start - size));
+    }
+    Some(start)
+}
+
+/// gives a range back, joining the ranges it touches.
+fn uncarve(free: &mut Vec<(u64, u64)>, at: u64, size: u64) {
+    let index = free.partition_point(|&(from, _)| from < at);
+    free.insert(index, (at, size));
+    if index + 1 < free.len() && free[index].0 + free[index].1 == free[index + 1].0 {
+        free[index].1 += free[index + 1].1;
+        free.remove(index + 1);
+    }
+    if index > 0 && free[index - 1].0 + free[index - 1].1 == free[index].0 {
+        free[index - 1].1 += free[index].1;
+        free.remove(index);
+    }
+}
+
+/// a picture whose texels are being copied to staging memory on another
+/// thread, to be uploaded from there once done.
+struct Copying {
+    staging: Buffer,
+    done: Arc<std::sync::atomic::AtomicBool>,
+    picture: Arc<crate::pack::Picture>,
+    used: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -879,10 +934,19 @@ impl Replaced {
 /// one up. each costs most of a millisecond however small.
 const REPLACING_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 const REPLACING_BYTES: u64 = 64 << 20;
+/// the bytes a refresh uploads with the size budget on, more only for one
+/// picture alone that has been put off once.
+const UPLOAD_BYTES: u64 = 8 << 20;
 
 fn replacement_fits(spent: std::time::Duration, uploaded: u64, bytes: u64) -> bool {
     // One oversized picture must fit an empty budget or it can never upload.
     spent < REPLACING_TIME && (uploaded == 0 || bytes <= REPLACING_BYTES.saturating_sub(uploaded))
+}
+
+/// whether a picture of bytes may upload with the size budget on: when it
+/// fits what is left, or is on its own in a refresh and has waited a turn.
+fn upload_fits(spent: std::time::Duration, uploaded: u64, bytes: u64, deferred: bool) -> bool {
+    spent < REPLACING_TIME && (bytes <= UPLOAD_BYTES.saturating_sub(uploaded) || (uploaded == 0 && deferred))
 }
 
 /// pictures up to this size are staged in the ring rather than a buffer
@@ -1502,6 +1566,19 @@ pub struct Hardware {
     replacing: (std::time::Duration, u64),
     /// the buffers they were uploaded from, by batch, freed once it is done.
     staged: Vec<(u64, Buffer)>,
+    /// the switches for pooled memory, the size budget and copying
+    /// pictures on another thread.
+    pooled_uploads: bool,
+    upload_size_budget: bool,
+    threaded_picture_copy: bool,
+    /// device memory blocks pictures are carved from.
+    heap: std::cell::RefCell<Vec<HeapBlock>>,
+    /// staging buffers the GPU is done with, kept for the next big picture.
+    spare: Vec<Buffer>,
+    /// pictures being copied to staging memory, by hash.
+    copying: HashMap<u64, Copying>,
+    /// pictures put off for their size, by hash.
+    deferred: std::collections::HashSet<u64>,
     /// pictures asked for and not uploaded yet, by hash, with the batch
     /// they were last asked for in.
     waiting: HashMap<u64, (Arc<Material>, u64)>,
@@ -1682,7 +1759,7 @@ impl Hardware {
                 ring: unmade(),
                 in_flight: VecDeque::with_capacity(IN_FLIGHT),
                 free: spares.into_iter().map(|(commands, fence)| Frame { commands, fence, ring: unmade(), pending: None }).collect(),
-                blank: Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null() },
+                blank: Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null(), pooled: None },
                 _shared: shared,
                 direct,
                 device,
@@ -1757,6 +1834,13 @@ impl Hardware {
                 replaced_most: (properties.limits.max_memory_allocation_count / 2).min(4096) as usize,
                 replacing: (std::time::Duration::ZERO, 0),
                 staged: Vec::new(),
+                pooled_uploads: crate::backend::renderer_options().map_or(true, |options| options.pooled_uploads),
+                upload_size_budget: crate::backend::renderer_options().map_or(true, |options| options.upload_size_budget),
+                threaded_picture_copy: crate::backend::renderer_options().map_or(true, |options| options.threaded_picture_copy),
+                heap: std::cell::RefCell::new(Vec::new()),
+                spare: Vec::new(),
+                copying: HashMap::new(),
+                deferred: std::collections::HashSet::new(),
                 waiting: HashMap::new(),
                 replacing_from: 0,
                 max_image_size: properties.limits.max_image_dimension2_d,
@@ -1934,6 +2018,62 @@ impl Hardware {
         usage: vk::ImageUsageFlags,
         aspect: vk::ImageAspectFlags,
     ) -> Result<Image, String> {
+        self.image_in(width, height, levels, format, usage, aspect, false)
+    }
+
+    /// memory for an image carved from a pooled block, with the offset in
+    /// it and whether it is pooled, otherwise memory of its own.
+    fn image_memory(&self, requirements: vk::MemoryRequirements) -> Result<(vk::DeviceMemory, u64, bool), String> {
+        let flags = vk::MemoryPropertyFlags::DEVICE_LOCAL;
+        let types = &self.memory_types.memory_types[..self.memory_types.memory_type_count as usize];
+        let index = types.iter().enumerate().position(|(i, t)| requirements.memory_type_bits & (1 << i) != 0 && t.property_flags.contains(flags));
+        let (Some(index), true) = (index, requirements.size <= POOL_BLOCK) else {
+            return self.allocate(requirements, flags).map(|(memory, _)| (memory, 0, false));
+        };
+        let mut heap = self.heap.borrow_mut();
+        for block in heap.iter_mut().filter(|block| block.kind == index as u32) {
+            if let Some(at) = carve(&mut block.free, requirements.size, requirements.alignment) {
+                return Ok((block.memory, at, true));
+            }
+        }
+        // SAFETY: an allocation of a type the device reported
+        let made = unsafe {
+            self.device.allocate_memory(&vk::MemoryAllocateInfo::default().allocation_size(POOL_BLOCK).memory_type_index(index as u32), None)
+        };
+        let Ok(memory) = made else {
+            drop(heap);
+            return self.allocate(requirements, flags).map(|(memory, _)| (memory, 0, false));
+        };
+        let mut block = HeapBlock { memory, kind: index as u32, size: POOL_BLOCK, free: vec![(0, POOL_BLOCK)] };
+        let at = carve(&mut block.free, requirements.size, requirements.alignment).unwrap_or(0);
+        heap.push(block);
+        Ok((memory, at, true))
+    }
+
+    /// gives pooled memory back, and a block wholly free goes unless it is
+    /// the only one. ponytail: that one stays, 64 MB held for good.
+    fn pool_free(&self, memory: vk::DeviceMemory, at: u64, size: u64) {
+        let mut heap = self.heap.borrow_mut();
+        let Some(index) = heap.iter().position(|block| block.memory == memory) else { return };
+        uncarve(&mut heap[index].free, at, size);
+        if heap.len() > 1 && heap[index].free == [(0, heap[index].size)] {
+            // SAFETY: nothing is carved from it, and the GPU is done with what was
+            unsafe { self.device.free_memory(memory, None) };
+            heap.remove(index);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn image_in(
+        &self,
+        width: u32,
+        height: u32,
+        levels: u32,
+        format: vk::Format,
+        usage: vk::ImageUsageFlags,
+        aspect: vk::ImageAspectFlags,
+        pooled: bool,
+    ) -> Result<Image, String> {
         // SAFETY: plain object creation on our device, and a barrier into
         // the command buffer being recorded
         unsafe {
@@ -1956,15 +2096,21 @@ impl Hardware {
                 .map_err(vk_error("create an image"))?;
             let requirements = self.device.get_image_memory_requirements(image);
             // what was made goes again when a later step fails
-            let memory = match self.allocate(requirements, vk::MemoryPropertyFlags::DEVICE_LOCAL) {
-                Ok((memory, _)) => memory,
+            let made = if pooled {
+                self.image_memory(requirements)
+            } else {
+                self.allocate(requirements, vk::MemoryPropertyFlags::DEVICE_LOCAL).map(|(memory, _)| (memory, 0, false))
+            };
+            let (memory, at, carved) = match made {
+                Ok(made) => made,
                 Err(error) => {
                     self.device.destroy_image(image, None);
                     return Err(error);
                 }
             };
+            let pooled = carved.then_some((at, requirements.size));
             let range = vk::ImageSubresourceRange::default().aspect_mask(aspect).level_count(levels).layer_count(1);
-            let view = self.device.bind_image_memory(image, memory, 0).map_err(vk_error("bind image memory")).and_then(|()| {
+            let view = self.device.bind_image_memory(image, memory, at).map_err(vk_error("bind image memory")).and_then(|()| {
                 self.device
                     .create_image_view(
                         &vk::ImageViewCreateInfo::default()
@@ -1980,7 +2126,10 @@ impl Hardware {
                 Ok(view) => view,
                 Err(error) => {
                     self.device.destroy_image(image, None);
-                    self.device.free_memory(memory, None);
+                    match pooled {
+                        Some((at, size)) => self.pool_free(memory, at, size),
+                        None => self.device.free_memory(memory, None),
+                    }
                     return Err(error);
                 }
             };
@@ -1993,7 +2142,7 @@ impl Hardware {
                 .image(image)
                 .subresource_range(range)];
             self.device.cmd_pipeline_barrier2(self.commands, &vk::DependencyInfo::default().image_memory_barriers(&barrier));
-            Ok(Image { image, memory, view })
+            Ok(Image { image, memory, view, pooled })
         }
     }
 
@@ -2002,7 +2151,10 @@ impl Hardware {
         unsafe {
             self.device.destroy_image_view(image.view, None);
             self.device.destroy_image(image.image, None);
-            self.device.free_memory(image.memory, None);
+            match image.pooled {
+                Some((at, size)) => self.pool_free(image.memory, at, size),
+                None => self.device.free_memory(image.memory, None),
+            }
         }
     }
 
@@ -2790,12 +2942,52 @@ impl Hardware {
             return None;
         }
         let (spent, uploaded) = self.replacing;
-        if !replacement_fits(spent, uploaded, bytes) || self.replaced_bytes + bytes > self.replaced_budget {
-            return None;
+        // copied on another thread, uploaded once that is done
+        let mut copied = None;
+        if let Some(copy) = self.copying.get_mut(&hash) {
+            copy.used = batch;
+            if !copy.done.load(Ordering::Acquire) {
+                return None;
+            }
+            copied = self.copying.remove(&hash);
         }
+        // the picture the copy was made from is the one uploaded
+        let picture = copied.as_ref().map_or(picture, |copy| copy.picture.clone());
+        if copied.is_none() {
+            let fits = if self.upload_size_budget {
+                upload_fits(spent, uploaded, bytes, self.deferred.contains(&hash))
+            } else {
+                replacement_fits(spent, uploaded, bytes)
+            };
+            if !fits {
+                if self.upload_size_budget && spent < REPLACING_TIME {
+                    self.deferred.insert(hash);
+                }
+                return None;
+            }
+            if self.replaced_bytes + bytes > self.replaced_budget {
+                return None;
+            }
+            if self.threaded_picture_copy && bytes > RING_PICTURE {
+                match self.start_copy(&picture) {
+                    Ok((staging, done)) => {
+                        self.copying.insert(hash, Copying { staging, done, picture: picture.clone(), used: batch });
+                        self.replacing = (spent, uploaded + bytes);
+                    }
+                    Err(error) => {
+                        log::warn!("a texture pack picture can't go on the GPU yet, {error}");
+                        self.replacing_from = batch + REPLACING_PAUSE;
+                    }
+                }
+                return None;
+            }
+        }
+        self.deferred.remove(&hash);
+        // a finished copy was charged when it began
+        let charged = if copied.is_some() { 0 } else { bytes };
         let start = std::time::Instant::now();
-        let image = self.upload_picture(&picture);
-        self.replacing = (spent + start.elapsed(), uploaded + bytes);
+        let image = self.upload_picture(&picture, copied.map(|copy| copy.staging));
+        self.replacing = (spent + start.elapsed(), uploaded + charged);
         match image {
             Ok(image) => {
                 // the GPU's copy is the one kept, read again should it go
@@ -2819,28 +3011,31 @@ impl Hardware {
     /// uploads a picture and its smaller sizes, through the ring when there
     /// is room, otherwise through a buffer of its own, as one can be bigger
     /// than the ring.
-    fn upload_picture(&mut self, picture: &crate::pack::Picture) -> Result<Image, String> {
+    fn upload_picture(&mut self, picture: &crate::pack::Picture, copied: Option<Buffer>) -> Result<Image, String> {
         let (width, height) = (picture.width, picture.height);
         self.mark(Work::Upload, false);
         self.end_rendering();
         let size = picture.texels.len() as u64;
-        let (source, start, staging) = if size <= RING_PICTURE && self.used + size <= RING_FLUSH {
+        let (source, start, staging) = if let Some(copied) = copied {
+            // its texels are in already, from another thread
+            (copied.buffer, 0, Some(copied))
+        } else if size <= RING_PICTURE && self.used + size <= RING_FLUSH {
             let offset = self.stage(size, 16)?;
             self.ring(offset, size).copy_from_slice(&picture.texels);
             (self.ring.buffer, offset, None)
         } else {
-            let staging = self.buffer(size, vk::BufferUsageFlags::TRANSFER_SRC, false)?;
+            let staging = self.staging(size)?;
             // SAFETY: the buffer is mapped for its whole size, the picture's
             unsafe { std::ptr::copy_nonoverlapping(picture.texels.as_ptr(), staging.mapped, picture.texels.len()) };
             (staging.buffer, 0, Some(staging))
         };
         let usage = vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST;
         let levels = picture.levels.len() as u32;
-        let image = match self.image_levels(width, height, levels, COLOR_FORMAT, usage, vk::ImageAspectFlags::COLOR) {
+        let image = match self.image_in(width, height, levels, COLOR_FORMAT, usage, vk::ImageAspectFlags::COLOR, self.pooled_uploads) {
             Ok(image) => image,
             Err(error) => {
                 if let Some(staging) = staging {
-                    self.destroy_buffer(&staging);
+                    self.keep_staging(staging);
                 }
                 return Err(error);
             }
@@ -2868,6 +3063,48 @@ impl Hardware {
             self.staged.push((self.batch, staging));
         }
         Ok(image)
+    }
+
+    /// a mapped staging buffer of size bytes, one the GPU is done with when
+    /// pooled uploads are on, otherwise a new one.
+    fn staging(&mut self, size: u64) -> Result<Buffer, String> {
+        if !self.pooled_uploads {
+            return self.buffer(size, vk::BufferUsageFlags::TRANSFER_SRC, false);
+        }
+        let best = self.spare.iter().enumerate().filter(|(_, spare)| spare.size >= size).min_by_key(|(_, spare)| spare.size).map(|(i, _)| i);
+        if let Some(best) = best {
+            return Ok(self.spare.swap_remove(best));
+        }
+        // grown on demand, a bigger picture may follow
+        self.buffer(size.next_power_of_two().max(8 << 20), vk::BufferUsageFlags::TRANSFER_SRC, false)
+    }
+
+    /// a staging buffer nothing reads any more goes to the spares, a few of
+    /// them, otherwise it goes. ponytail: 3 of them, each as big as the
+    /// biggest picture rounded up, stay held.
+    fn keep_staging(&mut self, buffer: Buffer) {
+        if self.pooled_uploads && buffer.size >= RING_PICTURE && self.spare.len() < 3 {
+            self.spare.push(buffer);
+        } else {
+            self.destroy_buffer(&buffer);
+        }
+    }
+
+    /// starts copying a picture's texels into staging memory on another
+    /// thread, and the flag that is set once it is done.
+    /// ponytail: one task per picture on rayon's pool, and the picture is
+    /// uploaded when it is next asked for, a frame or more later.
+    fn start_copy(&mut self, picture: &Arc<crate::pack::Picture>) -> Result<(Buffer, Arc<std::sync::atomic::AtomicBool>), String> {
+        let staging = self.staging(picture.texels.len() as u64)?;
+        let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (picture, flag, to) = (picture.clone(), done.clone(), staging.mapped as usize);
+        // SAFETY: the buffer is mapped for at least the picture's size, and
+        // is no one else's until the flag is set, the Drop waits for it
+        rayon::spawn(move || {
+            unsafe { std::ptr::copy_nonoverlapping(picture.texels.as_ptr(), to as *mut u8, picture.texels.len()) };
+            flag.store(true, Ordering::Release);
+        });
+        Ok((staging, done))
     }
 
     fn destroy_buffer(&self, buffer: &Buffer) {
@@ -5012,6 +5249,13 @@ impl Hardware {
             }
             wanted
         });
+        // copies done for textures no longer drawn, their buffers are free
+        let idle: Vec<u64> = self.copying.iter().filter(|(_, copy)| batch - copy.used > WAITING_IDLE && copy.done.load(Ordering::Acquire)).map(|(&hash, _)| hash).collect();
+        for hash in idle {
+            if let Some(copy) = self.copying.remove(&hash) {
+                self.keep_staging(copy.staging);
+            }
+        }
         if !self.crowded() {
             return;
         }
@@ -5102,7 +5346,7 @@ impl Hardware {
             let (done, waiting) = std::mem::take(&mut self.staged).into_iter().partition(|&(staged, _)| staged <= batch);
             self.staged = waiting;
             for (_, buffer) in done {
-                self.destroy_buffer(&buffer);
+                self.keep_staging(buffer);
             }
         }
         // pictures for screens are read out before a later batch can draw
@@ -5384,6 +5628,16 @@ impl Drop for Hardware {
         // SAFETY: waits for the GPU before anything it uses goes
         unsafe {
             let _ = self.device.device_wait_idle();
+            // threads still copying write into staging buffers
+            for copy in self.copying.values() {
+                while !copy.done.load(Ordering::Acquire) {
+                    thread::yield_now();
+                }
+                self.destroy_buffer(&copy.staging);
+            }
+            for buffer in &self.spare {
+                self.destroy_buffer(buffer);
+            }
             if let Some(path) = &self.kept_pipelines {
                 save_pipeline_cache(&self.device, self.pipeline_cache, path);
             }
@@ -5408,6 +5662,9 @@ impl Drop for Hardware {
                 }
             }
             self.destroy_image(&self.blank);
+            for block in self.heap.borrow().iter() {
+                self.device.free_memory(block.memory, None);
+            }
             let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
             let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
             let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
@@ -5735,6 +5992,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pooled_ranges_are_carved_and_joined() {
+        let mut free = vec![(0, 100)];
+        assert_eq!(carve(&mut free, 10, 16), Some(0));
+        assert_eq!(carve(&mut free, 10, 16), Some(16));
+        assert_eq!(free, [(10, 6), (26, 74)]);
+        assert_eq!(carve(&mut free, 80, 1), None);
+        uncarve(&mut free, 16, 10);
+        assert_eq!(free, [(10, 90)]);
+        uncarve(&mut free, 0, 10);
+        assert_eq!(free, [(0, 100)]);
+    }
+
+    #[test]
+    fn size_budget_defers_a_big_picture_once() {
+        let spent = std::time::Duration::ZERO;
+        assert!(upload_fits(spent, 0, UPLOAD_BYTES, false));
+        assert!(!upload_fits(spent, 1, UPLOAD_BYTES, true), "not after another upload");
+        assert!(!upload_fits(spent, 0, UPLOAD_BYTES + 1, false), "put off the first time");
+        assert!(upload_fits(spent, 0, UPLOAD_BYTES + 1, true), "alone on the next");
+        assert!(!upload_fits(REPLACING_TIME, 0, 1, true));
+    }
+
+    #[test]
     fn replacement_upload_respects_remaining_bytes() {
         let spent = std::time::Duration::ZERO;
         assert!(replacement_fits(spent, REPLACING_BYTES - 16, 16));
@@ -5794,7 +6074,7 @@ mod tests {
         let kinds = [Kind::Color(ColorFormat::Rgba8), Kind::Color(ColorFormat::Rgb8), Kind::Color(ColorFormat::Rgb565), Kind::Depth(2), Kind::Depth(3), Kind::Depth(4)];
         for kind in kinds {
             let (width, height) = (16, 24);
-            let nothing = Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null() };
+            let nothing = Image { image: vk::Image::null(), memory: vk::DeviceMemory::null(), view: vk::ImageView::null(), pooled: None };
             let mut surface = Surface {
                 image: nothing,
                 addr: 0,

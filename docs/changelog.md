@@ -26,6 +26,16 @@
   the previous line; module loads log their code-check time.
 - Add **Turnip: render in system memory** (off by default), which sets Mesa's
   `TU_DEBUG=sysmem` for custom drivers to test the corner-block artifact.
+- Cut HD-texture upload cost at battle start. Profiling on the Thor showed battle-start
+  frames were spent uploading HD pictures on the emulation thread: a driver memory
+  allocation per picture plus a large staging copy, and a 2 ms budget that let one big
+  picture through every frame. Four switches under **Performance**, all on by default:
+  pooled upload memory, a per-frame upload size limit, background picture copies and
+  block-wise ETC1 decoding with HD-pack size pre-checks. Same build on the Thor, one
+  battle each: worst battle-start frame 73 ms with all four off, 55 ms with them on.
+- Add an adb-only settings hook (`.DebugSettings`, protected by the `DUMP` permission)
+  and `android/scripts/device-test.sh`, which lists games, reads and changes settings,
+  launches a game and runs a scripted grass-to-battle test with A/B comparison.
 
 ## 0.1.8 — controller mapping, frontend launching and pacing
 

@@ -215,6 +215,86 @@ fn sample_etc1(data: &[u8], format: TextureFormat, width: u32, x: u32, y: u32) -
     [rgb[0], rgb[1], rgb[2], alpha]
 }
 
+/// a whole ETC1 or ETC1A4 texture as RGBA8 rows, each 4x4 block decoded once,
+/// the same texels sample_texel gives. none for sizes not made of 8x8 tiles,
+/// which are left to it.
+pub fn decode_etc1_texture(data: &[u8], format: TextureFormat, width: u32, height: u32) -> Option<Vec<[u8; 4]>> {
+    if width % 8 != 0 || height % 8 != 0 || width == 0 || height == 0 {
+        return None;
+    }
+    let (w, alpha) = (width as usize, format == TextureFormat::Etc1A4);
+    let block_size = if alpha { 16 } else { 8 };
+    let mut out = vec![[0u8; 4]; w * height as usize];
+    for (index, block) in data.chunks_exact(block_size).take(w * height as usize / 16).enumerate() {
+        let (tile, sub_block) = (index / 4, index % 4);
+        let x0 = (tile % (w / 8)) * 8 + sub_block % 2 * 4;
+        let y0 = (tile / (w / 8)) * 8 + sub_block / 2 * 4;
+        let (alphas, color) = if alpha { (Some(&block[0..8]), &block[8..16]) } else { (None, &block[0..8]) };
+        let alphas = alphas.map(|a| u64::from_le_bytes(a.try_into().unwrap()));
+        let word = u64::from_le_bytes(color.try_into().unwrap());
+        let (low, high) = ((word & 0xFFFF_FFFF) as u32, (word >> 32) as u32);
+        let bases = etc1_bases(high);
+        let flip = high & 1 != 0;
+        let tables = [((high >> 5) & 0x7) as usize, ((high >> 2) & 0x7) as usize];
+        for x in 0..4u32 {
+            for y in 0..4u32 {
+                let half = usize::from(!if flip { y < 2 } else { x < 2 });
+                let pixel_index = x * 4 + y;
+                let modifier = (((low >> (pixel_index + 16)) & 1) << 1 | ((low >> pixel_index) & 1)) as usize;
+                let delta = ETC1_MODIFIERS[tables[half]][modifier];
+                let base = bases[half];
+                let a = alphas.map_or(0xFF, |a| expand4(((a >> (pixel_index * 4)) & 0xF) as u8));
+                out[(y0 + y as usize) * w + x0 + x as usize] = [
+                    (base[0] as i32 + delta).clamp(0, 255) as u8,
+                    (base[1] as i32 + delta).clamp(0, 255) as u8,
+                    (base[2] as i32 + delta).clamp(0, 255) as u8,
+                    a,
+                ];
+            }
+        }
+    }
+    // blocks the data is too short for read as nothing, as sample_texel has it
+    let blocks = data.len() / block_size;
+    if blocks < w * height as usize / 16 {
+        for index in blocks..w * height as usize / 16 {
+            let (tile, sub_block) = (index / 4, index % 4);
+            let x0 = (tile % (w / 8)) * 8 + sub_block % 2 * 4;
+            let y0 = (tile / (w / 8)) * 8 + sub_block / 2 * 4;
+            for y in 0..4 {
+                for x in 0..4 {
+                    out[(y0 + y) * w + x0 + x] = [0, 0, 0, 0];
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+/// the two base colors of an ETC1 block's halves, from its high word.
+fn etc1_bases(high: u32) -> [[u8; 3]; 2] {
+    if high & 2 != 0 {
+        let r0 = ((high >> 27) & 0x1F) as i32;
+        let g0 = ((high >> 19) & 0x1F) as i32;
+        let b0 = ((high >> 11) & 0x1F) as i32;
+        let dr = sign_extend_3((high >> 24) & 0x7);
+        let dg = sign_extend_3((high >> 16) & 0x7);
+        let db = sign_extend_3((high >> 8) & 0x7);
+        [
+            [expand5(r0 as u8), expand5(g0 as u8), expand5(b0 as u8)],
+            [
+                expand5((r0 + dr).clamp(0, 31) as u8),
+                expand5((g0 + dg).clamp(0, 31) as u8),
+                expand5((b0 + db).clamp(0, 31) as u8),
+            ],
+        ]
+    } else {
+        [
+            [expand4(((high >> 28) & 0xF) as u8), expand4(((high >> 20) & 0xF) as u8), expand4(((high >> 12) & 0xF) as u8)],
+            [expand4(((high >> 24) & 0xF) as u8), expand4(((high >> 16) & 0xF) as u8), expand4(((high >> 8) & 0xF) as u8)],
+        ]
+    }
+}
+
 /// decodes one pixel of a plain 8-byte ETC1 block.
 fn decode_etc1_block(block: &[u8], x: u32, y: u32) -> [u8; 3] {
     // little-endian, because why the hell would it match the spec
@@ -329,6 +409,37 @@ mod tests {
         let bytes = [0x11u8, 0x22, 0x33, 0x44];
         let decoded = decode_bytes(TextureFormat::Rgba8, &bytes);
         assert_eq!(decoded, [0x44, 0x33, 0x22, 0x11]);
+    }
+
+    /// the block-wise decode gives the very texels the per-texel one does,
+    /// also for data cut short.
+    #[test]
+    fn etc1_block_decode_matches_per_texel() {
+        let mut seed = 0x1234_5678_9ABC_DEF1u64;
+        let mut random = |count: usize| -> Vec<u8> {
+            (0..count)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    (seed >> 24) as u8
+                })
+                .collect()
+        };
+        let (width, height) = (64u32, 32u32);
+        for format in [TextureFormat::Etc1, TextureFormat::Etc1A4] {
+            let full = (width * height * format.bits_per_pixel() / 8) as usize;
+            for size in [full, full - 24] {
+                let data = random(size);
+                let fast = decode_etc1_texture(&data, format, width, height).expect("tiled size");
+                for y in 0..height {
+                    for x in 0..width {
+                        assert_eq!(fast[(y * width + x) as usize], sample_texel(&data, format, width, x, y), "{format:?} {x},{y} of {size}");
+                    }
+                }
+            }
+        }
+        assert!(decode_etc1_texture(&[0; 64], TextureFormat::Etc1, 12, 8).is_none());
     }
 
     /// alpha alone comes with black color, luminance alone with full alpha.

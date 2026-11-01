@@ -139,6 +139,11 @@ pub struct Advanced {
     pub safe_gpu_shaders: bool,
     /// Mesa Turnip `TU_DEBUG=sysmem` for custom drivers (tests the corner artifact).
     pub turnip_sysmem: bool,
+    /// HD picture upload fixes for battle-start hitches (0.1.9); each can be turned off to compare.
+    pub pooled_uploads: bool,
+    pub upload_size_budget: bool,
+    pub threaded_picture_copy: bool,
+    pub fast_texture_decode: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -198,6 +203,10 @@ impl Default for Advanced {
             vsync_pacing: true,
             safe_gpu_shaders: true,
             turnip_sysmem: false,
+            pooled_uploads: true,
+            upload_size_budget: true,
+            threaded_picture_copy: true,
+            fast_texture_decode: true,
             enhancements: Vec::new(),
         }
     }
@@ -218,6 +227,10 @@ impl Advanced {
             depth_blits: self.depth_blits,
             float_depth: self.float_depth,
             static_blend: self.static_blend,
+            pooled_uploads: self.pooled_uploads,
+            upload_size_budget: self.upload_size_budget,
+            threaded_picture_copy: self.threaded_picture_copy,
+            fast_texture_decode: self.fast_texture_decode,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {
@@ -373,6 +386,10 @@ mod tests {
         assert!(settings.vsync_pacing && settings.safe_gpu_shaders && !settings.turnip_sysmem);
         let off = Advanced::parse(r#"{"vsync_pacing":false,"safe_gpu_shaders":false,"turnip_sysmem":true}"#).unwrap();
         assert!(!off.vsync_pacing && !off.safe_gpu_shaders && off.turnip_sysmem);
+        let options = settings.renderer_options();
+        assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode);
+        let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
+        assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
     }
     #[test]
     fn speed_limit_defaults_clamps_and_scales_emulation_only() {

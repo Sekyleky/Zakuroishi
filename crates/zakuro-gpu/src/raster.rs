@@ -1089,6 +1089,8 @@ pub struct TextureCache {
     /// texture is laid out to hash it as Citra did.
     pack: Option<Arc<crate::pack::Pack>>,
     rows: Vec<u8>,
+    /// fast_texture_decode, read on the first decode.
+    fast: Option<bool>,
 }
 
 type TextureKey = (u32, TextureFormat, u32, u32);
@@ -1187,10 +1189,19 @@ impl TextureCache {
             self.entries.clear();
             self.texels = 0;
         }
-        let texels: Arc<[[u8; 4]]> = (0..height)
-            .flat_map(|y| (0..width).map(move |x| (x, y)))
-            .map(|(x, y)| crate::texture::sample_texel(data, format, width, x, y))
-            .collect();
+        let fast = *self.fast.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.fast_texture_decode));
+        let blocks = if fast && matches!(format, TextureFormat::Etc1 | TextureFormat::Etc1A4) {
+            crate::texture::decode_etc1_texture(data, format, width, height)
+        } else {
+            None
+        };
+        let texels: Arc<[[u8; 4]]> = match blocks {
+            Some(texels) => texels.into(),
+            None => (0..height)
+                .flat_map(|y| (0..width).map(move |x| (x, y)))
+                .map(|(x, y)| crate::texture::sample_texel(data, format, width, x, y))
+                .collect(),
+        };
         let replacement = picture_for(self.pack.as_deref(), data, &texels, key, &mut self.rows);
         let decoded = Decoded { hash, bytes: data.to_vec(), texels: texels.clone(), checked, replacement: replacement.clone() };
         if let Some(old) = self.entries.insert(key, decoded) {

@@ -29,6 +29,9 @@ pub enum Hashing {
 pub struct Pack {
     hashing: Hashing,
     materials: HashMap<u64, Arc<Material>>,
+    /// the sizes in the names of the pictures, none when a picture's hash
+    /// does not come from its name, or fast_texture_decode is off.
+    sizes: Option<HashSet<(u32, u32)>>,
 }
 
 /// one picture of a pack, read from disk once a texture it replaces is
@@ -94,9 +97,18 @@ impl Pack {
         };
         let mut materials: HashMap<u64, Arc<Material>> = HashMap::new();
         let (mut duplicates, mut other_formats) = (0, 0);
+        let mut sizes = crate::backend::renderer_options().is_none_or(|options| options.fast_texture_decode).then(HashSet::new);
         for path in files {
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else { continue };
             let Some(hashes) = config.hashes(name, &mut other_formats) else { continue };
+            match (name.split('.').next().and_then(name_size), config.mapped.contains_key(name)) {
+                (Some(size), false) => {
+                    if let Some(sizes) = &mut sizes {
+                        sizes.insert(size);
+                    }
+                }
+                _ => sizes = None,
+            }
             for hash in hashes {
                 // the first file in the order Windows lists them wins, as
                 // in Citra, and packs do hold the same picture twice
@@ -129,7 +141,7 @@ impl Pack {
             materials.len(),
             if duplicates > 0 { format!(", {duplicates} files left out for another of the same hash") } else { String::new() }
         );
-        Some(Pack { hashing: config.hashing, materials })
+        Some(Pack { hashing: config.hashing, materials, sizes })
     }
 
     /// the picture replacing a texture of these bytes, format and size,
@@ -138,6 +150,11 @@ impl Pack {
     /// tried too, as packs carry Citra's pack.json made for the other one,
     /// or pictures of both.
     pub fn find(&self, data: &[u8], format: TextureFormat, width: u32, height: u32, rows: &mut Vec<u8>) -> Option<Arc<Material>> {
+        // ponytail: trusts the size in a picture's name to be its texture's,
+        // as dumped, so a pack renamed to other sizes needs fast_texture_decode off
+        if self.sizes.as_ref().is_some_and(|sizes| !sizes.contains(&(width, height))) {
+            return None;
+        }
         let other = match self.hashing {
             Hashing::Bytes => Hashing::Rows,
             Hashing::Rows => Hashing::Bytes,
@@ -311,6 +328,12 @@ impl Config {
         }
         (!hashes.is_empty()).then_some(hashes)
     }
+}
+
+/// the size in a picture's name, tex1_<width>x<height>_...
+fn name_size(name: &str) -> Option<(u32, u32)> {
+    let (width, rest) = name.strip_prefix("tex1_")?.split_once('x')?;
+    Some((width.parse().ok()?, rest.split('_').next()?.parse().ok()?))
 }
 
 /// the hash in a picture's name, tex1_<width>x<height>_<hash>_<format>
@@ -902,8 +925,13 @@ mod tests {
         let material = |hash| Arc::new(Material { hash, path: PathBuf::new(), flipped: false, state: Mutex::new(State::OnDisk) });
         for hashing in [Hashing::Bytes, Hashing::Rows] {
             for named in [bytes, laid_out] {
-                let pack = Pack { hashing, materials: HashMap::from([(named, material(named))]) };
+                let pack = Pack { hashing, materials: HashMap::from([(named, material(named))]), sizes: Some(HashSet::from([(8, 8)])) };
                 assert_eq!(pack.find(&data, format, 8, 8, &mut rows).map(|found| found.hash), Some(named));
+                // a size no picture is named for is not hashed, and another size is not found
+                assert!(pack.find(&data, format, 16, 8, &mut rows).is_none());
+                let unknown = Pack { sizes: None, ..pack };
+                assert_eq!(unknown.find(&data, format, 8, 8, &mut rows).map(|found| found.hash), Some(named));
+                assert_eq!(name_size("tex1_64x32_00AA_12_mip0"), Some((64, 32)));
             }
         }
     }
