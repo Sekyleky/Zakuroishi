@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.1.8 — controller mapping, frontend launching and pacing
+
+- Add a dedicated per-game Button mapping menu with visible custom assignments,
+  reset/clear actions and a held fast-forward binding. The hotkey defaults to
+  150% speed and restores the configured emulation limit on release. ADPF work
+  targets follow the active speed; no physical button is reassigned by default.
+- Export a scan-ready frontend folder containing small `.zkr` game references,
+  a Cocoon platform definition and an iiSU emulator-entry example. Public
+  ACTION_VIEW launches resolve only games already installed in Zakuro, sharing
+  the library's native-code validation, settings and saves. Original decrypted
+  ROM URIs can also identify installed games. Repeated launches reuse the active
+  game; switching titles asks before discarding unsaved progress. See
+  [frontend setup](frontends.md) for custom-player requirements.
+- Add an iiSU configuration assistant: choose the existing emulator catalog and
+  save an edited copy that retains other consoles/players, adds Zakuro and allows
+  `.zkr` files. It does not overwrite the original or silently import the copy
+  into iiSU. Oversized, missing-3DS and ambiguous catalogs are rejected.
+
+- Use the default preferred mailbox presenter at normal speed too. Previously
+  100% speed plus a 60 FPS cap forced FIFO, while 150% used mailbox. This removes
+  that presentation-path difference without accelerating the 100% game clock.
+  A short Thor check at Mount Hokulani retained full normal speed and 3x HD
+  rendering; isolated missed refreshes remain. See the verification record.
+- Add a per-game emulation speed limit: normal (100%), 1.5×, 2×, 3×, 4× or
+  unlimited. Presentation remains independently capped; fast-forward does not
+  wait for the normal-speed timer gate. Performance hints follow the speed
+  target, aiming at 4× work intervals when unlimited is selected.
+- Measure emulation FPS and percentage of real-time speed from guest cycles;
+  report presentation submissions separately in the overlay and benchmark log.
+- Preserve up to one refresh of scheduling debt so a slow guest tick does not
+  delay the following cheap tick by another full interval. Lifecycle transitions
+  still reset the deadline; the frame-rate ceiling remains.
+- Reuse unchanged CPU screen images in each Android presenter instead of
+  uploading them again. GPU transitions, size changes and failed presents force
+  a fresh upload.
+- Avoid copying the final 2 KiB of output registers into the vertex batch's
+  divergence list. Shader arithmetic and divergent-path ordering are unchanged.
+- Apply the HD texture upload allowance per emulated refresh rather than per GPU
+  submission, including incoming picture bytes in the remaining allowance.
+  One oversized picture may upload into an empty allowance so it can progress.
+- Log frames longer than 25 ms with separate emulation/presentation times, at
+  most once per second, to distinguish remaining stalls without flooding logcat.
+
 ## 0.1.7 — frame pacing, performance and fixes (2026-10-31)
 
 Performance (measured on AYN Thor, Ultra Moon; see [testing](testing.md)):

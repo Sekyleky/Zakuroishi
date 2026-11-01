@@ -44,6 +44,16 @@ public final class GameSettingsCheck {
         require(shaders.json().contains("\"shader_execution\":\"interpreted\"") && shaders.json().contains("\"cpu_shader_jit\":false"));
         require(original.values.get("shader_execution").equals("compiled") && original.flag("cpu_shader_jit"));
         require(original.flag("aot") && original.flag("motion_enabled"));
+        require(original.values.get("speed_limit").equals(100) && original.json().contains("\"speed_limit\":100"));
+        require(original.values.get("fast_forward_speed").equals(150));
+        GameSettings hotkey=original.copy();
+        hotkey.controllerBindings.put("107","fast_forward");
+        require(hotkey.json().contains("\"107\":\"fast_forward\""));
+        GameSettings.Setting speedLimit = null;
+        for (GameSettings.Setting setting : GameSettings.ALL) if (setting.key.equals("speed_limit")) speedLimit = setting;
+        require(speedLimit != null && speedLimit.group.equals("Performance") && speedLimit.initial.equals(100));
+        require(speedLimit.normalize(-1).equals(0) && speedLimit.normalize(999).equals(400));
+        require(speedLimit.normalize(0).equals(0) && speedLimit.normalize(400).equals(400));
         GameSettings cancelled = original.copy();
         cancelled.values.put("volume",0f); cancelled.resolution=1; cancelled.textures=true;
         cancelled.enhancements.add("test");
@@ -68,6 +78,10 @@ public final class GameSettingsCheck {
             require(shaderRoundtrip.json().contains("\""+entry.getKey()+"\":"+encoded));
         }
         require(shaderRoundtrip.flag("aot"));
+        shaders.values.put("speed_limit", 400);
+        shaders.save(context);
+        require(persisted.get(id + ".advanced.speed_limit").equals(400));
+        require(GameSettings.from(persisted,id).json().contains("\"speed_limit\":400"));
         for(GameSettings.Setting setting:GameSettings.ALL) if(shaderValues.containsKey(setting.key))
             require(setting.normalize("invalid").equals(setting.initial));
         original.save(context);
@@ -86,8 +100,10 @@ public final class GameSettingsCheck {
         prefs.put(id + ".advanced.volume",Float.NaN);
         prefs.put(id + ".advanced.deadzone",99f);
         prefs.put(id + ".advanced.layout","invalid");
+        prefs.put(id + ".advanced.speed_limit", 999);
         GameSettings bounded=GameSettings.from(prefs,id);
         require(bounded.number("volume")==1f && bounded.number("deadzone")==0.9f);
+        require(bounded.values.get("speed_limit").equals(400));
         require(bounded.values.get("layout").equals("stacked"));
         bounded.enhancements.add("Quoted \"name\"\n");
         String json=bounded.json();

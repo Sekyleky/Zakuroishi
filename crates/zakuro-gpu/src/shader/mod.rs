@@ -1140,6 +1140,25 @@ mod tests {
         outputs
     }
 
+    #[test]
+    fn a_batch_without_divergence_needs_no_output_copy() {
+        let mut unit = unit_with(&[0x13 << 26, 0x22 << 26], &[IDENTITY]);
+        unit.prepare();
+        let program = unit.decoded.as_ref().expect("prepared");
+        let uniforms = batch::Uniforms::new(&unit);
+        let (mut blocks, mut forks) = (Vec::new(), Vec::new());
+        let mut random = Random(1);
+        for count in 1..=batch::LANES {
+            let inputs: Vec<[Vec4; INPUT_REGISTERS]> = (0..count)
+                .map(|_| std::array::from_fn(|_| std::array::from_fn(|_| random.float())))
+                .collect();
+            let mut outputs = vec![[ZERO; OUTPUT_REGISTERS]; count];
+            batch::run(&unit, &uniforms, program, &inputs, &mut outputs, &mut blocks, &mut forks);
+            assert!(same(&outputs, &one_by_one(&unit, &inputs)));
+            assert_eq!(forks.capacity(), 0);
+        }
+    }
+
     /// the unit's program compiles, as it has to wherever there is a
     /// compiler.
     fn assert_compiled(unit: &ShaderUnit) {

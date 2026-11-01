@@ -100,10 +100,10 @@ pub(super) fn run(
     blocks.clear();
     forks.clear();
     let finished = execute(unit, uniforms, program, &mut batch, blocks, forks, unit.entry_point, 0, ALL, None);
-    forks.push((finished, batch.output));
     // each lane's outputs from the copy it finished in. the registers
     // nothing writes stay zero, as they come
-    for (lanes, registers) in forks.iter() {
+    // the final batch already owns its outputs; only divergent paths need copies.
+    for (lanes, registers) in forks.iter().map(|(lanes, registers)| (*lanes, registers)).chain(std::iter::once((finished, &batch.output))) {
         for register in (0..OUTPUT_REGISTERS).filter(|register| program.outputs & (1 << register) != 0) {
             for component in 0..4 {
                 let values = registers[register][component].to_array();

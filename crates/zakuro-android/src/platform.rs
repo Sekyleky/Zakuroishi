@@ -220,7 +220,7 @@ pub fn stats(app: &AndroidApp, text: &str) {
     java_text(app, "updateNativeStats", text);
 }
 /// ADPF hint session for the calling thread (must be the emulation thread).
-pub fn start_performance_hints(app: &AndroidApp) {
+pub fn start_performance_hints(app: &AndroidApp, target_nanos: i64) {
     let result = with_activity(app, |env, activity| {
         let tid = env
             .call_static_method("android/os/Process", "myTid", "()I", &[])?
@@ -230,8 +230,8 @@ pub fn start_performance_hints(app: &AndroidApp) {
         env.call_method(
             activity,
             "startPerformanceHints",
-            "([I)V",
-            &[JValue::Object(&tids)],
+            "([IJ)V",
+            &[JValue::Object(&tids), JValue::Long(target_nanos)],
         )
         .map(|_| ())
     });

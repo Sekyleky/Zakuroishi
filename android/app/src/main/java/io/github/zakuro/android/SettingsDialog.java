@@ -152,6 +152,18 @@ final class SettingsDialog {
             } catch (RuntimeException e) { Toast.makeText(activity, "Settings could not be saved. Please try again.", Toast.LENGTH_LONG).show(); }
         });
     }
+    private String bindingLabel(GameSettings draft, String target) {
+        List<String> keys=new ArrayList<>();
+        for (Map.Entry<String,String> entry:draft.controllerBindings.entrySet())
+            if(entry.getValue().equals(target)) keys.add(KeyEvent.keyCodeToString(Integer.parseInt(entry.getKey())).replace("KEYCODE_", ""));
+        return label(target) + " · " + (keys.isEmpty() ? "Default / unassigned" : String.join(", ",keys));
+    }
+    private void refreshBindings(LinearLayout content, GameSettings draft) {
+        for(int i=0;i<content.getChildCount();i++) {
+            View child=content.getChildAt(i);
+            if(child instanceof Button && child.getTag() instanceof String) ((Button)child).setText(bindingLabel(draft,(String)child.getTag()));
+        }
+    }
     private void group(String group) {
         GameSettings draft = settings.copy(); LinearLayout content = column();
         if (group.equals("Display")) {
@@ -204,10 +216,12 @@ final class SettingsDialog {
                 }
                 Toast.makeText(activity,"Touch-control defaults restored in this draft",Toast.LENGTH_SHORT).show();
             }); addButton(content,resetTouch);
+        }
+        if (group.equals("Button mapping")) {
             content.addView(text("Controller bindings", false));
-            content.addView(text("Bind a physical controller button to a console action. Back cancels capture. Touch buttons keep their printed actions.", true));
+            content.addView(text("Select an action, then press a physical controller button. Back cancels capture. Hold an action here to clear its custom bindings. Touch buttons keep their printed actions. Fast-forward restores normal speed when released.", true));
             for (String target : GameSettings.BINDING_TARGETS) {
-                Button bind = button("Bind " + label(target) + "…");
+                Button bind = button(bindingLabel(draft,target));
                 bind.setOnClickListener(v -> {
                     AlertDialog capture = new AlertDialog.Builder(activity).setTitle("Bind " + label(target))
                             .setMessage("Press a physical controller button. Back cancels.").setNegativeButton("Cancel", null).create();
@@ -217,14 +231,16 @@ final class SettingsDialog {
                                 && (event.getSource() & android.view.InputDevice.SOURCE_DPAD) != android.view.InputDevice.SOURCE_DPAD) return false;
                         if (event.getAction() == KeyEvent.ACTION_UP) {
                             draft.controllerBindings.put(Integer.toString(code),target);
-                            bind.setText(label(target) + " · " + KeyEvent.keyCodeToString(code)); d.dismiss();
+                            refreshBindings(content,draft); d.dismiss();
                         }
                         return true;
                     }); capture.show();
-                }); addButton(content,bind);
+                });
+                bind.setOnLongClickListener(v -> { draft.controllerBindings.values().removeIf(target::equals); refreshBindings(content,draft); return true; });
+                bind.setTag(target); addButton(content,bind);
             }
             Button reset = button("Reset controller bindings");
-            reset.setOnClickListener(v -> { draft.controllerBindings.clear(); Toast.makeText(activity,"Default controller bindings restored in this draft",Toast.LENGTH_SHORT).show(); }); addButton(content,reset);
+            reset.setOnClickListener(v -> { draft.controllerBindings.clear(); refreshBindings(content,draft); Toast.makeText(activity,"Default controller bindings restored in this draft",Toast.LENGTH_SHORT).show(); }); addButton(content,reset);
         }
         if (group.equals("Motion")) content.addView(text("To recalibrate during play, open the game menu and choose Recalibrate motion, then hold the device still.", true));
         if (group.equals("System")) enhancements(content, draft);
@@ -243,6 +259,7 @@ final class SettingsDialog {
     }
     private static String label(String value) {
         switch (value) {
+            case "fast_forward": return "Fast-forward (hold)";
             case "gpu": return "GPU";
             case "cpu": return "CPU";
             case "async": return "Asynchronous";
@@ -274,11 +291,13 @@ final class SettingsDialog {
                             draft.values.put(setting.key, setting.choices[which]); choose.setText(setting.label + " · " + names[which]); d.dismiss();
                         }).setNegativeButton("Cancel", null).create(); show(choices);
             }); addButton(content, choose);
-        } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("region") || setting.key.equals("language")) {
+        } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("speed_limit") || setting.key.equals("fast_forward_speed") || setting.key.equals("region") || setting.key.equals("language")) {
             float[] values; String[] names;
             switch (setting.key) {
                 case "top_width": values = new float[]{400, 426.66666f, 560}; names = new String[]{"Original · 5:3", "16:9", "21:9"}; break;
                 case "frame_cap": values = new float[]{0, 30, 60, 90, 120, 144, 240}; names = new String[]{"Unlimited", "30 FPS", "60 FPS", "90 FPS", "120 FPS", "144 FPS", "240 FPS"}; break;
+                case "fast_forward_speed":
+                case "speed_limit": values = new float[]{0, 100, 150, 200, 300, 400}; names = new String[]{"Unlimited", "Normal · 100%", "1.5× · 150%", "2× · 200%", "3× · 300%", "4× · 400%"}; break;
                 case "region": values = new float[]{-1, 0, 1, 2, 3, 4, 5, 6}; names = new String[]{"Automatic", "Japan", "USA", "Europe", "Australia", "China", "Korea", "Taiwan"}; break;
                 default: values = new float[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; names = new String[]{"Japanese", "English", "French", "German", "Italian", "Spanish", "Chinese (Simplified)", "Korean", "Dutch", "Portuguese", "Russian", "Chinese (Traditional)"};
             }

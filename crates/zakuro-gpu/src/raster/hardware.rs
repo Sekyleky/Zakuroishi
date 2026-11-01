@@ -873,12 +873,17 @@ impl Replaced {
     }
 }
 
-/// how long a batch spends uploading texture pack pictures, and how many
+/// how long a refresh spends uploading texture pack pictures, and how many
 /// bytes of them it uploads, past the first picture, so that a scene's
 /// pictures coming in at once are spread over a few frames rather than hold
 /// one up. each costs most of a millisecond however small.
 const REPLACING_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 const REPLACING_BYTES: u64 = 64 << 20;
+
+fn replacement_fits(spent: std::time::Duration, uploaded: u64, bytes: u64) -> bool {
+    // One oversized picture must fit an empty budget or it can never upload.
+    spent < REPLACING_TIME && (uploaded == 0 || bytes <= REPLACING_BYTES.saturating_sub(uploaded))
+}
 
 /// pictures up to this size are staged in the ring rather than a buffer
 /// of their own, which takes a while to make.
@@ -1491,7 +1496,7 @@ pub struct Hardware {
     /// how many of them may stay, each being memory of its own, of which
     /// some drivers give out 4096 in all.
     replaced_most: usize,
-    /// how long the batch being recorded spent uploading them, and how many
+    /// how long this refresh spent uploading them, and how many
     /// bytes it uploaded.
     replacing: (std::time::Duration, u64),
     /// the buffers they were uploaded from, by batch, freed once it is done.
@@ -2485,6 +2490,11 @@ impl Hardware {
         }
     }
 
+    /// starts the next emulated refresh's texture upload budget.
+    pub(crate) fn refresh_done(&mut self) {
+        self.replacing = (std::time::Duration::ZERO, 0);
+    }
+
     /// whether draws go into twins.
     pub(crate) fn twins(&self) -> bool {
         self.twins
@@ -2779,7 +2789,7 @@ impl Hardware {
             return None;
         }
         let (spent, uploaded) = self.replacing;
-        if spent >= REPLACING_TIME || uploaded >= REPLACING_BYTES || self.replaced_bytes + bytes > self.replaced_budget {
+        if !replacement_fits(spent, uploaded, bytes) || self.replaced_bytes + bytes > self.replaced_budget {
             return None;
         }
         let start = std::time::Instant::now();
@@ -4978,7 +4988,6 @@ impl Hardware {
                 }
             }
         }
-        self.replacing = (std::time::Duration::ZERO, 0);
         self.let_go_of_pictures();
         Ok(())
     }
@@ -5723,6 +5732,25 @@ fn pick(instance: &ash::Instance) -> Result<(vk::PhysicalDevice, u32), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_upload_respects_remaining_bytes() {
+        let spent = std::time::Duration::ZERO;
+        assert!(replacement_fits(spent, REPLACING_BYTES - 16, 16));
+        assert!(!replacement_fits(spent, REPLACING_BYTES - 16, 17));
+        assert!(!replacement_fits(spent, REPLACING_BYTES, 1));
+        assert!(!replacement_fits(REPLACING_TIME, 0, 1));
+    }
+
+    #[test]
+    fn oversized_replacement_can_upload_only_to_an_empty_budget() {
+        let spent = std::time::Duration::ZERO;
+        let oversized = REPLACING_BYTES + 1;
+        assert!(!replacement_fits(spent, 1, oversized));
+        assert!(replacement_fits(spent, 0, oversized), "a fresh budget must allow progress");
+        assert!(!replacement_fits(spent, oversized, 1));
+        assert!(!replacement_fits(spent, oversized, oversized));
+    }
 
     /// a block gathered with the words of the last one staged is read from
     /// where that went, any other is staged anew, and nothing is read from

@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.zakuro.android" android:versionCode="8" android:versionName="0.1.7">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.zakuro.android" android:versionCode="9" android:versionName="0.1.8">
     <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -11,7 +11,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".Game" android:exported="false" android:process=":game" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density" >
+        <activity android:name=".FrontendLaunch" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="zakuro" android:host="game" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:host="*" android:mimeType="*/*" android:pathPattern=".*\\.zkr" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".Game" android:exported="false" android:launchMode="singleTask" android:process=":game" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density" >
             <meta-data android:name="android.app.lib_name" android:value="zakuro_android" />
         </activity>
     </application>

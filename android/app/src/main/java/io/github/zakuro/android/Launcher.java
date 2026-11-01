@@ -16,8 +16,9 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9;
     private String pendingSaveId;
+    private Uri pendingIisu;
     private String pendingCodeId, pendingTextureId, pendingDriverId;
     private boolean pendingIncludeTextures;
     private LinearLayout list;
@@ -34,6 +35,7 @@ public final class Launcher extends Activity {
         setTheme(dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(state);
         if (state != null) {
+            String iisu=state.getString("pendingIisu"); if(iisu!=null) pendingIisu=Uri.parse(iisu);
             pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId");
             pendingDriverId = state.getString("pendingDriverId");
             pendingSaveId = state.getString("pendingSaveId");
@@ -58,6 +60,7 @@ public final class Launcher extends Activity {
         Button help = button("Setup help", false, "help"); help.setOnClickListener(v -> help(false)); actions.addView(help);
         add = button("Add game", true, "add"); add.setOnClickListener(v -> help(true));
         LinearLayout.LayoutParams addSize = new LinearLayout.LayoutParams(-2, -2); addSize.setMargins(dp(8), dp(8), 0, dp(8)); actions.addView(add, addSize);
+        Button frontend = button("Frontends", false, "frontends"); frontend.setOnClickListener(v -> frontends()); actions.addView(frontend);
         heading.addView(actions); page.addView(heading);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setIndeterminate(true);
         progress.setIndeterminateTintList(ColorStateList.valueOf(accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
@@ -143,6 +146,22 @@ public final class Launcher extends Activity {
     @Override protected void onResume() { super.onResume(); if (list != null) { showLibrary(); update(); } }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
+        if(request==READ_IISU && result==RESULT_OK && intent!=null && intent.getData()!=null) {
+            pendingIisu=intent.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(pendingIisu,Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                Intent output=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE);
+                output.putExtra(Intent.EXTRA_TITLE,"emuladores-zakuro.json"); startActivityForResult(output,WRITE_IISU);
+            } catch(Exception e) { pendingIisu=null; task.error="Cannot retain access to the selected catalog: "+e.getMessage(); update(); }
+        }
+        if(request==WRITE_IISU) {
+            Uri input=pendingIisu; pendingIisu=null;
+            if(result==RESULT_OK && input!=null && intent!=null && intent.getData()!=null)
+                task.prepareIisu(getApplicationContext(),input,intent.getData());
+            else if(input!=null) try { getContentResolver().releasePersistableUriPermission(input,Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch(Exception ignored) { }
+        }
+        if(request==EXPORT_FRONTEND && result==RESULT_OK && intent!=null && intent.getData()!=null)
+            task.exportFrontend(getApplicationContext(),intent.getData());
         if (request == EXPORT_SAVE || request == RESTORE_SAVE) {
             String id = pendingSaveId; pendingSaveId = null;
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null) {
@@ -173,6 +192,7 @@ public final class Launcher extends Activity {
         }
     }
     @Override protected void onSaveInstanceState(Bundle state) {
+        if(pendingIisu!=null) state.putString("pendingIisu",pendingIisu.toString());
         if (pendingDriverId != null) state.putString("pendingDriverId", pendingDriverId);
         if (pendingSaveId != null) state.putString("pendingSaveId", pendingSaveId);
         if (pendingCodeId != null) state.putString("pendingCodeId", pendingCodeId);
@@ -298,17 +318,29 @@ public final class Launcher extends Activity {
                     .setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
         }
     }
+    private void frontends() {
+        controllerDialog(new AlertDialog.Builder(this).setTitle("Frontend library")
+            .setMessage("Export a small launch file for each imported game to a folder that Cocoon, iiSU or another frontend can scan. Games, textures and saves stay in Zakuro.\n\nChoose the exported Games folder in your frontend and configure Zakuro as its player. A Cocoon configuration and setup instructions are included. Some frontend versions need a custom player or the original ROM folder.\n\nExport again after adding games. Choose an empty folder the first time.")
+            .setPositiveButton("Export library…",(d,w)->{
+                if(task.busy) return;
+                Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                startActivityForResult(pick,EXPORT_FRONTEND);
+            }).setNeutralButton("Prepare iiSU config…",(d,w)->{
+                if(task.busy) return;
+                controllerDialog(new AlertDialog.Builder(this).setTitle("Choose iiSU's emuladores.json")
+                    .setMessage("Choose your current iiSU emulator catalog. Zakuro will save an edited copy that adds its player and .zkr extension, preserving other entries. The original is unchanged. Then import the copy in iiSU's Updates settings.\n\nOn this device, iiSU normally stores it in Android/media/com.iisulauncher/iiSULauncher/Emuladores.")
+                    .setPositiveButton("Choose catalog…",(confirm,which)->{
+                        Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+                        pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                        startActivityForResult(pick,READ_IISU);
+                    }).setNegativeButton("Cancel",null).create()).show();
+            }).setNegativeButton("Cancel",null).create()).show();
+    }
     private void play(String id) {
         if (task.busy) return;
         try {
-            File version = GameImport.active(this, id);
-            GameSettings selected = GameSettings.load(this, id);
-            if (selected.flag("aot")) try (java.nio.channels.FileChannel code = new java.io.FileInputStream(new File(version, "code/title.so")).getChannel()) {
-                NativeLibrary.inspect(code).requireCompatible();
-            }
-            Intent intent = new Intent(this, Game.class);
-            intent.putExtra("game", new File(version, "game").getAbsolutePath()); intent.putExtra("code", new File(version, "code/title.so").getAbsolutePath()); intent.putExtra("data", new File(version, "data").getAbsolutePath());
-            GameSettings.load(this, id).apply(intent, version); startActivity(intent);
+            startActivity(GameLaunch.intent(this,id));
         } catch (Exception e) { controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't open this game").setMessage("Open Settings to replace native game code without copying the ROM.\n\n" + e.getMessage()).setPositiveButton("OK", null).create()).show(); }
     }
     private void update() {
@@ -391,6 +423,36 @@ public final class Launcher extends Activity {
         void replaceCode(Context context, String id, Uri uri) { run(context, id, uri, 1, false); }
         void replaceTextures(Context context, String id, Uri uri) { run(context, id, uri, 2, true); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
+        void prepareIisu(Context context, Uri source, Uri destination) {
+            if(busy) return; busy=true; error=null; message="Preparing iiSU catalog copy…"; refresh(false);
+            new Thread(()->{
+                String failure=null;
+                try {
+                    if(source.equals(destination)) throw new java.io.IOException("Choose a new output file; the original catalog must stay unchanged");
+                    byte[] patched;
+                    try(java.io.InputStream input=context.getContentResolver().openInputStream(source)) {
+                        if(input==null) throw new java.io.IOException("Cannot read iiSU catalog");
+                        patched=FrontendExport.patchIisu(input.readNBytes(1024*1024+1));
+                    }
+                    try(java.io.OutputStream output=context.getContentResolver().openOutputStream(destination,"wt")) {
+                        if(output==null) throw new java.io.IOException("Cannot write iiSU catalog copy"); output.write(patched);
+                    }
+                } catch(Exception e) { failure=e.getMessage()==null?"Cannot prepare iiSU catalog":e.getMessage(); }
+                finally { try { context.getContentResolver().releasePersistableUriPermission(source,Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch(Exception ignored) { } }
+                final String result=failure;
+                main.post(()->{ busy=false; error=result; message=result==null?"iiSU catalog copy saved. Import it in iiSU Settings > Updates > Import emuladores.json, then select Zakuro for your 3DS games.":"iiSU preparation failed. Do not import the output file."; refresh(false); });
+            },"iisu-config").start();
+        }
+        void exportFrontend(Context context, Uri tree) {
+            if(busy) return; busy=true; error=null; message="Exporting frontend library…"; refresh(false);
+            new Thread(()->{
+                String failure=null; int count=0;
+                try { count=FrontendExport.export(context,tree); }
+                catch(Exception e) { failure=e.getMessage()==null?"Frontend export failed":e.getMessage(); }
+                final String result=failure; final int exported=count;
+                main.post(()->{ busy=false; error=result; message=result==null?"Exported "+exported+" game references. Scan Zakuro frontend/Games; setup instructions are in README.txt.":"Frontend export failed; existing game files are unchanged."; refresh(false); });
+            },"frontend-export").start();
+        }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
             String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : "Restoring saves";

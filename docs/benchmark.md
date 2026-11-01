@@ -39,6 +39,12 @@ benchmark frames=300 fps=60.10 core_ms=5.6 present_ms=10.7 worst_core_ms=20.4 wo
 
 - `core_ms`: emulation work per frame (game code, GPU command processing, CPU
   vertex shading). Over ~16.7 ms means emulation-bound.
+- In the uncapped-speed build, `fps` is emulated refreshes/s derived from guest
+  cycles, `speed_percent` is guest seconds / wall seconds × 100, and
+  `presented_fps` counts successful presenter submissions/s. `speed_limit=0`
+  disables the game-clock timer; the presentation cap remains independent.
+  At normal speed the guest refresh is about 59.83 Hz, so 3×/4× speed corresponds
+  to about 179.5/239.3 emulation FPS. None of these is a unique-image FPS count.
 - `present_ms`: presenting, including the wait for vsync when `vsync=true`. A
   high value with low `core_ms` is idle time, not a problem. `slow` counts frames
   over 16 ms *including* that wait, so it is only meaningful when `vsync=false`.
@@ -49,6 +55,14 @@ benchmark frames=300 fps=60.10 core_ms=5.6 present_ms=10.7 worst_core_ms=20.4 wo
   `adb shell dumpsys SurfaceFlinger --latency '<Game layer>'` (layer name from
   `dumpsys SurfaceFlinger --list`). All intervals at 16.7 ms is smooth; 33/50 ms
   entries are visible hitches.
+
+The Android runtime also emits `frame hitch` for work/presentation longer than
+25 ms, at most once per second. `core_ms` excludes presentation; `present_ms`
+includes both displays and their vsync waits. `timestamp_ms` is wall-clock Unix
+time for correlation with captures. These messages identify individual stalls,
+not a count or percentile: rate limiting deliberately omits nearby events.
+Neither this log nor the 300-frame `fps` proves the number of unique game images;
+a title can draw at 30 FPS while the emulation/display refreshes at about 60 Hz.
 
 To profile, the APK is `profileable`: push the NDK's
 `simpleperf/bin/android/arm64/simpleperf` to `/data/local/tmp`, run

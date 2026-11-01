@@ -20,6 +20,8 @@ while the inspected Pocket Native fastmem generator uses ABI 5.
 
 ## Documentation
 
+- [Controller mapping, fast-forward and frontend setup](docs/frontends.md)
+
 | Need | Canonical page |
 | --- | --- |
 | Requirements, game folder, optional textures, controls and saves | [Android user guide](docs/android.md) |

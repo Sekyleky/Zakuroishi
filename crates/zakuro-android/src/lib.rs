@@ -11,6 +11,10 @@ mod geometry;
 mod input;
 #[cfg(target_os = "android")]
 mod platform;
+#[cfg(any(target_os = "android", test))]
+mod pacing;
+#[cfg(any(target_os = "android", test))]
+mod presentation;
 #[cfg(target_os = "android")]
 mod runtime;
 #[cfg(target_os = "android")]

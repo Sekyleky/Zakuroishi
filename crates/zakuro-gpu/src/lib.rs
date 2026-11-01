@@ -699,6 +699,14 @@ impl Gpu {
         let _ = twins;
     }
 
+    /// an emulated refresh ended, independently of frame interpolation.
+    pub fn refresh_done(&mut self) {
+        #[cfg(feature = "vulkan")]
+        if let Some(hardware) = self.resources.hardware.as_mut() {
+            hardware.refresh_done();
+        }
+    }
+
     /// the title's frame is done, its draws are the ones the next frame's
     /// match, and how they matched the frame before's.
     pub fn frame_done(&mut self) -> Option<Matches> {

@@ -50,7 +50,7 @@ choice!(
     Interlaced
 );
 choice!(
-    Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate
+    Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward
 );
 
 impl Binding {
@@ -70,7 +70,7 @@ impl Binding {
             Self::Y => 2048,
             Self::Zl => 1 << 14,
             Self::Zr => 1 << 15,
-            Self::None | Self::MotionGate => 0,
+            Self::None | Self::MotionGate | Self::FastForward => 0,
         }
     }
 }
@@ -126,6 +126,8 @@ pub struct Advanced {
     pub skip_idle_loops: bool,
     #[serde(alias = "recompiled")]
     pub aot: bool,
+    pub speed_limit: i32,
+    pub fast_forward_speed: i32,
     pub frame_cap: i32,
     pub slider_3d: f32,
     pub stereo: StereoMode,
@@ -180,6 +182,8 @@ impl Default for Advanced {
             new_3ds: false,
             skip_idle_loops: true,
             aot: true,
+            speed_limit: 100,
+            fast_forward_speed: 150,
             frame_cap: 60,
             slider_3d: 0.0,
             stereo: StereoMode::Off,
@@ -239,6 +243,8 @@ impl Advanced {
         self.slider_3d = bounded(self.slider_3d, 0.0, 1.0, 0.0);
         self.region = self.region.clamp(-1, 6);
         self.language = self.language.clamp(0, 11);
+        self.speed_limit = self.speed_limit.clamp(0, 400);
+        self.fast_forward_speed = self.fast_forward_speed.clamp(0, 400);
         self.frame_cap = self.frame_cap.clamp(0, 240);
         self.enhancements.truncate(64);
         self.enhancements
@@ -280,6 +286,13 @@ impl Advanced {
         } else {
             binding
         })
+    }
+    pub fn emulation_interval(&self, base: std::time::Duration) -> std::time::Duration {
+        if self.speed_limit == 0 {
+            std::time::Duration::ZERO
+        } else {
+            base.mul_f64(100.0 / f64::from(self.speed_limit.clamp(1, 400)))
+        }
     }
     pub fn presentation_interval(&self) -> std::time::Duration {
         if self.frame_cap == 0 {
@@ -344,6 +357,29 @@ mod tests {
             Advanced::parse(r#"{"show_clock":true,"touch_controls":false}"#).unwrap(),
             Advanced::default()
         );
+    }
+    #[test]
+    fn speed_limit_defaults_clamps_and_scales_emulation_only() {
+        assert_eq!(Advanced::parse("{}").unwrap().fast_forward_speed,150);
+        assert_eq!(Advanced::parse(r#"{"fast_forward_speed":999}"#).unwrap().fast_forward_speed,400);
+        assert_eq!(Advanced::parse(r#"{"fast_forward_speed":-1}"#).unwrap().fast_forward_speed,0);
+        let base = std::time::Duration::from_millis(20);
+        assert_eq!(Advanced::parse("{}").unwrap().speed_limit, 100);
+        assert_eq!(Advanced::default().emulation_interval(base), base);
+        for (json, limit, interval) in [
+            (r#"{"speed_limit":0}"#, 0, std::time::Duration::ZERO),
+            (r#"{"speed_limit":100}"#, 100, base),
+              (r#"{"speed_limit":150}"#, 150, base.mul_f64(2.0 / 3.0)),
+            (r#"{"speed_limit":400}"#, 400, base / 4),
+            (r#"{"speed_limit":-1}"#, 0, std::time::Duration::ZERO),
+            (r#"{"speed_limit":999}"#, 400, base / 4),
+        ] {
+            let settings = Advanced::parse(json).unwrap();
+            assert_eq!(settings.speed_limit, limit);
+            assert_eq!(settings.emulation_interval(base), interval);
+            assert_eq!(settings.presentation_interval(), Advanced::default().presentation_interval());
+            assert_eq!(Advanced::parse(&serde_json::to_string(&settings).unwrap()).unwrap(), settings);
+        }
     }
     #[test]
     fn typed_settings_clamp_and_round_trip() {

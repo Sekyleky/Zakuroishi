@@ -37,6 +37,9 @@ public final class SettingsBridgeCheck {
                 throw new AssertionError("Missing callback: "+callback);
         if (!java.contains("String prepareSaves()") || !platform.contains("\"prepareSaves\", \"()Ljava/lang/String;\""))
             throw new AssertionError("Missing save-access startup callback");
+        if (!java.contains("void startPerformanceHints(int[] tids, long targetNanos)")
+                || !platform.contains("\"([IJ)V\"") || !platform.contains("JValue::Long(target_nanos)"))
+            throw new AssertionError("Performance hint target signature mismatch");
         for(GameSettings.Setting setting:GameSettings.ALL) {
             if(setting.key.equals("show_clock") || Arrays.asList("touch_controls","touch_auto_hide","show_battery","orientation").contains(setting.key)) continue; // Java overlay settings.
             if(!Pattern.compile("pub\\s+"+setting.key+"\\s*:").matcher(settings).find())

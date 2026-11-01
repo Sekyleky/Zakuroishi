@@ -15,6 +15,28 @@ pub struct VirtualInput {
 mod tests {
     use super::*;
     #[test]
+    fn fast_forward_accepts_all_key_sources_releases_and_never_reaches_guest_or_motion() {
+        let settings=Advanced::parse(r#"{"stick_motion":true,"controller_bindings":{"106":"fast_forward"}}"#).unwrap();
+        let mut input=Input::default();
+        let mut virtual_input=VirtualInput::default();
+        assert!(!input.fast_forward(&settings,&virtual_input));
+        input.keys.insert(106);
+        assert!(input.fast_forward(&settings,&virtual_input));
+        input.state.c_stick_x=1.0;
+        let guest=input.configured(&settings,&virtual_input,None);
+        assert!(guest.buttons.is_empty());
+        assert_eq!(guest.tilt,[0.0,0.0]);
+        input.keys.clear();
+        assert!(!input.fast_forward(&settings,&virtual_input));
+        virtual_input.keys.insert(106);
+        assert!(input.fast_forward(&settings,&virtual_input));
+        input.axes.insert(106);
+        virtual_input.keys.clear();
+        assert!(input.fast_forward(&settings,&virtual_input));
+        input.axes.clear();
+        assert!(!input.fast_forward(&settings,&virtual_input));
+    }
+    #[test]
     fn all_seven_motion_gates_and_independent_tilt_inversion_work() {
         use crate::settings::TiltButton;
         for gate in [
@@ -168,6 +190,11 @@ impl Default for Input {
     }
 }
 impl Input {
+    pub fn fast_forward(&self, settings: &Advanced, virtual_input: &VirtualInput) -> bool {
+        self.keys.union(&virtual_input.keys).chain(&self.axes)
+            .any(|code| settings.binding(*code) == Some(Binding::FastForward))
+    }
+
     pub fn configured(
         &mut self,
         settings: &Advanced,
@@ -181,8 +208,9 @@ impl Input {
         let mut motion_gate = selected_gate.is_none()
             || (settings.tilt_button.guest_bits() & virtual_input.buttons != 0);
         for code in self.keys.union(&virtual_input.keys).chain(&self.axes) {
-            let gate_key = selected_gate == Some(*code)
-                || settings.controller_bindings.get(code) == Some(&Binding::MotionGate);
+            let gate_key = settings.binding(*code) != Some(Binding::FastForward)
+                && (selected_gate == Some(*code)
+                    || settings.controller_bindings.get(code) == Some(&Binding::MotionGate));
             motion_gate |= gate_key;
             if let Some(binding) = settings.binding(*code) {
                 if !(gated && gate_key) {

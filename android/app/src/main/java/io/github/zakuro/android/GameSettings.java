@@ -8,7 +8,7 @@ import java.util.*;
 
 /** Per-title typed settings. The advanced JSON keys are shared with the native frontend. */
 final class GameSettings {
-    static final String[] GROUPS = {"Display", "Performance", "Motion", "Controls", "Audio", "System"};
+    static final String[] GROUPS = {"Display", "Performance", "Motion", "Controls", "Button mapping", "Audio", "System"};
     static final class Setting {
         final String key, label, group, help;
         final Object initial;
@@ -69,6 +69,8 @@ final class GameSettings {
         flag("Performance", "custom_driver", "Use selected custom Vulkan driver", false, "Requires an imported ARM64 Android Vulkan driver and packaged native driver support. Restart after changing. Driver compatibility depends on your GPU."),
         flag("Performance", "aot", "Use compiled native game code", true, "Recommended. Turn off to use the interpreter for troubleshooting; it can be considerably slower."),
         flag("Performance", "skip_idle_loops", "Skip idle loops", true, "Upstream optimization for loops waiting for an event."),
+        number("Button mapping", "fast_forward_speed", "Fast-forward speed (%)", 150, 0, 400, "Hold your mapped Fast-forward button for this speed. Release it to restore the normal speed setting. 0 is unlimited."),
+        number("Performance", "speed_limit", "Game speed limit (%)", 100, 0, 400, "100% runs at the game's intended speed. Higher values allow faster emulation; 0 removes the limit. Actual speed depends on the device and game."),
         number("Performance", "frame_cap", "Presentation frame cap", 60, 0, 240, "Limits pictures presented per second. Zero is unlimited. This does not speed up the game's clock."),
         flag("Performance", "interpolate", "Frame interpolation", false, "Upstream interpolation for games drawing on alternate refreshes. Requires hardware rendering with the top screen on the shared main presenter; disabled during GPU readback or top-screen routing to the second display. May introduce artifacts."),
         flag("Performance", "show_fps", "Show native FPS", false, "Updates the in-game status overlay once a second."),
@@ -98,7 +100,7 @@ final class GameSettings {
         number("System", "language", "Console language", 1, 0, 11, "Games only provide languages included in their release."),
         flag("System", "new_3ds", "Emulate New Nintendo 3DS", false, "Changes the emulated console model and extra controls. Requires a restart.")
     };
-    static final String[] BINDING_TARGETS = {"a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate"};
+    static final String[] BINDING_TARGETS = {"fast_forward","a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate"};
     final String id;
     String name;
     String driver = "";

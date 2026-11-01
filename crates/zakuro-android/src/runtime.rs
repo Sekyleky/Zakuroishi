@@ -3,6 +3,8 @@ use crate::{
     bridge::{self, Command},
     geometry,
     input::Input,
+    pacing::{emulation_rates, next_deadline},
+    presentation::cpu_pixels,
     platform,
     sensors::Sensors,
     settings::{Advanced, RightStick},
@@ -16,7 +18,7 @@ use raw_window_handle::{
     AndroidDisplayHandle, DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
     WindowHandle,
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use zakuro_common::Screen;
 use zakuro_core::{Config, FrameOutcome, System};
 use zakuro_gpu::{
@@ -52,6 +54,7 @@ struct Surface {
     shared: bool,
     settings: Advanced,
     cursor_texture: bool,
+    cpu_images: [Option<zakuro_core::Screen>; 3],
 }
 impl Surface {
     fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry) -> Result<Self, String> {
@@ -70,6 +73,7 @@ impl Surface {
             shared: false,
             settings: settings.clone(),
             cursor_texture: false,
+            cpu_images: [None, None, None],
         };
         surface.configure(settings);
         Ok(surface)
@@ -146,31 +150,38 @@ impl Surface {
             .as_ref()
             .map(|(image, gpu)| (image, *gpu))
             .unwrap_or((&empty, None));
+        let top_pixels = cpu_pixels(&mut self.cpu_images[0], &top, top_gpu.is_some());
+        let bottom_pixels = cpu_pixels(&mut self.cpu_images[1], &bottom, bottom_gpu.is_some());
+        let right_pixels = cpu_pixels(&mut self.cpu_images[2], right, right_gpu.is_some());
         let mut overlay = Overlay::default();
         if let Some(cursor) = cursor {
             self.cursor(cursor, &mut overlay);
         }
-        self.presenter.present(
+        let result = self.presenter.present(
             ScreenImage {
-                pixels: &top.0,
+                pixels: top_pixels,
                 width: top.1,
                 height: top.2,
                 gpu: top_gpu,
             },
             ScreenImage {
-                pixels: &bottom.0,
+                pixels: bottom_pixels,
                 width: bottom.1,
                 height: bottom.2,
                 gpu: bottom_gpu,
             },
             ScreenImage {
-                pixels: &right.0,
+                pixels: right_pixels,
                 width: right.1,
                 height: right.2,
                 gpu: right_gpu,
             },
             &overlay,
-        )
+        );
+        if result.is_err() {
+            self.cpu_images = [None, None, None];
+        }
+        result
     }
     fn cursor(&mut self, cursor: [f32; 2], overlay: &mut Overlay) {
         let width = self.window.0.width().max(1) as u32;
@@ -405,19 +416,27 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let mut rotation = platform::rotation(app).unwrap_or(0);
     let mut failure = None;
     let frame_time = Duration::from_secs_f64(zakuro_core::CYCLES_PER_FRAME as f64 / 268_111_856.0);
+    let mut emulation_interval = settings.emulation_interval(frame_time);
+    let mut effective_speed = settings.speed_limit;
+    let mut display_paced = effective_speed == 100 && settings.frame_cap == 60;
     let present_interval = settings.presentation_interval();
     let mut next_present = Instant::now();
     let mut stats_start = Instant::now();
     let mut stats_frames = 0u32;
+    let mut stats_cycles = 0u64;
     let mut next_frame = Instant::now();
     let mut retry_audio = Instant::now();
     let mut benchmark_start = Instant::now();
     let mut benchmark_frames = 0u32;
+    let mut benchmark_cycles = 0u64;
+    let mut benchmark_presented = 0u32;
     let mut core_time = Duration::ZERO;
     // Averages hide hitches: track the worst frame and frames over budget.
     let (mut worst_core, mut worst_frame, mut slow_frames) = (Duration::ZERO, Duration::ZERO, 0u32);
     let mut present_time = Duration::ZERO;
-    platform::start_performance_hints(app);
+    let mut last_hitch_log: Option<Instant> = None;
+    let hint_target = if emulation_interval.is_zero() { frame_time / 4 } else { emulation_interval };
+    platform::start_performance_hints(app, hint_target.as_nanos() as i64);
     loop {
         let active = resumed && focused && !paused && surface.is_some();
         let timeout = if active {
@@ -451,11 +470,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     };
                     if let (false, Some(window)) = (reattached, app.native_window()) {
                         match Surface::new(window, &geometry::display(&settings, false, second.is_some()), driver.entry.clone()) {
-                            Ok(mut s) => {
-                                // The panel is asked for 60 Hz above; at the default cap let its vsync pace frames.
-                                if settings.frame_cap == 60 {
-                                    s.presenter.pace_to_display();
-                                }
+                            Ok(s) => {
+                                // Keep the default mailbox path at every speed; the guest timer controls game speed.
                                 if system.is_some() {
                                     // Only when reattaching failed: the renderer keeps its device, so screens are read back.
                                     log::warn!("window recreated: presentation now uses GPU readback on the new Vulkan device");
@@ -533,6 +549,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             }
             if !(resumed && focused && !paused && surface.is_some()) {
                 benchmark_frames = 0;
+                benchmark_cycles = 0;
+                benchmark_presented = 0;
+                stats_cycles = 0;
+                stats_frames = 0;
+                stats_start = Instant::now();
                 core_time = Duration::ZERO;
                 present_time = Duration::ZERO;
             }
@@ -552,6 +573,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 Command::Exit => destroy = true,
                 Command::Restart => {
                     system = None;
+                    if let Some(s) = &mut surface {
+                        s.cpu_images = [None, None, None];
+                    }
+                    if let Some(s) = &mut second {
+                        s.cpu_images = [None, None, None];
+                    }
                     audio = None;
                     input = Input::default();
                     bridge::clear_input();
@@ -738,7 +765,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             continue;
         }
         // FIFO already waits for vsync; spinning here would only burn the main core.
-        if !(s.presenter.waits_for_display() && settings.frame_cap == 60) {
+        if !(s.presenter.waits_for_display() && display_paced) {
             while Instant::now() < next_frame {
                 std::thread::yield_now();
             }
@@ -756,7 +783,20 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         if system.gpu.interpolates() != interpolate {
             system.set_interpolation(interpolate);
         }
-        let mut configured = input.configured(&settings, &bridge::input(), motion);
+        let virtual_input = bridge::input();
+        let speed = if input.fast_forward(&settings, &virtual_input) { settings.fast_forward_speed } else { settings.speed_limit };
+        if speed != effective_speed {
+            effective_speed = speed;
+            let mut paced = settings.clone();
+            paced.speed_limit = speed;
+            emulation_interval = paced.emulation_interval(frame_time);
+            display_paced = speed == 100 && settings.frame_cap == 60;
+            next_frame = Instant::now();
+            let target = if emulation_interval.is_zero() { frame_time / 4 } else { emulation_interval };
+            platform::start_performance_hints(app, target.as_nanos() as i64);
+            log::info!("Fast-forward speed changed: {}%", speed);
+        }
+        let mut configured = input.configured(&settings, &virtual_input, motion);
         if let (Some(external), Some((x, y, width, height))) = (&second, bridge::second_touch()) {
             configured.touch =
                 geometry::touch(&external.settings, width, height, x, y).or(configured.touch);
@@ -766,7 +806,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             benchmark_start = Instant::now();
         }
         let core_start = Instant::now();
+        let cycles_before = system.cpu.cycles;
         let outcome = system.run_frame();
+        let cycles = system.cpu.cycles.saturating_sub(cycles_before);
+        stats_cycles += cycles;
+        benchmark_cycles += cycles;
         let work = core_start.elapsed();
         core_time += work;
         // Emulation work only: under FIFO the present below includes the vsync wait,
@@ -793,13 +837,13 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         }
         let present_start = Instant::now();
         // Under FIFO the display is the cap; a timer gate would drop frames that arrive a hair early.
-        let vsync = s.presenter.waits_for_display() && settings.frame_cap == 60;
+        let vsync = s.presenter.waits_for_display() && display_paced;
         if vsync || present_start >= next_present {
             match s.present(
                 system,
                 (settings.right_stick == RightStick::Cursor).then_some(input.cursor),
             ) {
-                Ok(()) => stats_frames += 1,
+                Ok(()) => { stats_frames += 1; benchmark_presented += 1; },
                 Err(PresentError::OutOfDate) => {}
                 Err(e) => return Err(e.to_string()),
             }
@@ -820,43 +864,62 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             }
             next_present = (next_present + present_interval).max(present_start);
         }
-        present_time += present_start.elapsed();
+        let present = present_start.elapsed();
+        present_time += present;
         let frame = core_start.elapsed();
         worst_frame = worst_frame.max(frame);
         slow_frames += u32::from(frame > Duration::from_micros(16_000));
+        if frame > Duration::from_millis(25)
+            && last_hitch_log.is_none_or(|last| last.elapsed() >= Duration::from_secs(1))
+        {
+            last_hitch_log = Some(Instant::now());
+            let timestamp_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
+            log::info!("frame hitch timestamp_ms={timestamp_ms} core_ms={:.2} present_ms={:.2} total_ms={:.2} core_over_budget={} present_over_budget={}",
+                work.as_secs_f64() * 1000.0, present.as_secs_f64() * 1000.0, frame.as_secs_f64() * 1000.0,
+                work > Duration::from_nanos(16_666_667), present > Duration::from_nanos(16_666_667));
+        }
         benchmark_frames += 1;
         if stats_start.elapsed() >= Duration::from_secs(1) {
+            let elapsed = stats_start.elapsed();
+            let (fps, speed) = emulation_rates(stats_cycles, elapsed);
             if settings.show_fps {
                 platform::stats(
                     app,
                     &format!(
-                        "{:.1} FPS",
-                        f64::from(stats_frames) / stats_start.elapsed().as_secs_f64()
+                        "{:.1} emu FPS ({:.0}%) | {:.1} presented FPS",
+                        fps, speed, f64::from(stats_frames) / elapsed.as_secs_f64()
                     ),
                 );
             }
             stats_frames = 0;
+            stats_cycles = 0;
             stats_start = Instant::now();
         }
         if benchmark_frames == 300 {
             let waits = zakuro_gpu::take_wait_stats();
             let by = zakuro_gpu::take_caller_stats();
             let ms = |i: usize| format!("{}/{:.1}ms", by[i].0, by[i].1.as_secs_f64() * 1000.0);
-            log::info!("benchmark frames=300 fps={:.2} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}]",
-                300.0 / benchmark_start.elapsed().as_secs_f64(), core_time.as_secs_f64() * 1000.0 / 300.0,
+            let elapsed = benchmark_start.elapsed().as_secs_f64();
+            let (fps, speed) = emulation_rates(benchmark_cycles, benchmark_start.elapsed());
+            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}]",
+                fps, speed,
+                f64::from(benchmark_presented) / elapsed, effective_speed,
+                core_time.as_secs_f64() * 1000.0 / 300.0,
                 present_time.as_secs_f64() * 1000.0 / 300.0, worst_core.as_secs_f64() * 1000.0, worst_frame.as_secs_f64() * 1000.0,
                 slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared,
                 waits.0 as f64 / 300.0, waits.1.as_secs_f64() * 1000.0 / 300.0, waits.2 as f64 / 300.0, waits.3.as_secs_f64() * 1000.0 / 300.0,
                 ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6));
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
+            benchmark_cycles = 0;
+            benchmark_presented = 0;
             core_time = Duration::ZERO;
             present_time = Duration::ZERO;
         }
-        // No catch-up burst after a slow frame or lifecycle transition.
+        // Keep one step of debt for alternating heavy/cheap guest ticks; lifecycle resets above.
         // With vsync pacing the timer is only a ceiling (61 Hz) in case the panel stays at 120 Hz.
-        let step = if vsync { Duration::from_secs_f64(1.0 / 61.0) } else { frame_time };
-        next_frame = (next_frame + step).max(Instant::now());
+        let step = if vsync { Duration::from_secs_f64(1.0 / 61.0) } else { emulation_interval };
+        next_frame = next_deadline(next_frame, Instant::now(), step);
     }
     Ok(())
 }

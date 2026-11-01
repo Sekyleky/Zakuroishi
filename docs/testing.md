@@ -1,5 +1,208 @@
 # Verification record
 
+## Controller hotkeys and frontend library (2026-11-01)
+
+Checks below used the pre-release build, retaining the current package and
+signing certificate. These changes ship in Android 0.1.8; the release build changes
+the version metadata to 0.1.8/versionCode 9.
+
+- Native Android host suite: **30 passed**. New coverage checks physical,
+  virtual and axis-key sources for held fast-forward, release, and isolation
+  from guest buttons and the motion gate. Default/clamp coverage includes the
+  separate fast-forward speed.
+- Java settings, native-contract, driver-package and frontend-reference host
+  checks passed. Reference tests cover NCCH/NCSD identification, exact-length
+  launch references, malformed IDs, trailing/truncated bytes and filename safety.
+- `settingshosttests/frontend-devicecheck.ps1 -Serial b225f4aa -Port 5039`:
+  reference and iiSU/Cocoon checks passed on the Thor's Android runtime. Catalog
+  checks retain other consoles/players, add the extension once, replace the owned
+  player without duplication, reject malformed/oversized/ambiguous input, and
+  distinguish the two frontends' launch templates. An initial standalone test
+  assumed `/tmp`; the harness now explicitly uses `/data/local/tmp` on Android.
+- Thor: captured **BUTTON_THUMBR (R3)** for Ultra Moon, saved the mapping and
+  observed native log transitions **150% → 100%** on press/release. Normal game
+  speed remains 100%, 3x resolution and HD textures remain selected. No default
+  hotkey is imposed on other titles.
+- Thor: exported both installed titles to **Documents/Zakuro frontend/Games**;
+  each reference is 33 bytes. A repeated export updated setup files and retained
+  exactly two references. Opening Ultra Moon's reference in Android Files with
+  **Open with Zakuro → Just once** launched the installed game through a real
+  content-URI grant. A direct `zakuro://game/…` link also launched it. Repeating
+  that link retained a single Game activity.
+- Thor: the iiSU assistant read the installed catalog through SAF and wrote
+  **Documents/emuladores-zakuro.json**. The copy contains the existing 3DS players
+  plus `ZAKURO_ANDROID` and `.zkr`; SHA-256 comparison confirmed the original
+  catalog remained byte-for-byte unchanged.
+
+Remaining checks: Cocoon is not installed on this Thor, and the generated iiSU
+catalog has not been imported into the user's live launcher. End-to-end scanning
+and launching inside those frontends, switching between two live titles, and a
+long held-speed gameplay session remain unverified. The content-URI launch and
+generated catalog were tested independently; they are not a claim that every
+frontend version supports the exported platform schema. Setup is documented in
+[Frontend integration](frontends.md).
+
+## Driver comparison and final normal-speed candidate (2026-11-01)
+
+Hardware follow-up on November 1: the final APK was installed on the Thor and
+tested at Mount Hokulani with Turnip, 3x resolution, HD textures and Normal
+(100%) speed. The user's saved speed was 150%; only that preference was changed.
+A 30-second warmup and 60-second capture retained 11 complete benchmark windows:
+60.01 emulation FPS, 100.29% guest-clock speed, 59.97 submitted FPS and 5.23 ms
+mean core work. Three non-overlapping SurfaceFlinger samples contained 5 intervals
+over 25 ms out of 376, with a 33.21 ms maximum. Isolated hitches remain; this is
+not evidence of a stutter-free 60 unique game frames/s.
+
+Short walking input and Home/Recents/resume also ran without a process restart
+(PID 10148). Rendering stayed at 3x with shared GPU images and `cpu_top=0`, the
+second display continued updating, and mailbox mode remained active. The first
+post-resume window contained a 416 ms transition stall; later windows returned
+to roughly 60 emulation FPS / normal speed. Battery temperature read 26 C and
+thermal status 0 at the sampled endpoint. No new combat or long-duration test
+was performed for this last pacing change. Logs, screenshots and summaries are
+under `build/final-pacing/device-check/`; this is a different scene from the
+October 31 captures, not a matched before/after smoothness comparison.
+
+The controlled driver captures below were collected on October 31. The final
+pacing change was prepared November 1 after feedback that 150% speed felt
+smoother than 100% at 3x resolution.
+
+- Final test artifact: `build/final-pacing/Zakuro-Android-Pacing-Test.apk`
+  (9,270,358 bytes), SHA256
+  `118dc30a76e153c8d5fb3cce5e2e7f7856fa8e069c503dcfa70d07f039afb95b`.
+  ARM64 release build, existing signing certificate and alignment checks passed;
+  29 Android host tests and Java settings/native-contract checks passed.
+  It remains an unreleased test using manifest version 0.1.7.
+- Same APK (`d2362a2f...11f5db42`), in-game save, Route 2 grass location, 3x
+  resolution, HD pack, Auto/CPU vertices, two screens, unlimited emulation and
+  60 presentations/s cap. Each overworld capture used 30 seconds warmup plus
+  60 seconds measurement; screenshots verify the same player location/camera.
+
+| Driver | Overworld emulation FPS | Normal-speed multiplier |
+|---|---:|---:|
+| Imported Turnip | 170.9 | 2.86x |
+| System Qualcomm | 111.4 | 1.86x |
+
+- Stock showed more GPU-queue waits (`wb[room]`), around 1 ms per emulated
+  refresh in sampled windows. A 15-second stock CPU profile retained 79,212
+  samples without loss; it does not measure GPU execution time. Turnip's roughly
+  53% headroom advantage here supersedes a blanket stock-driver performance
+  recommendation. The previously observed Turnip corner artifact is a separate
+  compatibility tradeoff.
+- Stock combat (Salamence versus Alolan Rattata, waiting for input) measured
+  156.6 emulation FPS / 2.62x. It is not paired with the earlier Cutiefly battle:
+  different models/cameras prevent a matched combat speedup claim.
+- Sustained stock session: PID 1691 persisted from the first timed window at
+  16:23:05 to the final endpoint at 16:43:06 Prague time, with continuous
+  benchmark records. The final 674-second timed capture averaged 153.7
+  emulation FPS / 2.57x in combat. Battery temperature was 30 C at sampled
+  endpoints, thermal status 0, and no process restart was observed. Endpoint
+  thermal readings do not prove absence of transient chip throttling.
+  The retained log contains 598 benchmark records in that 20-minute interval,
+  with a maximum gap of 3.95 seconds between completed 300-refresh windows.
+- Raw logs, snapshots, profiles and bounded-window summaries are local under
+  `build/driver-20261031/`. The later CPU index-copy experiment was dropped:
+  host microbenchmarks showed mixed results and no device gain was established.
+- Final candidate removes the 100%-only forced FIFO selection. Normal speed
+  keeps its own guest-clock interval and now requests the same default preferred
+  mailbox path used at 150%; device fallback modes remain supported. Tests also
+  cover the 150% clock interval independently of the presentation cap.
+- The initial disconnect delayed installation; the November 1 follow-up above
+  completed the short hardware check and left Turnip at Normal (100%) speed.
+  Sustained performance and combat still need checking for this final change.
+  No release was published.
+
+## Unreleased uncapped game speed (2026-10-31)
+
+- Installed test APK:
+  `build/android-windows/zakuro-android-test-20261031-155203-e9ff75a4.apk`,
+  SHA256 `d2362a2f5cff1fdc40b15554ef36e4b3fa7acd0db41aa96f7aec8a0e11f5db42`.
+  Same certificate, package and existing imported game/save data. Not released;
+  this local test still uses manifest version 0.1.7.
+- Thor, Ultra Moon, **3x rendering resolution, HD textures on**, the same selected
+  custom Turnip driver, Auto/CPU vertex processing and both displays. Game speed
+  unlimited (`speed_limit=0`); presentation cap 60, main presenter mailbox.
+  Speed is measured from guest cycles / 268,111,856 / wall seconds, not the
+  presentation counter. Emulation FPS is cycles / 4,481,136 / wall seconds.
+
+| Scene | Emulation FPS | Normal-speed multiplier | 300-refresh window range |
+|---|---:|---:|---:|
+| Outdoors at Route 2 Pokemon Center | 177.9 | 2.97x | 2.92-3.01x |
+| Wild-battle scene, waiting for input | 212.8 | 3.56x | 2.84-4.47x |
+| Battle actions and enemy turns | 207.7 | 3.47x | 2.83-4.30x |
+
+- Outdoor and idle-combat captures each requested 5 seconds warmup + 30 seconds
+  measurement. The active capture lasted 30.20 seconds and injected 23 held A
+  presses: Fight/Dragon Claw has no effect on this Fairy opponent, allowing
+  repeated turns without ending the encounter. Enemy attacks reduced HP, checked
+  visually. This samples those actions, not every move, effect or battle type.
+- Summaries use complete 300-refresh log windows inside each timed interval:
+  16 outdoor windows and 20 in each combat sample. FPS is weighted by estimated
+  window duration (300 / logged emulation FPS); boundary windows are omitted.
+  Submissions remained approximately 60/s. These FPS values count emulated
+  refreshes, **not unique rendered game images or physical display refreshes**.
+- Local captures, PID checks, summary JSON, screenshots and logs are under
+  `build/speed-20261031/`. The process stayed at PID 1691 throughout the reported
+  captures. Battery temperature reached 30 C and thermal status read 0 at sampled
+  endpoints; sustained thermal performance was not established.
+- The speed preset picker was checked on-device (Unlimited, Normal, 1.5x, 2x,
+  3x, 4x). After closing settings the live HUD showed separate emulation FPS,
+  speed percentage and submitted FPS. Unlimited was left enabled for testing.
+- Android host suite: 29 passed, including cycle-based 100/300/400% measurement
+  and speed-limit defaults/clamping/intervals. Java settings, callback/JNI contract
+  and driver checks passed. ARM64 release build, signing and alignment passed.
+- The 3x-4x target is approached/reached in these samples; a steady 4x across
+  gameplay is not established. No matched Azahar run, other games, long thermal
+  run or audio time-stretch test. Faster clocks can drop audio queue samples.
+
+## Unreleased gameplay follow-up (2026-10-31)
+
+- Baseline source: `b089a3b`; candidate: the working-tree changes described in
+  the unreleased changelog. Test APK:
+  `build/android-windows/zakuro-android-test-20261031-153717-3cd24054.apk`,
+  SHA256 `cad565b590444cebf31da1ff1c2e0db171874e59569b8c05315826fef66cc69a`.
+  Installed over the existing app with the same signing certificate; not a
+  published release. Manifest version remains 0.1.7 for this test build.
+- AYN Thor, Android 13, Adreno 740, selected custom Turnip driver unchanged,
+  CPU vertex processing (Auto), HD pack enabled, both physical displays at 60 Hz,
+  shared main-screen GPU presentation and CPU bottom-screen presentation.
+  Battery sensor reported 29 C and thermal status 0 at the sampled endpoints;
+  these are not continuous temperature or throttling measurements.
+- Loaded the same Ultra Moon save inside the Pokemon Center. Warmed, idle scene
+  windows below exclude the title/menu and initial loading. Captures and screenshots
+  are retained locally in `build/performance-20261031/` and are not release assets.
+
+| Loaded scene | Baseline emulation ticks/s | Candidate emulation ticks/s |
+|---|---|---|
+| 2x, HD on | 58.04-58.08 | 59.99-60.02 |
+| 3x, HD on | 57.33-57.68 | 60.01-60.04 |
+
+- Main-screen SurfaceFlinger samples at 2x each had 1 interval above 25 ms out of
+  125 before and after. At 3x, the baseline sample had 18/125; six non-overlapping
+  candidate samples had 3/751. Intervals normally measured about 16.6 ms, with
+  missed refreshes near 33.2 ms. These are exploratory samples with unequal
+  capture lengths, not the repeated, alternating benchmark protocol.
+- A 15-second baseline CPU profile recorded 62,021 samples with none lost.
+  Symbolication against the matching native library attributed 27.31% to batch
+  shader execution, 3.74% to batch dispatch, 2.18% to batch initialization and
+  6.50% to memcpy. The candidate removes an output-register copy, not shader
+  arithmetic. No individual change's speedup was isolated from the combined APK.
+- Also observed outdoor gameplay at 3x with HD enabled, both displays updating,
+  and roughly 60 ticks/s after loading. This route was not controlled and is
+  excluded from the comparison table. Loading still produced core-work stalls
+  above 100 ms; warmed gameplay still had occasional presentation stalls.
+- Automated: GPU suite 179 passed / 2 ignored; Android host suite 27 passed;
+  core suite 145 passed. New helper checks cover upload allowance/oversized
+  progress, output equivalence, retained image identity and bounded frame debt.
+  Final upload allowance checks separately passed after the refresh-boundary glue.
+- Home/Recents/resume check kept `resolution=3`, `shared=true`, `cpu_top=0` and
+  approximately 60 ticks/s; the second screen continued updating after resume.
+- Limitations: emulation ticks and presented buffers are not unique rendered game
+  frames; this does not establish native 60 FPS animation. No long-session thermal
+  trial, battle/wormhole regression or matched Azahar comparison was performed.
+  Azahar 2126.2-vanilla is installed, but equivalent settings were not established.
+  One indivisible texture upload can still exceed the nominal 2 ms allowance.
+
 ## 0.1.7 frame pacing, performance and fixes (2026-10-31)
 
 - Delivery: `build/releases/0.1.7/Zakuro-Android-0.1.7.apk` (9,262,166 bytes),

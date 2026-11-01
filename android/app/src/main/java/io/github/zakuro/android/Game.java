@@ -218,6 +218,15 @@ public final class Game extends NativeActivity {
                 }).setNegativeButton("Cancel",null)
                 .setOnDismissListener(d -> nativeCommand(RESUME)).show();
     }
+    @Override protected void onNewIntent(android.content.Intent next) {
+        super.onNewIntent(next);
+        if (java.util.Objects.equals(getIntent().getStringExtra("game_id"),next.getStringExtra("game_id"))) return;
+        nativeCommand(PAUSE);
+        new AlertDialog.Builder(this).setTitle("Switch games?")
+            .setMessage("Unsaved progress in the current game will be lost. In-game saves are kept.")
+            .setPositiveButton("Switch",(d,w)->{ pendingRestart=next; finish(); })
+            .setNegativeButton("Cancel",null).setOnDismissListener(d->nativeCommand(RESUME)).show();
+    }
     private void openSettings() {
         menuOpen=false;
         String id=getIntent().getStringExtra("game_id");
@@ -284,12 +293,13 @@ public final class Game extends NativeActivity {
         super.onSaveInstanceState(state);
     }
     private android.os.PerformanceHintManager.Session hintSession;
-    /** ADPF: asks the scheduler to size CPU/GPU clocks for the given threads' 60 Hz frame work. */
-    public void startPerformanceHints(int[] tids) {
-        if (android.os.Build.VERSION.SDK_INT < 31 || hintSession != null) return;
+    /** The target follows the selected emulation speed; unlimited aims for 4x. */
+    public void startPerformanceHints(int[] tids, long targetNanos) {
+        if (android.os.Build.VERSION.SDK_INT < 31) return;
         try {
+            if(hintSession != null) { hintSession.updateTargetWorkDuration(Math.max(1,targetNanos)); return; }
             android.os.PerformanceHintManager manager = getSystemService(android.os.PerformanceHintManager.class);
-            if (manager != null) hintSession = manager.createHintSession(tids, 16_666_667L);
+            if (manager != null) hintSession = manager.createHintSession(tids, Math.max(1, targetNanos));
         } catch (Throwable e) { android.util.Log.w("Zakuro", "PerformanceHintManager", e); }
     }
     public void reportFrame(long actualNanos) {
