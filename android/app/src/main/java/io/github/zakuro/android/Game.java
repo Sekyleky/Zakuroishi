@@ -65,7 +65,6 @@ public final class Game extends NativeActivity {
     private android.content.Intent pendingRestart;
     private int touchMask;
     private android.hardware.input.InputManager inputManager;
-    private android.widget.FrameLayout touchOverlay;
     private String batteryText = "";
     private float batteryVolts;
     /** the power the battery gives or takes now, or "" where the device doesn't say. */
@@ -79,19 +78,24 @@ public final class Game extends NativeActivity {
     }
     /** HUD windows of their own: NativeActivity takes this window's surface, so views added to it never draw. */
     private final java.util.List<android.view.View> panels = new java.util.ArrayList<>();
-    private void panel(android.view.View view, int gravity, boolean touchable) {
+    private void panel(android.view.View view, int gravity, boolean touchable) { panel(view, gravity, touchable, -2, -2, dp(8), dp(8)); }
+    private void panel(android.view.View view, int gravity, boolean touchable, int width, int height, int x, int y) {
         getWindow().getDecorView().post(() -> {
             if (isFinishing() || isDestroyed()) return;
-            WindowManager.LayoutParams params = new WindowManager.LayoutParams(-2, -2, WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(width, height, WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                     | (touchable ? WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL : WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
                 android.graphics.PixelFormat.TRANSLUCENT);
-            params.gravity = gravity; params.x = dp(8); params.y = dp(8);
+            params.gravity = gravity; params.x = x; params.y = y;
             params.token = getWindow().getDecorView().getWindowToken();
             try { getWindowManager().addView(view, params); panels.add(view); }
             catch (RuntimeException e) { android.util.Log.w("Zakuro", "Could not show a HUD window", e); }
+            if (touchViews.contains(view)) updateTouchVisibility();
         });
     }
+    /** the touch controls' windows; hidden ones also stop taking touches, which then reach the game. */
+    private final java.util.List<android.view.View> touchViews = new java.util.ArrayList<>();
+    private boolean touchShown = true;
     private boolean batteryRegistered;
     private final android.content.BroadcastReceiver batteryReceiver = new android.content.BroadcastReceiver() {
         public void onReceive(android.content.Context context, android.content.Intent battery) {
@@ -108,18 +112,26 @@ public final class Game extends NativeActivity {
         public void onInputDeviceChanged(int id) { updateTouchVisibility(); }
     };
     private void updateTouchVisibility() {
-        if(touchOverlay==null || settings==null) return;
+        if(touchViews.isEmpty() || settings==null) return;
         boolean gamepad=false;
         if(inputManager!=null) for(int id:inputManager.getInputDeviceIds()) {
             android.view.InputDevice device=inputManager.getInputDevice(id);
             if(device!=null && !device.isVirtual() && (device.supportsSource(android.view.InputDevice.SOURCE_GAMEPAD) || device.supportsSource(android.view.InputDevice.SOURCE_JOYSTICK))) { gamepad=true; break; }
         }
         boolean visible=settings.flag("touch_controls") && !(settings.flag("touch_auto_hide") && gamepad);
-        if(!visible && touchOverlay.getVisibility()==android.view.View.VISIBLE) {
+        if(!visible && touchShown) {
             touchMask=0; nativeTouch(0,-1,-1); nativeButton(106,false); nativeButton(107,false);
             nativeStick(0,Float.NaN,Float.NaN); nativeStick(1,Float.NaN,Float.NaN);
         }
-        touchOverlay.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
+        touchShown=visible;
+        for(android.view.View view:touchViews) {
+            view.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
+            if(!(view.getLayoutParams() instanceof WindowManager.LayoutParams) || !view.isAttachedToWindow()) continue;
+            WindowManager.LayoutParams params=(WindowManager.LayoutParams)view.getLayoutParams();
+            int before=params.flags;
+            params.flags=visible ? params.flags & ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : params.flags | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            if(params.flags!=before) getWindowManager().updateViewLayout(view,params);
+        }
     }
     private AlertDialog pauseDialog;
     private boolean menuOpen;
@@ -152,11 +164,6 @@ public final class Game extends NativeActivity {
         if(settings.flag("show_battery")) {
             registerReceiver(batteryReceiver,new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)); batteryRegistered=true;
         }
-        android.widget.FrameLayout overlay = new android.widget.FrameLayout(this);
-        overlay.setOnApplyWindowInsetsListener((v, insets) -> {
-            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom); return insets;
-        });
         android.widget.Button menu = new android.widget.Button(this); menu.setText("Pause");
         menu.setContentDescription("Open game pause menu"); menu.setOnClickListener(v -> pauseMenu());
         if (settings.flag("show_pause_button")) panel(menu, android.view.Gravity.TOP | android.view.Gravity.END, true);
@@ -164,8 +171,6 @@ public final class Game extends NativeActivity {
         stats.setPadding(dp(6), dp(3), dp(6), dp(3)); stats.setVisibility(android.view.View.GONE);
         panel(stats, android.view.Gravity.TOP | android.view.Gravity.START, false);
         if (settings.flag("touch_controls")) {
-            touchOverlay = new android.widget.FrameLayout(this);
-            overlay.addView(touchOverlay,new android.widget.FrameLayout.LayoutParams(-1,-1));
             android.widget.LinearLayout controls = new android.widget.LinearLayout(this);
             String[] labels={"L","↑","↓","←","→","Select","Start","Y","X","B","A","R","ZL","ZR","L3","R3"};
             int[] keys={512,64,128,32,16,4,8,2048,1024,2,1,256,16384,32768,-106,-107};
@@ -179,7 +184,7 @@ public final class Game extends NativeActivity {
                 });
                 controls.addView(key,new android.widget.LinearLayout.LayoutParams(dp(56),dp(56)));
             }
-            scroll.addView(controls); touchOverlay.addView(scroll,new android.widget.FrameLayout.LayoutParams(-1,-2,android.view.Gravity.BOTTOM));
+            scroll.addView(controls); touchViews.add(scroll); panel(scroll, android.view.Gravity.BOTTOM, true, -1, -2, 0, 0);
             for(int i=0;i<2;i++) {
                 final int index=i;
                 android.widget.TextView stick=new android.widget.TextView(this); stick.setText(i==0 ? "Circle Pad" : "C-stick"); stick.setGravity(android.view.Gravity.CENTER); stick.setTextColor(0xffffffff); stick.setBackgroundColor(0x99555555);
@@ -190,12 +195,12 @@ public final class Game extends NativeActivity {
                     else nativeStick(index,Math.max(-1,Math.min(1,(e.getX()/v.getWidth()*2-1))),Math.max(-1,Math.min(1,1-e.getY()/v.getHeight()*2)));
                     return true;
                 });
-                android.widget.FrameLayout.LayoutParams position=new android.widget.FrameLayout.LayoutParams(dp(100),dp(100),android.view.Gravity.BOTTOM | (i==0 ? android.view.Gravity.START : android.view.Gravity.END)); position.bottomMargin=dp(64); touchOverlay.addView(stick,position);
+                touchViews.add(stick); panel(stick, android.view.Gravity.BOTTOM | (i==0 ? android.view.Gravity.START : android.view.Gravity.END), true, dp(100), dp(100), 0, dp(64));
             }
         }
         inputManager=(android.hardware.input.InputManager)getSystemService(INPUT_SERVICE);
         inputManager.registerInputDeviceListener(inputListener,hud); updateTouchVisibility();
-        addContentView(overlay,new android.view.ViewGroup.LayoutParams(-1,-1)); hud.post(clock);
+        hud.post(clock);
     }
     @Override public void onBackPressed() { pauseMenu(); }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {

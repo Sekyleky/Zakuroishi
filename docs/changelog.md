@@ -43,8 +43,9 @@
   temperature and power draw, and with **Show native FPS** the emulation time per frame,
   the worst frame and slow frames (> 17 ms) of the last second, and shader compiles.
   The on-screen Pause button is now **Controls → Show pause button**, off by default
-  (Back or the controller's menu button pauses). Touch controls still draw in the
-  game window and remain invisible; not fixed yet.
+  (Back or the controller's menu button pauses). The touch controls (button bar, Circle
+  Pad, C-stick) had the same problem and now get windows of their own too; when they
+  auto-hide for a gamepad their windows also stop taking touches.
 - **Warm up shaders at launch** from earlier sessions (two switches, on by default).
   Gameplay monitoring showed the worst spikes (38–67 ms) were CPU vertex processing on
   the interpreter while new vertex programs compiled. Each game's vertex program
