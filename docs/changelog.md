@@ -33,6 +33,13 @@
   pooled upload memory, a per-frame upload size limit, background picture copies and
   block-wise ETC1 decoding with HD-pack size pre-checks. Same build on the Thor, one
   battle each: worst battle-start frame 73 ms with all four off, 55 ms with them on.
+- **Fast texture decoding** now covers every 3DS texture format, not only ETC1: whole
+  textures decode tile by tile with the format chosen once (RGBA8 4.7×, RGB565 2.3× on
+  a desktop CPU, bit-identical). On the Thor the worst battle-start frame fell from a
+  mean of 53.8 ms to 37.6 ms (3 alternating runs each, 46–64 ms vs 37–38 ms).
+- A second `frame hitch parts` log line splits a hitch frame's emulation time into GPU
+  command lists, texture decode, HD-pack lookup, vertex processing, texture upload,
+  submit and flush.
 - Add an adb-only settings hook (`.DebugSettings`, protected by the `DUMP` permission)
   and `android/scripts/device-test.sh`, which lists games, reads and changes settings,
   launches a game and runs a scripted grass-to-battle test with A/B comparison.

@@ -1168,8 +1168,18 @@ impl TextureCache {
                 let texels = Arc::get_mut(&mut copy).expect("a copy no one else holds");
                 let tile = data.len() / (width * height / 64) as usize;
                 let tiles = decoded.bytes.chunks(tile).zip(data.chunks(tile)).enumerate();
-                for (index, _) in tiles.filter(|(_, (old, new))| old != new) {
+                for (index, (_, new)) in tiles.filter(|(_, (old, new))| old != new) {
                     let (tile_x, tile_y) = (index as u32 % (width / 8) * 8, index as u32 / (width / 8) * 8);
+                    // a tile is stored as a texture of its own 8x8 texels
+                    let whole = new.len() == (format.bits_per_pixel() * 8) as usize;
+                    let same = (self.fast == Some(true) && whole).then(||crate::texture::decode_texture(new, format, 8, 8)).flatten();
+                    if let Some(same) = same {
+                        for (row, line) in same.chunks_exact(8).enumerate() {
+                            let start = ((tile_y as usize + row) * width as usize) + tile_x as usize;
+                            texels[start..start + 8].copy_from_slice(line);
+                        }
+                        continue;
+                    }
                     for y in tile_y..tile_y + 8 {
                         for x in tile_x..tile_x + 8 {
                             texels[(y * width + x) as usize] = crate::texture::sample_texel(data, format, width, x, y);
@@ -1194,6 +1204,8 @@ impl TextureCache {
         let fast = *self.fast.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.fast_texture_decode));
         let blocks = if fast && matches!(format, TextureFormat::Etc1 | TextureFormat::Etc1A4) {
             crate::texture::decode_etc1_texture(data, format, width, height)
+        } else if fast {
+            crate::texture::decode_texture(data, format, width, height)
         } else {
             None
         };
@@ -1222,6 +1234,7 @@ fn picture_for(
     key: TextureKey,
     rows: &mut Vec<u8>,
 ) -> Option<Arc<crate::pack::Material>> {
+    let _timed = crate::timed(6);
     let (_, format, width, height) = key;
     if crate::pack::recording() {
         crate::pack::record(data, texels, format, width, height);

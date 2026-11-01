@@ -112,6 +112,64 @@ fn sample_uncompressed(
     }
 }
 
+/// a whole non-ETC texture as RGBA8 rows, the same texels sample_texel gives
+/// (also for data cut short), the format matched once and the tiles walked in
+/// memory order. none for sizes not made of 8x8 tiles, and for ETC1 and unknown
+/// formats, which are left to the others.
+pub fn decode_texture(data: &[u8], format: TextureFormat, width: u32, height: u32) -> Option<Vec<[u8; 4]>> {
+    use TextureFormat::*;
+    if width % 8 != 0 || height % 8 != 0 || width == 0 || height == 0 {
+        return None;
+    }
+    match format {
+        Rgba8 => Some(decode_tiles::<4>(data, width, height, |b| decode_bytes(Rgba8, b))),
+        Rgb8 => Some(decode_tiles::<3>(data, width, height, |b| [b[2], b[1], b[0], 0xFF])),
+        Rgba5551 | Rgb565 | Rgba4 | La8 | Hilo8 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(format, b))),
+        L8 | A8 | La4 => Some(decode_tiles::<1>(data, width, height, |b| decode_bytes(format, b))),
+        L4 | A4 => {
+            let (w, h) = (width as usize, height as usize);
+            let mut out = vec![[0u8; 4]; w * h];
+            let positions = tile_positions();
+            for n in 0..w * h {
+                let Some(&byte) = data.get(n / 2) else { break };
+                let nibble = if n % 2 == 0 { byte & 0xF } else { byte >> 4 };
+                out[tile_index(n, w, &positions)] = decode_nibble(format, nibble);
+            }
+            Some(out)
+        }
+        Etc1 | Etc1A4 | Unknown(_) => None,
+    }
+}
+
+/// x + 8 * y inside an 8x8 tile, for each position in memory order.
+fn tile_positions() -> [usize; 64] {
+    let mut positions = [0usize; 64];
+    for y in 0..8 {
+        for x in 0..8 {
+            positions[morton_offset(x, y, 8, 1) as usize] = (x + 8 * y) as usize;
+        }
+    }
+    positions
+}
+
+/// the row-major index of the n-th texel in memory order.
+fn tile_index(n: usize, width: usize, positions: &[usize; 64]) -> usize {
+    let (tile, local) = (n / 64, positions[n % 64]);
+    let (tiles_per_row, x, y) = (width / 8, local % 8, local / 8);
+    (tile / tiles_per_row * 8 + y) * width + tile % tiles_per_row * 8 + x
+}
+
+/// the texels of BYTES-wide formats, texels cut off by short data left clear.
+fn decode_tiles<const BYTES: usize>(data: &[u8], width: u32, height: u32, decode: impl Fn(&[u8]) -> [u8; 4]) -> Vec<[u8; 4]> {
+    let (w, h) = (width as usize, height as usize);
+    let mut out = vec![[0u8; 4]; w * h];
+    let positions = tile_positions();
+    for (n, b) in data.chunks_exact(BYTES).take(w * h).enumerate() {
+        out[tile_index(n, w, &positions)] = decode(b);
+    }
+    out
+}
+
 fn decode_bytes(format: TextureFormat, b: &[u8]) -> [u8; 4] {
     match format {
         // textures store components in the same reversed byte order the
@@ -440,6 +498,39 @@ mod tests {
             }
         }
         assert!(decode_etc1_texture(&[0; 64], TextureFormat::Etc1, 12, 8).is_none());
+    }
+
+    /// the whole-texture decode gives the very texels the per-texel one does,
+    /// also for data cut short.
+    #[test]
+    fn texture_decode_matches_per_texel() {
+        let mut seed = 0x9E37_79B9_7F4A_7C15u64;
+        let mut random = |count: usize| -> Vec<u8> {
+            (0..count)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 7;
+                    seed ^= seed << 17;
+                    (seed >> 24) as u8
+                })
+                .collect()
+        };
+        let (width, height) = (64u32, 32u32);
+        for raw in 0..12 {
+            let format = TextureFormat::from_raw(raw);
+            let full = (width * height * format.bits_per_pixel() / 8) as usize;
+            for size in [full, full - 13, full / 2, 0] {
+                let data = random(size);
+                let fast = decode_texture(&data, format, width, height).expect("tiled size");
+                for y in 0..height {
+                    for x in 0..width {
+                        assert_eq!(fast[(y * width + x) as usize], sample_texel(&data, format, width, x, y), "{format:?} {x},{y} of {size}");
+                    }
+                }
+            }
+        }
+        assert!(decode_texture(&[0; 64], TextureFormat::Rgba8, 12, 8).is_none());
+        assert!(decode_texture(&[0; 64], TextureFormat::Etc1, 8, 8).is_none());
     }
 
     /// alpha alone comes with black color, luminance alone with full alpha.

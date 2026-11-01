@@ -35,10 +35,11 @@ pub static PIPELINES_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic:
 pub static PROGRAMS_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// emulation-thread time this frame, in ns: GPU command lists, texture
-/// decode, vertex processing, texture upload, batch submit, flush. The
+/// decode, vertex processing, texture upload, batch submit, flush, and the
+/// HD pack lookup inside decode. The
 /// runtime clears them each frame and prints them on a hitch line.
-pub static FRAME_NS: [std::sync::atomic::AtomicU64; 6] = [const { std::sync::atomic::AtomicU64::new(0) }; 6];
-pub const FRAME_PARTS: [&str; 6] = ["gpu", "decode", "vertices", "upload", "submit", "flush"];
+pub static FRAME_NS: [std::sync::atomic::AtomicU64; 7] = [const { std::sync::atomic::AtomicU64::new(0) }; 7];
+pub const FRAME_PARTS: [&str; 7] = ["gpu", "decode", "vertices", "upload", "submit", "flush", "pack"];
 /// adds the time until it drops to one `FRAME_NS` slot.
 pub struct Timed(usize, std::time::Instant);
 pub fn timed(slot: usize) -> Timed { Timed(slot, std::time::Instant::now()) }

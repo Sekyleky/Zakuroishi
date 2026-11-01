@@ -41,7 +41,13 @@ Earlier single-run numbers mixed them; quote them separately and repeat runs.
   battle frame of 28–71 ms. Use `RUNS=3 device-test.sh ab ...` (alternating runs, mean/median).
 - Pooling ordinary 3DS textures too (tried, reverted): worst battle frame mean 44.2 ms
   pooled vs 43.4 ms not pooled, 3 runs each — no effect.
-- Remaining in battle-start frames (profile): Turnip/kgsl driver time (134 memory
+- `frame hitch parts` (per-frame timers) replaced the profile guesswork: allocations
+  (~1 ms in the hitch frame) and pipeline creation (30 in 3 s, 1.5 ms total) are small.
+  Battle-start frames were texture decode 18–20 ms and vertex processing 11–23 ms.
+- Fast decode for all formats, 3 alternating runs each: worst battle frame 37.1/38.3/37.5 ms
+  on vs 64.2/51.6/45.7 ms off; battle decode 18–20 → 11–12 ms (pack lookup ~3 ms of it).
+  The field-entry frame did not improve (decode 20–31 ms, pack 7 ms, vertices 9–14 ms).
+- Remaining in battle-start frames (profile, before the per-frame timers): Turnip/kgsl driver time (134 memory
   allocations in the first 2 s, source not identified — not ordinary textures),
   `process_vertices` waiting on the rayon pool while the JIT and pack threads compete
   for the CPU, and per-texel decode of non-ETC1 textures in `TextureCache::decoded`.
