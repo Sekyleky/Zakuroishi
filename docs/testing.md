@@ -28,6 +28,24 @@ walk in tall grass (injected stick input) into a wild battle, `frame hitch` line
   of a session still interprets new programs; heavy render frames in grass exceed
   16.7 ms on the CPU vertex path.
 
+## HD upload fixes and what remains at battle start (0.1.9, 2026-11-01)
+
+AYN Thor, Ultra Moon, 3× + HD, Balemuni Turnip, `android/scripts/device-test.sh`.
+Two separate hitches show in every run: a 52–66 ms **field-entry** frame (first field
+frame after the title screen, also with no battle) and the **battle-start** frames.
+Earlier single-run numbers mixed them; quote them separately and repeat runs.
+
+- With the four HD-upload switches on, `upload_picture` fell from 47 ms to ~1 ms per
+  7 s profile and frames over 28 ms after the battle loads from 209 to 138–152 ms total.
+- One battle per setting cannot resolve 10–15 ms: the same settings gave a worst
+  battle frame of 28–71 ms. Use `RUNS=3 device-test.sh ab ...` (alternating runs, mean/median).
+- Pooling ordinary 3DS textures too (tried, reverted): worst battle frame mean 44.2 ms
+  pooled vs 43.4 ms not pooled, 3 runs each — no effect.
+- Remaining in battle-start frames (profile): Turnip/kgsl driver time (134 memory
+  allocations in the first 2 s, source not identified — not ordinary textures),
+  `process_vertices` waiting on the rayon pool while the JIT and pack threads compete
+  for the CPU, and per-texel decode of non-ETC1 textures in `TextureCache::decoded`.
+
 ## Testing toggles (0.1.9, 2026-11-01)
 
 AYN Thor, Ultra Moon, 3× + HD, Balemuni Turnip unless stated, same save; three

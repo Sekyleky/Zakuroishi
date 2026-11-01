@@ -7,6 +7,7 @@
 #   ADB_ARGS  extra adb args                (empty), e.g. "-P 5038 -s b225f4aa"
 #   GAME      16-hex title id               (needed by get/set/launch/fight/ab)
 #   OUT       output dir for logs           (./device-test-out)
+#   RUNS      ab: on/off pairs per side     (1)
 #
 # Commands:
 #   list                      list games known to the app
@@ -17,9 +18,11 @@
 #   walk-to-battle            walk left/right (<=30 times) until "code for Battle" is logged
 #   fight NAME                launch + title + walk-to-battle, save $OUT/NAME.log, summarize it
 #   summary FILE              summarize a saved log
-#   ab NAME KEY=VALUE [...]   fight NAME-on (current settings) and NAME-off (KEY=VALUE applied),
-#                             restore the old values, print both summaries
-#   wake                      wake the screen (never unlocks)
+#   ab NAME KEY=VALUE [...]   fight NAME-on1 (current settings) and NAME-off1 (KEY=VALUE applied),
+#                             repeated RUNS times (on1, off1, on2, off2, ...), restore the old
+#                             values, print the summaries and a per-run table with mean/median
+#   repeat NAME N             fight NAME-1 .. NAME-N with current settings, then the per-run table
+#   wake                     wake the screen (never unlocks)
 #
 # Examples:
 #   export GAME=0123456789abcdef
@@ -29,6 +32,8 @@
 #   ADB_ARGS="-P 5038 -s b225f4aa" ./device-test.sh fight baseline
 #   ./device-test.sh summary ./device-test-out/baseline.log
 #   ./device-test.sh ab nohd hd=false
+#   RUNS=3 ./device-test.sh ab nohd hd=false
+#   ./device-test.sh repeat baseline 5
 
 export MSYS_NO_PATHCONV=1   # stop Git Bash from mangling /-prefixed args
 set -u
@@ -196,6 +201,93 @@ cmd_summary() {
   echo "top 5 core_ms: ${top:-(none)}"
   echo "== benchmark (last 6)"
   printf '%s\n' "${bench:-(none)}"
+  echo "== field entry and battle"
+  metrics_of "$f"
+}
+
+# metrics_of FILE -> field entry and battle metrics as KEY=VALUE lines
+# (times are HH:MM:SS.mmm from the logcat line start; date rollover is ignored)
+metrics_of() {
+  tr -d '\r' < "$1" | awk '
+    function tsec(s,   a) { split(s, a, ":"); return a[1] * 3600 + a[2] * 60 + a[3] }
+    function fval(line, key,   f, n, i) {
+      n = split(line, f, " ")
+      for (i = 1; i <= n; i++) if (index(f[i], key "=") == 1) return substr(f[i], length(key) + 2)
+      return "NA"
+    }
+    /code for FieldEffectCommon/ && !fe_seen { fe_seen = 1; fe_t = tsec($2) }
+    /code for Battle/ && !bt_seen { bt_seen = 1; bt_t = tsec($2) }
+    /frame hitch/ { nh++; ht[nh] = tsec($2); hc[nh] = fval($0, "core_ms") }
+    /benchmark/ { nb++; bmt[nb] = tsec($2); bw[nb] = fval($0, "worst_core_ms"); bc[nb] = fval($0, "core_ms") }
+    END {
+      fe = "NA"; worst = "NA"; mean = "NA"; hl = ""; n = 0; sum = 0
+      if (fe_seen)
+        for (i = 1; i <= nh; i++)
+          if (ht[i] >= fe_t && (!bt_seen || ht[i] < bt_t)) { fe = hc[i]; break }
+      if (bt_seen) {
+        for (i = 1; i <= nb && n < 2; i++)
+          if (bmt[i] >= bt_t) {
+            n++
+            if (worst == "NA" || bw[i] + 0 > worst + 0) worst = bw[i]
+            sum += bc[i] + 0
+          }
+        if (n) mean = sprintf("%.2f", sum / n)
+        for (i = 1; i <= nh; i++)
+          if (ht[i] >= bt_t && ht[i] <= bt_t + 3.0) hl = hl (hl == "" ? "" : " ") hc[i]
+      }
+      if (hl == "") hl = "NA"
+      print "field_entry_hitch_core_ms=" fe
+      print "battle_worst_core_ms=" worst
+      print "battle_hitches=" hl
+      print "battle_mean_core_ms=" mean
+    }'
+}
+
+metric() {   # metric TEXT KEY -> value of KEY= in metrics TEXT, or NA
+  local v
+  v=$(sed -n "s/^$2=//p" <<<"$1" | head -1)
+  echo "${v:-NA}"
+}
+
+# run_report SIDE:NAME... -> per-run table from $OUT/NAME.log, then mean/median per side
+run_report() {
+  local spec side name m rows=""
+  for spec in "$@"; do
+    side=${spec%%:*}; name=${spec#*:}
+    m=$(metrics_of "$OUT/$name.log")
+    rows+="$side $name $(metric "$m" battle_worst_core_ms) $(metric "$m" field_entry_hitch_core_ms) $(metric "$m" battle_mean_core_ms)"$'\n'
+  done
+  awk '
+    function isnum(x) { return x ~ /^-?[0-9]+(\.[0-9]+)?$/ }
+    function stats(list,   a, n, i, j, t, s) {   # sets MEAN and MED from a space-separated list
+      n = split(list, a, " ")
+      if (n == 0) { MEAN = "NA"; MED = "NA"; return }
+      for (i = 2; i <= n; i++) {
+        t = a[i]
+        for (j = i - 1; j >= 1 && a[j] + 0 > t + 0; j--) a[j + 1] = a[j]
+        a[j + 1] = t
+      }
+      s = 0
+      for (i = 1; i <= n; i++) s += a[i]
+      MEAN = sprintf("%.2f", s / n)
+      MED = (n % 2) ? sprintf("%.2f", a[(n + 1) / 2]) : sprintf("%.2f", (a[n / 2] + a[n / 2 + 1]) / 2)
+    }
+    BEGIN { printf "%-20s %22s %26s %22s\n", "run", "battle_worst_core_ms", "field_entry_hitch_core_ms", "battle_mean_core_ms" }
+    NF == 5 {
+      if (!($1 in seen)) { seen[$1] = 1; order[++ns] = $1 }
+      printf "%-20s %22s %26s %22s\n", $2, $3, $4, $5
+      if (isnum($3)) W[$1] = W[$1] " " $3
+      if (isnum($5)) M[$1] = M[$1] " " $5
+    }
+    END {
+      print ""
+      for (k = 1; k <= ns; k++) {
+        stats(W[order[k]]); wm = MEAN; wd = MED
+        stats(M[order[k]]); mm = MEAN; md = MED
+        printf "%s: battle_worst_core_ms mean=%s median=%s; battle_mean_core_ms mean=%s median=%s\n", order[k], wm, wd, mm, md
+      }
+    }
+  ' <<<"$rows"
 }
 
 restore_now() {   # EXIT trap for ab: put back the values captured before the test
@@ -207,8 +299,10 @@ restore_now() {   # EXIT trap for ab: put back the values captured before the te
 }
 
 cmd_ab() {
-  local name=${1:-} kv_arg k old before
+  local name=${1:-} kv_arg k old before runs i ON=() specs=()
   [[ $name =~ ^[A-Za-z0-9._-]+$ && $# -gt 1 ]] || die "usage: ab NAME KEY=VALUE [...]"
+  runs=${RUNS:-1}
+  [[ $runs =~ ^[1-9][0-9]*$ ]] || die "RUNS must be a positive integer (got '$runs')"
   shift
   need_game
   json_from "$@" >/dev/null || exit 1
@@ -223,14 +317,33 @@ cmd_ab() {
       echo "warning: '$k' not in current settings, not restoring it" >&2
     fi
   done
-  run_fight "$name-on"
-  set_values "$@" >/dev/null || exit 1
-  run_fight "$name-off"
+  ON=("${RESTORE[@]}")   # the on-side values, put back before each later on run
+  for i in $(seq 1 "$runs"); do
+    if (( i > 1 && ${#ON[@]} )); then set_values "${ON[@]}" >/dev/null || exit 1; fi
+    run_fight "$name-on$i"
+    set_values "$@" >/dev/null || exit 1
+    run_fight "$name-off$i"
+    specs+=("on:$name-on$i" "off:$name-off$i")
+  done
   restore_now
-  echo "===== $name-on (current settings)"
-  cmd_summary "$OUT/$name-on.log"
-  echo "===== $name-off ($*)"
-  cmd_summary "$OUT/$name-off.log"
+  for i in $(seq 1 "$runs"); do
+    echo "===== $name-on$i (current settings)"
+    cmd_summary "$OUT/$name-on$i.log"
+    echo "===== $name-off$i ($*)"
+    cmd_summary "$OUT/$name-off$i.log"
+  done
+  run_report "${specs[@]}"
+}
+
+cmd_repeat() {
+  local name=${1:-} n=${2:-} i specs=()
+  [[ $name =~ ^[A-Za-z0-9._-]+$ && $n =~ ^[1-9][0-9]*$ ]] || die "usage: repeat NAME N"
+  need_game
+  for i in $(seq 1 "$n"); do
+    run_fight "$name-$i"
+    specs+=("$name:$name-$i")
+  done
+  run_report "${specs[@]}"
 }
 
 cmd=${1:-}
@@ -250,6 +363,7 @@ case $cmd in
   fight)          cmd_fight "$@" ;;
   summary)        cmd_summary "$@" ;;
   ab)             cmd_ab "$@" ;;
+  repeat)         cmd_repeat "$@" ;;
   wake)           adb_cmd shell input keyevent KEYCODE_WAKEUP ;;
   *)              usage; exit 2 ;;
 esac
