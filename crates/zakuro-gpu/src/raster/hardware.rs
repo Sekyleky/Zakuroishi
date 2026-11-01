@@ -715,6 +715,133 @@ fn save_pipeline_cache(device: &ash::Device, cache: vk::PipelineCache, path: &st
 /// run that does not end well losing no more than that.
 const SAVE_EVERY: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// whether the pipelines of earlier runs are made again at the start.
+fn warms_pipelines() -> bool {
+    crate::backend::renderer_options().map_or(true, |options| options.warm_pipelines)
+}
+
+/// whether the vertex programs of earlier runs are compiled again at the start.
+fn warms_programs() -> bool {
+    crate::backend::renderer_options().map_or(true, |options| options.warm_vertex_programs)
+}
+
+/// the most pipeline keys kept for a game, and the biggest file read for them.
+const MOST_KEYS: usize = 4096;
+const MOST_KEY_BYTES: u64 = 16 << 20;
+const KEYS_MAGIC: &[u8; 4] = b"ZKPK";
+const KEYS_VERSION: u32 = 1;
+/// bytes of one key in the file.
+const KEY_BYTES: usize = 1 + 1 + 4 + 4 + FRAGMENT_CONSTANTS * 4;
+
+const LOGIC_OPS: [LogicOp; 16] = [
+    LogicOp::Clear,
+    LogicOp::And,
+    LogicOp::AndReverse,
+    LogicOp::Copy,
+    LogicOp::Set,
+    LogicOp::CopyInverted,
+    LogicOp::Noop,
+    LogicOp::Invert,
+    LogicOp::Nand,
+    LogicOp::Or,
+    LogicOp::Nor,
+    LogicOp::Xor,
+    LogicOp::Equivalent,
+    LogicOp::AndInverted,
+    LogicOp::OrReverse,
+    LogicOp::OrInverted,
+];
+
+/// what a keys file made for another shape of key or blend state is told by.
+fn keys_header(dynamic: Dynamic) -> u32 {
+    FRAGMENT_CONSTANTS as u32 | (dynamic.blend as u32) << 8 | (dynamic.logic_op as u32) << 9
+}
+
+/// the file of keys that goes with a pipeline cache's.
+fn keys_path(cache: &std::path::Path) -> std::path::PathBuf {
+    cache.with_extension("keys")
+}
+
+/// the keys as a file holds them. translated vertex stages hold a module of
+/// this run and can't be rebuilt, those keys are left out.
+fn encode_keys(keys: &[PipelineKey], dynamic: Dynamic) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(12 + keys.len() * KEY_BYTES);
+    bytes.extend_from_slice(KEYS_MAGIC);
+    bytes.extend_from_slice(&KEYS_VERSION.to_le_bytes());
+    bytes.extend_from_slice(&keys_header(dynamic).to_le_bytes());
+    for key in keys.iter().take(MOST_KEYS) {
+        let vertex = match key.vertex {
+            VertexStage::Placed => 0,
+            VertexStage::Interpreted => 1,
+            VertexStage::Translated(_) => continue,
+        };
+        bytes.push(key.blend.is_some() as u8 | (key.depth as u8) << 1 | vertex << 2);
+        bytes.push(key.logic_op.map_or(0, |op| LOGIC_OPS.iter().position(|&o| o == op).map_or(0, |i| i as u8 + 1)));
+        bytes.extend_from_slice(&key.mask.to_le_bytes());
+        bytes.extend_from_slice(&key.blend.unwrap_or(0).to_le_bytes());
+        for constant in key.fragment {
+            bytes.extend_from_slice(&constant.to_le_bytes());
+        }
+    }
+    bytes
+}
+
+/// the keys a file holds, none when it is not one made for this shape of
+/// key and blend state, or is cut short or corrupt.
+fn decode_keys(bytes: &[u8], dynamic: Dynamic) -> Vec<PipelineKey> {
+    let word = |at: usize| bytes.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    if bytes.get(..4) != Some(KEYS_MAGIC) || word(4) != Some(KEYS_VERSION) || word(8) != Some(keys_header(dynamic)) {
+        return Vec::new();
+    }
+    let body = &bytes[12..];
+    if body.len() % KEY_BYTES != 0 {
+        return Vec::new();
+    }
+    let mut keys = Vec::new();
+    for record in body.chunks_exact(KEY_BYTES).take(MOST_KEYS) {
+        let word = |at: usize| u32::from_le_bytes([record[at], record[at + 1], record[at + 2], record[at + 3]]);
+        let (flags, logic) = (record[0], record[1]);
+        let vertex = match flags >> 2 {
+            0 => VertexStage::Placed,
+            1 => VertexStage::Interpreted,
+            _ => return Vec::new(),
+        };
+        let logic_op = match logic {
+            0 => None,
+            1..=16 => Some(LOGIC_OPS[logic as usize - 1]),
+            _ => return Vec::new(),
+        };
+        let mut fragment = [0; FRAGMENT_CONSTANTS];
+        for (i, constant) in fragment.iter_mut().enumerate() {
+            *constant = word(10 + i * 4);
+        }
+        keys.push(PipelineKey { blend: (flags & 1 != 0).then(|| word(6)), logic_op, mask: word(2), depth: flags & 2 != 0, vertex, fragment });
+    }
+    keys
+}
+
+/// the keys kept for a game, none when there are none or the file is no use.
+fn read_keys(path: &std::path::Path, dynamic: Dynamic) -> Vec<PipelineKey> {
+    match std::fs::metadata(path) {
+        Ok(meta) if meta.len() <= MOST_KEY_BYTES => std::fs::read(path).map(|bytes| decode_keys(&bytes, dynamic)).unwrap_or_default(),
+        _ => Vec::new(),
+    }
+}
+
+/// keeps the keys for the next run, by way of a file of its own.
+fn save_keys(path: &std::path::Path, keys: &[PipelineKey], dynamic: Dynamic) {
+    let partial = path.with_extension(format!("{}.partial", std::process::id()));
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&partial, encode_keys(keys, dynamic)))
+        .and_then(|()| std::fs::rename(&partial, path));
+    if let Err(error) = written {
+        log::warn!("could not save the pipeline keys to {}, {error}", path.display());
+        let _ = std::fs::remove_file(&partial);
+    }
+}
+
 /// how much a surface holds the latest of some of its rows of memory, of
 /// those over the same rows, what the GPU drew there and guest memory lacks
 /// first, then the taller, which titles draw a shorter buffer into the start
@@ -1129,6 +1256,17 @@ struct Queue {
     translations: VecDeque<Job>,
     generic: VecDeque<Job>,
     compiles: Vec<Job>,
+    /// the pipelines of earlier runs, made when nothing else waits, and by
+    /// no more of the threads than leaves one for what is asked for.
+    warm: VecDeque<Job>,
+    warm_running: usize,
+    warm_limit: usize,
+    warm_left: usize,
+    warm_started: Option<std::time::Instant>,
+    /// the keys of the pipelines asked for, those of earlier runs too, and
+    /// how many were kept on disk. none when they are not kept.
+    keys: Option<Vec<PipelineKey>>,
+    keys_saved: usize,
     stopped: bool,
     /// pipelines compiled since the cache was last kept on disk, and when
     /// that was, which a thread with nothing else to do sees to.
@@ -1168,6 +1306,13 @@ impl Compiler {
             translations: VecDeque::new(),
             generic: VecDeque::new(),
             compiles: Vec::new(),
+            warm: VecDeque::new(),
+            warm_running: 0,
+            warm_limit: 1,
+            warm_left: 0,
+            warm_started: None,
+            keys: (kept.is_some() && warms_pipelines()).then(Vec::new),
+            keys_saved: 0,
             stopped: false,
             compiled: 0,
             saved: std::time::Instant::now(),
@@ -1175,6 +1320,7 @@ impl Compiler {
         let queue = Arc::new((Mutex::new(waiting), Condvar::new()));
         let (sent, made) = mpsc::channel();
         let count = thread::available_parallelism().map_or(1, |cores| cores.get().saturating_sub(2).clamp(1, 3));
+        queue.0.lock().unwrap_or_else(PoisonError::into_inner).warm_limit = count.saturating_sub(1).max(1);
         let threads = (0..count)
             .map_while(|_| {
                 let (jobs, sent, device, kept) = (queue.clone(), sent.clone(), device.clone(), kept.clone());
@@ -1197,6 +1343,41 @@ impl Compiler {
         queue.lock().unwrap_or_else(PoisonError::into_inner).generic.push_back(job);
         ready.notify_one();
         self.outstanding += 1;
+    }
+
+    /// queues the pipelines of earlier runs behind everything else, and
+    /// has the keys kept from now on. their pipelines land in the map as
+    /// the others do, before the game asks for them.
+    fn warm(&mut self, keys: Vec<PipelineKey>, mut job: impl FnMut(PipelineKey) -> Job) {
+        let (queue, ready) = &*self.queue;
+        let mut waiting = queue.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(kept) = waiting.keys.as_mut() else {
+            return;
+        };
+        *kept = keys.clone();
+        waiting.keys_saved = keys.len();
+        if self.threads.is_empty() || keys.is_empty() {
+            return;
+        }
+        log::info!("{} pipelines of earlier runs are made in the background", keys.len());
+        let count = keys.len();
+        waiting.warm_left = count;
+        waiting.warm_started = Some(std::time::Instant::now());
+        waiting.warm.extend(keys.into_iter().map(&mut job));
+        ready.notify_all();
+        self.outstanding += count;
+    }
+
+    /// notes a pipeline the game asked for, to be kept for the next run.
+    fn record(&self, key: PipelineKey) {
+        let (queue, ready) = &*self.queue;
+        let mut waiting = queue.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(keys) = waiting.keys.as_mut() {
+            if keys.len() < MOST_KEYS && !matches!(key.vertex, VertexStage::Translated(_)) && !keys.contains(&key) {
+                keys.push(key);
+                ready.notify_one();
+            }
+        }
     }
 
     /// queues a job for the threads, or gives it back when there are none.
@@ -1224,6 +1405,7 @@ impl Compiler {
         waiting.translations.clear();
         waiting.generic.clear();
         waiting.compiles.clear();
+        waiting.warm.clear();
         ready.notify_all();
         drop(waiting);
         for thread in self.threads.drain(..) {
@@ -1255,6 +1437,7 @@ fn compile(
     let lock = || queue.lock().unwrap_or_else(PoisonError::into_inner);
     loop {
         let mut waiting = lock();
+        let mut warmed = false;
         let job = loop {
             if waiting.stopped {
                 return;
@@ -1264,16 +1447,28 @@ fn compile(
             {
                 break job;
             }
-            if waiting.compiled == 0 {
+            if waiting.warm_running < waiting.warm_limit {
+                if let Some(job) = waiting.warm.pop_front() {
+                    waiting.warm_running += 1;
+                    warmed = true;
+                    break job;
+                }
+            }
+            if waiting.compiled == 0 && waiting.keys.as_ref().map_or(0, Vec::len) == waiting.keys_saved {
                 waiting = ready.wait(waiting).unwrap_or_else(PoisonError::into_inner);
             } else if let Some(left) = SAVE_EVERY.checked_sub(waiting.saved.elapsed()).filter(|left| !left.is_zero()) {
                 waiting = ready.wait_timeout(waiting, left).unwrap_or_else(PoisonError::into_inner).0;
             } else {
                 // the others find nothing to keep meanwhile
                 (waiting.compiled, waiting.saved) = (0, std::time::Instant::now());
+                let keys = waiting.keys.clone();
+                waiting.keys_saved = keys.as_ref().map_or(0, Vec::len);
                 drop(waiting);
                 if let Some(path) = kept {
                     save_pipeline_cache(device, cache, path);
+                    if let Some(keys) = keys {
+                        save_keys(&keys_path(path), &keys, dynamic);
+                    }
                 }
                 waiting = lock();
             }
@@ -1281,7 +1476,18 @@ fn compile(
         drop(waiting);
         let compiles = matches!(job, Job::Compile(..));
         let made = work(job, device, cache, layout, fragments, dynamic, depth_format);
-        lock().compiled += compiles as usize;
+        let mut waiting = lock();
+        waiting.compiled += compiles as usize;
+        if warmed {
+            waiting.warm_running -= 1;
+            waiting.warm_left -= 1;
+            if waiting.warm_left == 0 {
+                if let Some(started) = waiting.warm_started.take() {
+                    log::info!("the pipelines of earlier runs are made, in {:.1} s", started.elapsed().as_secs_f64());
+                }
+            }
+        }
+        drop(waiting);
         if sent.send(made).is_err() {
             return;
         }
@@ -1903,6 +2109,22 @@ impl Hardware {
                 for key in generic_keys(hardware.shades) {
                     let module = hardware.vertex_module(key.vertex);
                     hardware.compiler.send_generic(Job::Compile(key, module));
+                }
+            }
+            if let Some(path) = hardware.kept_pipelines.clone().filter(|_| !hardware.waits) {
+                if warms_pipelines() {
+                    let keys = read_keys(&keys_path(&path), dynamic);
+                    let modules = [hardware.vertex_shader, hardware.shade_shader];
+                    let shades = hardware.shades;
+                    // an interpreted key is of no use to a run that does not shade
+                    let keys = keys.into_iter().filter(|key| shades || key.vertex == VertexStage::Placed).collect();
+                    hardware.compiler.warm(keys, |key| Job::Compile(key, if key.vertex == VertexStage::Placed { modules[0] } else { modules[1] }));
+                }
+                if warms_programs() {
+                    let programs = path.parent().and_then(std::path::Path::parent).zip(path.file_stem()).map(|(zakuro, title)| {
+                        zakuro.join("programs").join(title).with_extension("bin")
+                    });
+                    crate::shader::jit::start_title(programs);
                 }
             }
             Ok(hardware)
@@ -3249,6 +3471,7 @@ impl Hardware {
             return Ok(pipeline);
         }
         if !translating && self.compiler.asked.insert(key) {
+            self.compiler.record(key);
             if let Some(pipeline) = self.cached(key) {
                 return Ok(pipeline);
             }
@@ -5643,6 +5866,9 @@ impl Drop for Hardware {
             }
             if let Some(path) = &self.kept_pipelines {
                 save_pipeline_cache(&self.device, self.pipeline_cache, path);
+                if let Some(keys) = self.compiler.queue.0.lock().unwrap_or_else(PoisonError::into_inner).keys.take().filter(|keys| !keys.is_empty()) {
+                    save_keys(&keys_path(path), &keys, self.dynamic);
+                }
             }
             self.device.destroy_pipeline_cache(self.pipeline_cache, None);
             for texture in self.textures.values() {
@@ -6005,6 +6231,40 @@ mod tests {
         assert_eq!(free, [(10, 90)]);
         uncarve(&mut free, 0, 10);
         assert_eq!(free, [(0, 100)]);
+    }
+
+    fn sample_keys() -> Vec<PipelineKey> {
+        let mut fragment = GENERIC;
+        fragment[3] = 0xDEAD_BEEF;
+        vec![
+            PipelineKey { blend: Some(0x1234_5678), logic_op: None, mask: 0xA, depth: true, vertex: VertexStage::Interpreted, fragment },
+            PipelineKey { blend: None, logic_op: Some(LogicOp::OrInverted), mask: 0xF, depth: false, vertex: VertexStage::Placed, fragment: GENERIC },
+        ]
+    }
+
+    #[test]
+    fn pipeline_keys_round_trip_and_bad_files_are_ignored() {
+        let dynamic = Dynamic { blend: true, logic_op: false };
+        let keys = sample_keys();
+        let bytes = encode_keys(&keys, dynamic);
+        assert_eq!(decode_keys(&bytes, dynamic), keys);
+        assert!(decode_keys(&bytes, Dynamic::default()).is_empty(), "another blend state");
+        for cut in [0, 3, 11, 12 + KEY_BYTES / 2, bytes.len() - 1] {
+            assert!(decode_keys(&bytes[..cut], dynamic).is_empty(), "cut at {cut}");
+        }
+        let mut bad = bytes.clone();
+        bad[0] = b'X';
+        assert!(decode_keys(&bad, dynamic).is_empty());
+        let mut bad = bytes.clone();
+        bad[13] = 200;
+        assert!(decode_keys(&bad, dynamic).is_empty(), "unknown logic op");
+        let path = std::env::temp_dir().join(format!("zakuro-keys-{}.keys", std::process::id()));
+        save_keys(&path, &keys, dynamic);
+        assert_eq!(read_keys(&path, dynamic), keys);
+        std::fs::write(&path, b"junk").unwrap();
+        assert!(read_keys(&path, dynamic).is_empty());
+        let _ = std::fs::remove_file(&path);
+        assert!(read_keys(&path, dynamic).is_empty(), "missing");
     }
 
     #[test]

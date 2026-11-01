@@ -52,6 +52,12 @@ Earlier single-run numbers mixed them; quote them separately and repeat runs.
   Background pack lookup, 3 alternating runs each: field entry 45.8/45.0/49.5 ms on vs
   60.7/59.3/56.6 ms off. Battle worst 35.4/32.9/69.5 vs 49.6/53.4/32.0 ms (no change in
   mean); with it on, battle decode is ~2 ms but HD upload 12–21 ms in that frame.
+- Gameplay monitoring (5 min free play): worst hitches 67/44/38 ms were vertex
+  processing 50/34/26 ms while both `shader jit` threads compiled; no throttling, 60 fps
+  held. Shader warm-up at launch (76–77 programs, 63 pipelines queued), 3 alternating
+  runs each: battle worst 44.1/31.7/48.1 ms on vs 50.3/74.8/75.1 ms off; field entry
+  unchanged (~42 ms on vs 31–48 ms off; it comes seconds after launch, before the
+  warm-up finishes). Pipelines warm in ~0 s as the pipeline cache already holds them.
 - Remaining in battle-start frames (profile, before the per-frame timers): Turnip/kgsl driver time (134 memory
   allocations in the first 2 s, source not identified — not ordinary textures),
   `process_vertices` waiting on the rayon pool while the JIT and pack threads compete

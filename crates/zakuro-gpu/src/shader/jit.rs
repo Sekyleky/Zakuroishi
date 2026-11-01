@@ -308,35 +308,97 @@ pub(super) fn compiled(unit: &ShaderUnit, program: &Arc<Program>) -> Option<Arc<
     }
     kept.insert(key, Slot::Compiling);
     drop(kept);
-    if workers().lock().unwrap_or_else(|e| e.into_inner()).send((program.clone(), key)).is_err() {
-        log::warn!("could not queue a shader to compile");
-        codes().insert(key, Slot::Done(None));
-    }
+    // remembered for the next launch once it compiles, when warming is on
+    let record = saving().then(|| Saved::of(unit, key));
+    queue().push(Job { source: Source::Ready(program.clone()), key, record, warm: false });
     None
+}
+
+/// a program to compile.
+struct Job {
+    source: Source,
+    key: (u64, u32),
+    /// what to save of it once compiled, for the game's own.
+    record: Option<Saved>,
+    /// from the programs saved, not the game's.
+    warm: bool,
+}
+
+/// a program decoded, or the words of one saved that are decoded when its
+/// turn comes, so that thousands of them queued do not all sit decoded.
+enum Source {
+    Ready(Arc<Program>),
+    Saved(Saved),
+}
+
+/// the game's programs first, then those warmed up from earlier launches,
+/// which only one of the workers takes so that another is always free for
+/// the game.
+struct Queue {
+    jobs: Mutex<(std::collections::VecDeque<Job>, std::collections::VecDeque<Job>)>,
+    ready: std::sync::Condvar,
+}
+
+impl Queue {
+    fn new() -> Queue {
+        Queue { jobs: Mutex::new(Default::default()), ready: std::sync::Condvar::new() }
+    }
+
+    fn push(&self, job: Job) {
+        let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        if job.warm { jobs.1.push_back(job) } else { jobs.0.push_back(job) }
+        drop(jobs);
+        self.ready.notify_all();
+    }
+
+    /// the next job, the game's before any warm-up one, waiting for one.
+    fn take(&self, warms: bool) -> Job {
+        let mut jobs = self.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(job) = jobs.0.pop_front() {
+                return job;
+            }
+            if warms {
+                if let Some(job) = jobs.1.pop_front() {
+                    return job;
+                }
+            }
+            jobs = self.ready.wait(jobs).unwrap_or_else(|e| e.into_inner());
+        }
+    }
 }
 
 /// a few threads compiling queued programs in turn. a thread for each
 /// program put a dozen compilers (7-70 ms each) on a handheld's few fast
 /// cores at once when a battle starts, starving the emulation thread.
-fn workers() -> &'static Mutex<std::sync::mpsc::Sender<(Arc<Program>, (u64, u32))>> {
+fn queue() -> &'static Arc<Queue> {
     const WORKERS: usize = 2;
-    static QUEUE: OnceLock<Mutex<std::sync::mpsc::Sender<(Arc<Program>, (u64, u32))>>> = OnceLock::new();
+    static QUEUE: OnceLock<Arc<Queue>> = OnceLock::new();
     QUEUE.get_or_init(|| {
-        let (send, receive) = std::sync::mpsc::channel::<(Arc<Program>, (u64, u32))>();
-        let receive = Arc::new(Mutex::new(receive));
-        for _ in 0..WORKERS {
-            let receive = receive.clone();
+        let queue = Arc::new(Queue::new());
+        for worker in 0..WORKERS {
+            let queue = queue.clone();
             let spawned = std::thread::Builder::new().name("shader jit".to_owned()).spawn(move || loop {
                 // the lock is held only to take the next program, not while compiling it
-                let Ok((program, key)) = receive.lock().unwrap_or_else(|e| e.into_inner()).recv() else { return };
+                let Job { source, key, record, warm } = queue.take(worker == 0);
+                let program = match source {
+                    Source::Ready(program) => program,
+                    Source::Saved(saved) => Arc::new(Program::from_saved(&saved.program, &saved.descriptors)),
+                };
                 let found = compile_logged(&program, key.1);
+                if let (Some(record), Some(_)) = (record, &found) {
+                    record_saved(record);
+                }
                 codes().insert(key, Slot::Done(found));
+                if warm {
+                    warmed_one();
+                }
             });
             if let Err(error) = spawned {
                 log::warn!("could not start a shader compiler, {error}");
             }
         }
-        Mutex::new(send)
+        queue
     })
 }
 
@@ -1272,4 +1334,279 @@ fn branch(op: &Op, pc: u32, taken: bool, frames: &[Frame]) -> State {
         _ => pc + 1,
     };
     (next, frames)
+}
+
+/// what a program is saved by, the words of its unit without the zeros that
+/// end them, which make the same fingerprint when put back.
+#[derive(Clone, Debug, PartialEq)]
+struct Saved {
+    key: (u64, u32),
+    program: Vec<u32>,
+    descriptors: Vec<u32>,
+}
+
+impl Saved {
+    fn of(unit: &ShaderUnit, key: (u64, u32)) -> Saved {
+        let trimmed = |words: &[u32]| words[..words.iter().rposition(|&word| word != 0).map_or(0, |last| last + 1)].to_vec();
+        Saved { key, program: trimmed(&unit.program[..]), descriptors: trimmed(&unit.descriptors[..]) }
+    }
+
+    fn size(&self) -> usize {
+        20 + 4 * (self.program.len() + self.descriptors.len())
+    }
+}
+
+/// the programs file starts with this and a version, then the number of
+/// programs, then each as its fingerprint, entry point, the lengths of its
+/// words and its descriptors and those, all little endian.
+const MAGIC: &[u8; 4] = b"ZKVP";
+const VERSION: u32 = 1;
+const MAX_SAVED: usize = 4096;
+const MAX_FILE: usize = 16 << 20;
+
+fn encode(entries: &[Saved]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(MAGIC);
+    bytes.extend_from_slice(&VERSION.to_le_bytes());
+    bytes.extend_from_slice(&(entries.len() as u32).to_le_bytes());
+    for entry in entries {
+        bytes.extend_from_slice(&entry.key.0.to_le_bytes());
+        bytes.extend_from_slice(&entry.key.1.to_le_bytes());
+        bytes.extend_from_slice(&(entry.program.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(entry.descriptors.len() as u32).to_le_bytes());
+        for word in entry.program.iter().chain(&entry.descriptors) {
+            bytes.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+    bytes
+}
+
+/// the programs a file keeps, none where it is not of this format, and
+/// those only that still make the fingerprint they are kept by.
+fn decode(bytes: &[u8]) -> Vec<Saved> {
+    fn word(bytes: &[u8]) -> u32 {
+        u32::from_le_bytes(bytes.try_into().unwrap())
+    }
+    let mut at = 0usize;
+    let mut take = |count: usize| -> Option<&[u8]> {
+        let found = bytes.get(at..at.checked_add(count)?)?;
+        at += count;
+        Some(found)
+    };
+    let mut found = Vec::new();
+    // a truncated file keeps the programs read before its end
+    let _ = (|| -> Option<()> {
+        if take(4)? != MAGIC || word(take(4)?) != VERSION {
+            return None;
+        }
+        let count = word(take(4)?) as usize;
+        for _ in 0..count.min(MAX_SAVED) {
+            let fingerprint = u64::from_le_bytes(take(8)?.try_into().unwrap());
+            let entry = word(take(4)?);
+            let (program, descriptors) = (word(take(4)?) as usize, word(take(4)?) as usize);
+            if program > PROGRAM_SIZE || descriptors > super::DESCRIPTOR_SIZE {
+                return None;
+            }
+            let words = take(4 * (program + descriptors))?.chunks_exact(4).map(word).collect::<Vec<u32>>();
+            let (program, descriptors) = words.split_at(program);
+            if Program::from_saved(program, descriptors).fingerprint == fingerprint {
+                found.push(Saved { key: (fingerprint, entry), program: program.to_vec(), descriptors: descriptors.to_vec() });
+            }
+        }
+        Some(())
+    })();
+    found
+}
+
+#[derive(Default)]
+struct Memory {
+    path: Option<std::path::PathBuf>,
+    entries: Vec<Saved>,
+    bytes: usize,
+    dirty: bool,
+}
+
+fn memory() -> std::sync::MutexGuard<'static, Memory> {
+    static MEMORY: OnceLock<Mutex<Memory>> = OnceLock::new();
+    MEMORY.get_or_init(|| Mutex::new(Memory::default())).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// whether programs are being remembered for the next launch.
+fn saving() -> bool {
+    memory().path.is_some()
+}
+
+/// a compiled program to keep, if it is not kept yet and there is room.
+fn record_saved(saved: Saved) {
+    let mut memory = memory();
+    if memory.path.is_none()
+        || memory.entries.len() >= MAX_SAVED
+        || memory.bytes + saved.size() > MAX_FILE
+        || memory.entries.iter().any(|kept| kept.key == saved.key)
+    {
+        return;
+    }
+    memory.bytes += saved.size();
+    memory.entries.push(saved);
+    memory.dirty = true;
+}
+
+/// writes the programs kept when new ones came, through a temporary file so
+/// that a launch cut short leaves the last whole one.
+fn save_if_dirty() {
+    let (path, bytes) = {
+        let mut memory = memory();
+        let Some(path) = memory.path.clone().filter(|_| memory.dirty) else { return };
+        memory.dirty = false;
+        (path, encode(&memory.entries))
+    };
+    let temporary = path.with_extension("tmp");
+    let written = path
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::write(&temporary, &bytes))
+        .and_then(|()| std::fs::rename(&temporary, &path));
+    if let Err(error) = written {
+        log::warn!("could not save the shader programs to {}, {error}", path.display());
+    }
+}
+
+static WARM_LEFT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static WARM_START: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+fn warmed_one() {
+    if WARM_LEFT.fetch_sub(1, Ordering::Relaxed) == 1 {
+        let started = WARM_START.lock().unwrap_or_else(|e| e.into_inner()).take();
+        log::info!("warmed up the shader programs of the last launch in {:?}", started.map(|at| at.elapsed()).unwrap_or_default());
+    }
+}
+
+/// starts a title: remembers the programs it compiles in the file at
+/// path, which is read now to compile what it keeps in the background
+/// behind the game's own. none where warming is off, then nothing is read
+/// or written.
+pub(crate) fn start_title(path: Option<std::path::PathBuf>) {
+    let on = crate::backend::renderer_options().is_none_or(|options| options.warm_vertex_programs);
+    let path = path.filter(|_| on && enabled());
+    *memory() = Memory { path: path.clone(), ..Memory::default() };
+    let Some(path) = path else { return };
+    static SAVER: OnceLock<()> = OnceLock::new();
+    SAVER.get_or_init(|| {
+        let spawned = std::thread::Builder::new().name("shader programs".to_owned()).spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            save_if_dirty();
+        });
+        if let Err(error) = spawned {
+            log::warn!("could not start saving the shader programs, {error}");
+        }
+    });
+    let spawned = std::thread::Builder::new().name("shader warm-up".to_owned()).spawn(move || {
+        let bytes = match std::fs::metadata(&path) {
+            Ok(meta) if meta.len() as usize <= MAX_FILE => std::fs::read(&path).unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let found = decode(&bytes);
+        let mut jobs = Vec::new();
+        {
+            let mut kept = codes();
+            for saved in &found {
+                if kept.len() >= KEPT / 2 {
+                    break;
+                }
+                if kept.contains_key(&saved.key) {
+                    continue;
+                }
+                kept.insert(saved.key, Slot::Compiling);
+                jobs.push(Job { source: Source::Saved(saved.clone()), key: saved.key, record: None, warm: true });
+            }
+        }
+        {
+            let mut memory = memory();
+            // the file is of this title only while the path is still its
+            if memory.path.as_ref() == Some(&path) {
+                memory.bytes = found.iter().map(Saved::size).sum();
+                memory.entries = found;
+            }
+        }
+        log::info!("queued {} shader programs of the last launch to warm up", jobs.len());
+        if jobs.is_empty() {
+            return;
+        }
+        *WARM_START.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+        WARM_LEFT.store(jobs.len(), Ordering::Relaxed);
+        let queue = queue();
+        for job in jobs {
+            queue.push(job);
+        }
+    });
+    if let Err(error) = spawned {
+        log::warn!("could not start warming up the shader programs, {error}");
+    }
+}
+
+#[cfg(test)]
+mod saved_tests {
+    use super::*;
+
+    fn unit() -> ShaderUnit {
+        let mut unit = ShaderUnit::new();
+        for (i, word) in [0x4C00_0000u32, 0x1234_5678, 0x0000_0021, 0x8800_0000].iter().enumerate() {
+            unit.program[i] = *word;
+        }
+        unit.descriptors[0] = 0x0000_0AF1;
+        unit.descriptors[3] = 0x77;
+        unit.entry_point = 2;
+        unit
+    }
+
+    #[test]
+    fn saved_programs_round_trip_to_the_same_key() {
+        let unit = unit();
+        let program = Program::decode(&unit);
+        let saved = Saved::of(&unit, (program.fingerprint, unit.entry_point));
+        assert_eq!(saved.program.len(), 4);
+        let found = decode(&encode(std::slice::from_ref(&saved)));
+        assert_eq!(found, vec![saved.clone()]);
+        let rebuilt = Program::from_saved(&found[0].program, &found[0].descriptors);
+        assert_eq!((rebuilt.fingerprint, unit.entry_point), saved.key);
+    }
+
+    #[test]
+    fn a_bad_file_gives_nothing_and_a_cut_one_what_came_before() {
+        let unit = unit();
+        let key = (Program::decode(&unit).fingerprint, 2);
+        let good = encode(&[Saved::of(&unit, key), Saved::of(&unit, key)]);
+        assert!(decode(&[]).is_empty());
+        assert!(decode(b"junkjunkjunkjunkjunk").is_empty());
+        assert_eq!(decode(&good[..good.len() - 3]).len(), 1);
+        let mut flipped = good.clone();
+        flipped[32] ^= 0xFF; // a word of the first program
+        assert_eq!(decode(&flipped).len(), 1);
+        let mut huge = good.clone();
+        huge[24..28].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(decode(&huge).is_empty());
+        for cut in 0..good.len() {
+            decode(&good[..cut]);
+        }
+    }
+
+    #[test]
+    fn the_games_programs_are_taken_before_warm_ones() {
+        let queue = Queue::new();
+        let job = |fingerprint, warm| Job {
+            source: Source::Ready(Arc::new(Program::decode(&ShaderUnit::new()))),
+            key: (fingerprint, 0),
+            record: None,
+            warm,
+        };
+        queue.push(job(1, true));
+        queue.push(job(2, false));
+        queue.push(job(3, true));
+        queue.push(job(4, false));
+        let order: Vec<u64> = (0..4).map(|_| queue.take(true).key.0).collect();
+        assert_eq!(order, [2, 4, 1, 3]);
+        queue.push(job(5, true));
+        queue.push(job(6, false));
+        assert_eq!(queue.take(false).key.0, 6);
+    }
 }

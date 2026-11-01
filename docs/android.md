@@ -139,6 +139,10 @@ Performance switches for A/B testing (all apply at the next launch):
   in the background**, on: remove HD picture allocations and copies from the game
   thread; no single one measurably changes the worst frame.
 
+- **Warm up vertex programs / GPU pipelines at launch**, on: compiles what earlier
+  sessions used in the background at start; battle-start worst frame 66.7 → 41.3 ms.
+  The first session of a game still compiles as it goes.
+
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 
 Driver results depend on the scene and whether emulation is capped. Earlier

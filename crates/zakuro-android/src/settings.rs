@@ -145,6 +145,9 @@ pub struct Advanced {
     pub threaded_picture_copy: bool,
     pub fast_texture_decode: bool,
     pub async_pack_lookup: bool,
+    /// shader warm-up at launch from earlier sessions (0.1.9).
+    pub warm_vertex_programs: bool,
+    pub warm_pipelines: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -209,6 +212,8 @@ impl Default for Advanced {
             threaded_picture_copy: true,
             fast_texture_decode: true,
             async_pack_lookup: true,
+            warm_vertex_programs: true,
+            warm_pipelines: true,
             enhancements: Vec::new(),
         }
     }
@@ -234,6 +239,8 @@ impl Advanced {
             threaded_picture_copy: self.threaded_picture_copy,
             fast_texture_decode: self.fast_texture_decode,
             async_pack_lookup: self.async_pack_lookup,
+            warm_vertex_programs: self.warm_vertex_programs,
+            warm_pipelines: self.warm_pipelines,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {
@@ -392,6 +399,9 @@ mod tests {
         let options = settings.renderer_options();
         assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode && options.async_pack_lookup);
         assert!(!Advanced::parse(r#"{"async_pack_lookup":false}"#).unwrap().renderer_options().async_pack_lookup);
+        assert!(options.warm_vertex_programs && options.warm_pipelines);
+        let cold = Advanced::parse(r#"{"warm_vertex_programs":false,"warm_pipelines":false}"#).unwrap().renderer_options();
+        assert!(!cold.warm_vertex_programs && !cold.warm_pipelines);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
         assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
     }

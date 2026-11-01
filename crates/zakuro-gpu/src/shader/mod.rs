@@ -5,7 +5,7 @@ mod batch;
 #[cfg(feature = "vulkan")]
 pub(crate) mod glsl;
 #[cfg(feature = "jit")]
-mod jit;
+pub(crate) mod jit;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -471,6 +471,15 @@ pub struct Program {
 }
 
 impl Program {
+    /// the program of saved words, zero past their end, as the unit it
+    /// came from had them, so it has the same fingerprint.
+    pub(crate) fn from_saved(program: &[u32], descriptors: &[u32]) -> Program {
+        let mut unit = ShaderUnit::new();
+        unit.program[..program.len().min(PROGRAM_SIZE)].copy_from_slice(&program[..program.len().min(PROGRAM_SIZE)]);
+        unit.descriptors[..descriptors.len().min(DESCRIPTOR_SIZE)].copy_from_slice(&descriptors[..descriptors.len().min(DESCRIPTOR_SIZE)]);
+        Program::decode(&unit)
+    }
+
     fn decode(unit: &ShaderUnit) -> Program {
         let ops: Box<[Op]> = unit.program.iter().map(|&word| Op::decode(Instruction(word), &unit.descriptors)).collect();
         let (mut inputs, mut outputs) = (0u16, 0u16);

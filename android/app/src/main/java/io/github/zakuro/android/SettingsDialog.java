@@ -128,9 +128,15 @@ final class SettingsDialog {
                 AlertDialog confirm = new AlertDialog.Builder(activity).setTitle("Clear shader cache?")
                     .setMessage("Removes compiled GPU shaders for this game. The next play recompiles them, which can cause brief stutters.")
                     .setPositiveButton("Clear", (d, w) -> {
-                        File cache = new File(activity.getFilesDir(), "cache/zakuro/pipelines/" + settings.id.toUpperCase(Locale.ROOT) + ".bin");
-                        long kb = (cache.length() + 1023) / 1024;
-                        Toast.makeText(activity, cache.isFile() && cache.delete() ? "Shader cache cleared (" + kb + " KB)." : "No shader cache to clear.", Toast.LENGTH_SHORT).show();
+                        // compiled pipelines, the pipelines a game used, and its vertex programs
+                        String id = settings.id.toUpperCase(Locale.ROOT);
+                        long bytes = 0; boolean any = false;
+                        for (String file : new String[] {"pipelines/" + id + ".bin", "pipelines/" + id + ".keys", "programs/" + id + ".bin"}) {
+                            File cache = new File(activity.getFilesDir(), "cache/zakuro/" + file);
+                            long length = cache.length();
+                            if (cache.isFile() && cache.delete()) { bytes += length; any = true; }
+                        }
+                        Toast.makeText(activity, any ? "Shader cache cleared (" + (bytes + 1023) / 1024 + " KB)." : "No shader cache to clear.", Toast.LENGTH_SHORT).show();
                     }).setNegativeButton("Cancel", null).create(); show(confirm);
             }); addButton(content, shaders);
             content.addView(text("Removes compiled GPU shaders for this game. The next play recompiles them, which can cause brief stutters.", true));

@@ -37,6 +37,15 @@
   textures decode tile by tile with the format chosen once (RGBA8 4.7×, RGB565 2.3× on
   a desktop CPU, bit-identical). On the Thor the worst battle-start frame fell from a
   mean of 53.8 ms to 37.6 ms (3 alternating runs each, 46–64 ms vs 37–38 ms).
+- **Warm up shaders at launch** from earlier sessions (two switches, on by default).
+  Gameplay monitoring showed the worst spikes (38–67 ms) were CPU vertex processing on
+  the interpreter while new vertex programs compiled. Each game's vertex program
+  sources (`files/cache/zakuro/programs/<ID>.bin`, the game's shader words, never
+  machine code) and the GPU pipelines it used (`pipelines/<ID>.keys`) are now saved and
+  compiled in the background at the next launch, behind anything the game asks for.
+  Files are validated on load and rewritten when bad; **Clear shader cache** removes
+  them too. Thor, 3 alternating runs each after one recording session: worst
+  battle-start frame 66.7 → 41.3 ms mean, biggest vertex spikes 24–43 → 12–18 ms.
 - Look textures up in the HD pack on a background thread (**HD textures: look up
   pictures in the background**, on by default). The lookup decodes each new texture a
   second time, as Citra laid it out, to hash it; the first field frame after the title
