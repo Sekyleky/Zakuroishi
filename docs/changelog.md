@@ -7,6 +7,15 @@
   Android vector/adaptive-icon resources; both APK build paths compile them.
 - Keep the Android package, signing identity, JNI interface, game/save storage,
   deep links and frontend reference identifiers compatible with existing installs.
+- Restore vsync pacing at normal speed (**Performance → Pace to display refresh**,
+  on by default). 0.1.8 used mailbox at every speed; on the Thor at 3× + HD that
+  held 365 of 375 presents on 16.7 ms versus 374 of 376 with vsync. Fast-forward
+  still uses mailbox, and the presenter switches live when it starts or stops.
+- Guard GPU vertex shaders on the system driver (**Guard GPU vertex shaders**, on
+  by default): the stock Qualcomm driver throws from pipeline creation and the
+  process aborts, so the game starts on Auto with a message instead.
+- Add **Turnip: render in system memory** (off by default), which sets Mesa's
+  `TU_DEBUG=sysmem` for custom drivers to test the corner-block artifact.
 
 ## 0.1.8 — controller mapping, frontend launching and pacing
 
@@ -50,6 +59,9 @@
   One oversized picture may upload into an empty allowance so it can progress.
 - Log frames longer than 25 ms with separate emulation/presentation times, at
   most once per second, to distinguish remaining stalls without flooding logcat.
+- Keep full resolution after an app switch: the presenter keeps its Vulkan device
+  and only replaces the window surface, so screens stay shared with the renderer
+  instead of falling back to 1× copies read from guest memory.
 
 ## 0.1.7 — frame pacing, performance and fixes (2026-10-31)
 

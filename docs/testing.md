@@ -1,5 +1,25 @@
 # Verification record
 
+## Testing toggles (0.1.9, 2026-11-01)
+
+AYN Thor, Ultra Moon, 3× + HD, Balemuni Turnip unless stated, same save; three
+3-second SurfaceFlinger present-interval samples per run (16.7 ms is on time).
+
+| Run | On time | 33 ms | 50 ms |
+|---|---|---|---|
+| Vsync pacing on (default) | 374 | 2 | 0 |
+| Vsync pacing off (0.1.8 mailbox) | 365 | 9 | 1 |
+| Vsync on + Turnip sysmem | 374 | 1 | 0 |
+
+- Turnip sysmem applies (`custom driver: TU_DEBUG=sysmem`); the corner block did not
+  appear at this save location in any run, so its effect on the artifact is untested.
+- Guard: system driver + GPU vertex shaders now starts on Auto and logs
+  `using Auto (safe_gpu_shaders)`; no native crash. That run was slower (82–87%
+  speed) after many consecutive runs; not compared under controlled temperature.
+- Host: zakuro-gpu 129, zakuro-android settings 8 (new defaults/parse test);
+  ARM64 check; GameSettings, Java/native contract (new keys), driver and frontend
+  checks pass.
+
 ## Zakuroishi branding (0.1.9, 2026-11-01)
 
 - Built and signed the Windows APK with application label **Zakuroishi**,

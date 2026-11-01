@@ -133,6 +133,12 @@ pub struct Advanced {
     pub stereo: StereoMode,
     pub stereo_swap: bool,
     pub interpolate: bool,
+    /// FIFO at normal speed and the 60 FPS cap, mailbox otherwise; off keeps mailbox (0.1.8).
+    pub vsync_pacing: bool,
+    /// Stock Qualcomm drivers abort on GPU vertex shaders; fall back to Auto there.
+    pub safe_gpu_shaders: bool,
+    /// Mesa Turnip `TU_DEBUG=sysmem` for custom drivers (tests the corner artifact).
+    pub turnip_sysmem: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -189,6 +195,9 @@ impl Default for Advanced {
             stereo: StereoMode::Off,
             stereo_swap: false,
             interpolate: false,
+            vsync_pacing: true,
+            safe_gpu_shaders: true,
+            turnip_sysmem: false,
             enhancements: Vec::new(),
         }
     }
@@ -357,6 +366,13 @@ mod tests {
             Advanced::parse(r#"{"show_clock":true,"touch_controls":false}"#).unwrap(),
             Advanced::default()
         );
+    }
+    #[test]
+    fn testing_toggles_default_to_the_measured_choices() {
+        let settings = Advanced::parse("{}").unwrap();
+        assert!(settings.vsync_pacing && settings.safe_gpu_shaders && !settings.turnip_sysmem);
+        let off = Advanced::parse(r#"{"vsync_pacing":false,"safe_gpu_shaders":false,"turnip_sysmem":true}"#).unwrap();
+        assert!(!off.vsync_pacing && !off.safe_gpu_shaders && off.turnip_sysmem);
     }
     #[test]
     fn speed_limit_defaults_clamps_and_scales_emulation_only() {

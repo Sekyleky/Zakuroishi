@@ -388,6 +388,19 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let launch = platform::launch(app)?;
     let _session = bridge::Session::start(app);
     let mut settings = launch.advanced.clone();
+    // The stock Qualcomm driver throws a C++ exception from pipeline creation for
+    // translated vertex shaders, which Rust cannot unwind: the process aborts.
+    // shortcut: "no custom driver" stands for "stock Qualcomm"; check the device name if other SoCs matter.
+    if settings.safe_gpu_shaders && !settings.custom_driver && settings.shader_mode == crate::settings::ShaderMode::Gpu {
+        log::warn!("GPU vertex shaders on the system driver: using Auto (safe_gpu_shaders)");
+        platform::message(app, "GPU vertex shaders crash the system driver, using Auto. Turn off the guard in Performance settings to test.");
+        settings.shader_mode = crate::settings::ShaderMode::Auto;
+    }
+    // Read by Mesa when the custom driver creates its device, which happens below.
+    if settings.custom_driver && settings.turnip_sysmem {
+        std::env::set_var("TU_DEBUG", "sysmem");
+        log::info!("custom driver: TU_DEBUG=sysmem");
+    }
     zakuro_gpu::backend::set_renderer_options(settings.renderer_options());
     // Declared before surfaces/core so custom libraries outlive every Vulkan object.
     let driver = crate::driver::Driver::load(launch.driver.as_ref())?;
@@ -837,6 +850,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         }
         let present_start = Instant::now();
         // Under FIFO the display is the cap; a timer gate would drop frames that arrive a hair early.
+        s.presenter.set_vsync(settings.vsync_pacing && display_paced);
         let vsync = s.presenter.waits_for_display() && display_paced;
         if vsync || present_start >= next_present {
             match s.present(

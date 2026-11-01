@@ -718,11 +718,14 @@ impl VulkanPresenter {
         Ok(())
     }
 
-    /// presents in FIFO from the next swapchain on, so each frame lands on
-    /// its own vsync where the display runs at the console's rate.
-    pub fn pace_to_display(&mut self) {
-        self.vsync = true;
-        self.stale = true;
+    /// presents in FIFO, each frame on its own vsync where the display runs at
+    /// the console's rate, or back in the preferred mode. a change rebuilds the
+    /// swapchain on the next present, so callers may set it every frame.
+    pub fn set_vsync(&mut self, vsync: bool) {
+        if self.vsync != vsync {
+            self.vsync = vsync;
+            self.stale = true;
+        }
     }
 
     /// whether a present waits for the display, rather than handing the
