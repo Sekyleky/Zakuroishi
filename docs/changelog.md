@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 0.1.9 branding
+## 0.1.9 — Zakuroishi, shader warm-up and hitch fixes (2026-11-01)
 
 - Rename the app to **Zakuroishi** and add the supplied logo to the library
   header, launcher and recent-app identity. Preserve the original SVG alongside
