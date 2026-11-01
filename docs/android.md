@@ -107,9 +107,8 @@ Pokémon Ultra Moon has reached about 60 emulation refreshes/s at 2× and 3× wi
 HD textures in the tested scenes; occasional hitches remain. Keep
 Performance → Vertex shader processing on **Auto**: on the stock Qualcomm driver
 **GPU** crashes the game, and on Turnip it was slower. Leave the presentation cap
-at 60. The latest test candidate uses the same preferred mailbox presentation
-path at 100% and faster speeds, with the guest timer controlling game speed;
-FIFO remains a fallback where mailbox is unsupported. The app asks Android for
+at 60. At 100% speed frames are paced to the display refresh (FIFO); fast-forward
+uses mailbox, with the guest timer controlling game speed. The app asks Android for
 a 60 Hz panel mode and steady CPU clocks. Expect more battery use and heat at
 3×. If a game stutters, report the logcat `benchmark` line (see the
 [benchmark protocol](benchmark.md#reading-the-benchmark-line)).
@@ -123,6 +122,15 @@ The FPS overlay shows emulation FPS, percent of normal game-clock speed and
 submitted presentation FPS separately. These are not counts of unique game
 images. Audio is not time-stretched for fast-forward; the bounded audio queue
 can drop samples when emulation runs faster than playback.
+
+Three Performance switches exist for A/B testing:
+
+- **Pace to display refresh (vsync)**, on: even frame times at normal speed. Off
+  restores 0.1.8's mailbox presentation (more 33 ms hitches on the Thor).
+- **Guard GPU vertex shaders on the system driver**, on: starts on Auto instead
+  of crashing the stock Qualcomm driver. Turn off only to test GPU shaders.
+- **Turnip: render in system memory**, off: custom Turnip drivers only
+  (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
 
 Driver results depend on the scene and whether emulation is capped. Earlier
 normal-speed tests on an AYN Thor (Ultra Moon, 3× + HD, 0.1.7) found:
