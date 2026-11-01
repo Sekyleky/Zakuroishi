@@ -1,5 +1,28 @@
 # Verification record
 
+## Shader compiling and battle hitches (0.1.9, 2026-11-01)
+
+AYN Thor, Ultra Moon, 3× + HD, Balemuni Turnip; fresh launch from the title,
+walk in tall grass (injected stick input) into a wild battle, `frame hitch` lines.
+
+| Run | Worst battle-start frames (emulation) | Present spikes |
+|---|---|---|
+| Before: no disk cache, a JIT thread per program | 111, 85 ms | 65, 26 ms |
+| Cache persisted, JIT per program | 113, 88 ms | 49 ms |
+| Cache persisted, 2 JIT workers | **71, 46 ms** | none over 25 ms |
+
+- Module code checks are not the cause: `Battle` 1.6 ms, others ≤1.5 ms.
+- 69–73 CPU vertex programs compile per session (7–70 ms each, ~18 ms average with
+  2 workers); the interpreter shades until each finishes.
+- The pipeline cache file existed (2,174 KB) and **Clear shader cache** removed it.
+- Open areas: frames of 24–38 ms recur while walking in grass with no compiles.
+  Profile (15 s, grass + battle, cache just cleared): GPU command emulation 27% of
+  the emulation thread (CPU vertex path), bottom-screen CPU copy 11%, game code
+  27%; three pipeline compiler threads used 31% of all samples on a cold cache.
+- Remaining: JIT programs are not persisted (machine code), so the first battle
+  of a session still interprets new programs; heavy render frames in grass exceed
+  16.7 ms on the CPU vertex path.
+
 ## Testing toggles (0.1.9, 2026-11-01)
 
 AYN Thor, Ultra Moon, 3× + HD, Balemuni Turnip unless stated, same save; three

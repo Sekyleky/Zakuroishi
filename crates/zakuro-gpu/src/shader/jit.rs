@@ -308,20 +308,41 @@ pub(super) fn compiled(unit: &ShaderUnit, program: &Arc<Program>) -> Option<Arc<
     }
     kept.insert(key, Slot::Compiling);
     drop(kept);
-    let program = program.clone();
-    let spawned = std::thread::Builder::new().name("shader jit".to_owned()).spawn(move || {
-        let found = compile_logged(&program, key.1);
-        codes().insert(key, Slot::Done(found));
-    });
-    if let Err(error) = spawned {
-        log::warn!("could not start compiling a shader, {error}");
+    if workers().lock().unwrap_or_else(|e| e.into_inner()).send((program.clone(), key)).is_err() {
+        log::warn!("could not queue a shader to compile");
         codes().insert(key, Slot::Done(None));
     }
     None
 }
 
+/// a few threads compiling queued programs in turn. a thread for each
+/// program put a dozen compilers (7-70 ms each) on a handheld's few fast
+/// cores at once when a battle starts, starving the emulation thread.
+fn workers() -> &'static Mutex<std::sync::mpsc::Sender<(Arc<Program>, (u64, u32))>> {
+    const WORKERS: usize = 2;
+    static QUEUE: OnceLock<Mutex<std::sync::mpsc::Sender<(Arc<Program>, (u64, u32))>>> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let (send, receive) = std::sync::mpsc::channel::<(Arc<Program>, (u64, u32))>();
+        let receive = Arc::new(Mutex::new(receive));
+        for _ in 0..WORKERS {
+            let receive = receive.clone();
+            let spawned = std::thread::Builder::new().name("shader jit".to_owned()).spawn(move || loop {
+                // the lock is held only to take the next program, not while compiling it
+                let Ok((program, key)) = receive.lock().unwrap_or_else(|e| e.into_inner()).recv() else { return };
+                let found = compile_logged(&program, key.1);
+                codes().insert(key, Slot::Done(found));
+            });
+            if let Err(error) = spawned {
+                log::warn!("could not start a shader compiler, {error}");
+            }
+        }
+        Mutex::new(send)
+    })
+}
+
 /// compiles the program for an entry point, saying why not when it can't.
 fn compile_logged(program: &Program, entry: u32) -> Option<Arc<Compiled>> {
+    crate::PROGRAMS_COMPILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let start = std::time::Instant::now();
     let found = match compile(program, entry) {
         Ok(compiled) => Some(Arc::new(compiled)),

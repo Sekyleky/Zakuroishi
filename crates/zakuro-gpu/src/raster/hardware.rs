@@ -1286,6 +1286,7 @@ fn compile_pipeline(
     dynamic: Dynamic,
     depth_format: vk::Format,
 ) -> Result<vk::Pipeline, String> {
+    crate::PIPELINES_COMPILED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let entries: Vec<vk::SpecializationMapEntry> = (0..FRAGMENT_CONSTANTS as u32)
         .map(|id| vk::SpecializationMapEntry::default().constant_id(id).offset(id * 4).size(4))
         .collect();

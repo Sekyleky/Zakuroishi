@@ -227,8 +227,9 @@ impl Library {
         if base == 0 {
             return;
         }
-        log::info!("recompiled code for {name} runs at 0x{base:08X}");
+        let started = std::time::Instant::now();
         let stale = self.code.check(index + 1, base, |address, bytes| memory.read_bytes(address, bytes));
+        log::info!("recompiled code for {name} runs at 0x{base:08X}, checked in {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
         if stale > 0 {
             log::warn!("{stale} functions of {name} changed since it was recompiled, they run in the interpreter");
         }

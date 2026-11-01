@@ -123,6 +123,17 @@ final class SettingsDialog {
         if (!inGame && activity instanceof Launcher) {
             Button saves = button("Manage saves…");
             saves.setOnClickListener(v -> { rootDialog.dismiss(); ((Launcher)activity).saves(settings.id); }); addButton(content, saves);
+            Button shaders = button("Clear shader cache");
+            shaders.setOnClickListener(v -> {
+                AlertDialog confirm = new AlertDialog.Builder(activity).setTitle("Clear shader cache?")
+                    .setMessage("Removes compiled GPU shaders for this game. The next play recompiles them, which can cause brief stutters.")
+                    .setPositiveButton("Clear", (d, w) -> {
+                        File cache = new File(activity.getFilesDir(), "cache/zakuro/pipelines/" + settings.id.toUpperCase(Locale.ROOT) + ".bin");
+                        long kb = (cache.length() + 1023) / 1024;
+                        Toast.makeText(activity, cache.isFile() && cache.delete() ? "Shader cache cleared (" + kb + " KB)." : "No shader cache to clear.", Toast.LENGTH_SHORT).show();
+                    }).setNegativeButton("Cancel", null).create(); show(confirm);
+            }); addButton(content, shaders);
+            content.addView(text("Removes compiled GPU shaders for this game. The next play recompiles them, which can cause brief stutters.", true));
             Button driver = button("Import Vulkan driver ZIP…");
             driver.setOnClickListener(v -> {
                 AlertDialog trust=new AlertDialog.Builder(activity).setTitle("Import a trusted driver?")

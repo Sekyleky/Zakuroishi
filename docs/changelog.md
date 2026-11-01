@@ -14,6 +14,16 @@
 - Guard GPU vertex shaders on the system driver (**Guard GPU vertex shaders**, on
   by default): the stock Qualcomm driver throws from pipeline creation and the
   process aborts, so the game starts on Auto with a message instead.
+- Persist compiled GPU pipelines on Android. The per-title pipeline cache only
+  resolved `XDG_CACHE_HOME`/`HOME`, which Android apps lack, so every session
+  recompiled every pipeline. It now lives in `files/cache/zakuro/pipelines/
+  <TITLE>.bin` (2.2 MB for Ultra Moon after a battle). **Settings → Clear shader
+  cache** deletes it for one game.
+- Compile CPU vertex programs on two queued worker threads instead of a thread
+  per program. A battle start compiled ~10 programs (7–70 ms each) at once, which
+  starved the emulation thread; the worst battle-start frame fell from 113 to 71 ms.
+- The hitch log line reports GPU pipelines and CPU vertex programs compiled since
+  the previous line; module loads log their code-check time.
 - Add **Turnip: render in system memory** (off by default), which sets Mesa's
   `TU_DEBUG=sysmem` for custom drivers to test the corner-block artifact.
 

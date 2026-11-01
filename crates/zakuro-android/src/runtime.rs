@@ -385,6 +385,15 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     if std::env::var_os("RAYON_NUM_THREADS").is_none() {
         std::env::set_var("RAYON_NUM_THREADS", "3");
     }
+    // Android has no XDG_CACHE_HOME or HOME, so the GPU pipeline cache would never persist.
+    if std::env::var_os("XDG_CACHE_HOME").is_none() {
+        if let Some(files) = app.internal_data_path() {
+            let cache = files.join("cache");
+            if std::fs::create_dir_all(&cache).is_ok() {
+                std::env::set_var("XDG_CACHE_HOME", &cache);
+            }
+        }
+    }
     let launch = platform::launch(app)?;
     let _session = bridge::Session::start(app);
     let mut settings = launch.advanced.clone();
@@ -888,9 +897,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         {
             last_hitch_log = Some(Instant::now());
             let timestamp_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
-            log::info!("frame hitch timestamp_ms={timestamp_ms} core_ms={:.2} present_ms={:.2} total_ms={:.2} core_over_budget={} present_over_budget={}",
+            // Compiles since the previous hitch line: tells shader work from other stalls.
+            let take = |counter: &std::sync::atomic::AtomicU32| counter.swap(0, std::sync::atomic::Ordering::Relaxed);
+            log::info!("frame hitch timestamp_ms={timestamp_ms} core_ms={:.2} present_ms={:.2} total_ms={:.2} core_over_budget={} present_over_budget={} pipelines_compiled={} programs_compiled={}",
                 work.as_secs_f64() * 1000.0, present.as_secs_f64() * 1000.0, frame.as_secs_f64() * 1000.0,
-                work > Duration::from_nanos(16_666_667), present > Duration::from_nanos(16_666_667));
+                work > Duration::from_nanos(16_666_667), present > Duration::from_nanos(16_666_667),
+                take(&zakuro_gpu::PIPELINES_COMPILED), take(&zakuro_gpu::PROGRAMS_COMPILED));
         }
         benchmark_frames += 1;
         if stats_start.elapsed() >= Duration::from_secs(1) {
