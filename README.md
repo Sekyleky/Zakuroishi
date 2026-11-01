@@ -1,7 +1,7 @@
 # Zakuroishi
 
-**[Download the latest Android release](https://github.com/Sekyleky/zakuro-android/releases/latest)** ·
-[Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/zakuro-android/issues/new/choose)
+**[Download the latest Android release](https://github.com/Sekyleky/Zakuroishi/releases/latest)** ·
+[Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/Zakuroishi/issues/new/choose)
 
 An unofficial community fork, not an official release from the Zakuro developers.
 Previously named Zakuro Android. Existing installs update in place; the Android

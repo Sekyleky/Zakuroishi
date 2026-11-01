@@ -59,7 +59,7 @@ identification. They should use filename metadata/normal scraping instead.
 ## Existing verification
 
 Zakuro Android 0.1.8 is available at
-https://github.com/Sekyleky/zakuro-android/releases/tag/android-v0.1.8 .
+https://github.com/Sekyleky/Zakuroishi/releases/tag/android-v0.1.8 .
 On the Thor, opening a `.zkr` through Android Files with a real document URI grant
 launches Ultra Moon. Direct `zakuro://game/TITLE_ID` links work too. Repeated
 launches reuse the active game. Reference parsing and malformed-input checks

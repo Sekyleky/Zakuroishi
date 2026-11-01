@@ -27,7 +27,7 @@ experimental, unofficial Android fork of Zakuro.
   Reopening the active title reuses its activity; switching titles asks before
   discarding unsaved progress.
 
-Follow the [frontend setup guide](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.8/docs/frontends.md).
+Follow the [frontend setup guide](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.8/docs/frontends.md).
 Custom-player configuration is required; Zakuro is not yet in the frontends'
 built-in emulator catalogs.
 
@@ -62,15 +62,15 @@ Moon overworld scene, but the tested custom driver can show a corner artifact.
 Driver choice remains device/game dependent. Keep vertex processing on **Auto**;
 forcing **GPU** on the tested stock driver can crash.
 
-See the [verification record](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.8/docs/testing.md)
-and [changelog](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.8/docs/changelog.md).
+See the [verification record](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.8/docs/testing.md)
+and [changelog](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.8/docs/changelog.md).
 
 ## Install
 
 Download **Zakuro-Android-0.1.8.apk** below. Install over the existing app to keep
 imported games, settings and saves; do not uninstall first. Requires ARM64 Android
 11+ and Vulkan 1.3. New users should follow the
-[setup guide](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.8/docs/android.md).
+[setup guide](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.8/docs/android.md).
 Games still require separately built, compatible Android ABI-4 native game code.
 Texture packs are optional.
 

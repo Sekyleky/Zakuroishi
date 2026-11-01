@@ -35,8 +35,8 @@ the game. Leave it on Auto.
 ## Install
 
 Download **Zakuro-Android-0.1.7.apk** below (ARM64, Android 11+, Vulkan 1.3).
-New users: [setup guide](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.7/docs/android.md).
-Details: [changelog](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.7/docs/changelog.md),
-[verification record](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.7/docs/testing.md).
+New users: [setup guide](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.7/docs/android.md).
+Details: [changelog](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.7/docs/changelog.md),
+[verification record](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.7/docs/testing.md).
 No games, compiled game libraries, keys or firmware are included. `SHA256SUMS.txt`
 accompanies the APK.

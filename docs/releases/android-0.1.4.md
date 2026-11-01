@@ -12,9 +12,9 @@ in the repository and APK.
    11+** device with a **Vulkan 1.3** driver.
 2. Existing testers can update directly without uninstalling. Keep the same app
    installation to preserve its data. No new game-code build is needed for 0.1.4.
-3. New users: follow the [setup guide](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.4/docs/android.md).
+3. New users: follow the [setup guide](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.4/docs/android.md).
    Prepare your decrypted ROM and matching Android ARM64 **ABI-4** `title.so`
-   using the [computer-side builder](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.4/docs/native-library.md).
+   using the [computer-side builder](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.4/docs/native-library.md).
    Then choose **Add game** and select their folder. Texture packs are optional.
 
 The app does not compile games on the handheld. Pocket Native ABI-5/fastmem code,
@@ -41,10 +41,10 @@ testing. The second display currently uses GPU readback, and compositor rotation
 can add overhead. **Faster-than-Azahar performance has not been demonstrated.**
 
 The APK build, signature and alignment checks passed. Detailed automated results
-and their limits are in the [verification record](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.4/docs/testing.md).
+and their limits are in the [verification record](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.4/docs/testing.md).
 The APK uses the same local test signing identity as earlier builds. This is not
 a Play Store release. SHA256SUMS.txt accompanies the APK.
 
 Report device, Android/app version, driver, game build, settings and reproduction
-steps through [Issues](https://github.com/Sekyleky/zakuro-android/issues/new/choose).
+steps through [Issues](https://github.com/Sekyleky/Zakuroishi/issues/new/choose).
 Please do not upload games, compiled game libraries, keys or personal save data.

@@ -17,7 +17,7 @@ custom-player configuration and direct-launch contract.
 ## Install or update
 
 Download the latest `Zakuro-Android-*.apk` from the
-[GitHub releases page](https://github.com/Sekyleky/zakuro-android/releases/latest)
+[GitHub releases page](https://github.com/Sekyleky/Zakuroishi/releases/latest)
 and open it on the handheld. Allow installation from that browser or file manager
 when Android asks. `SHA256SUMS.txt` is provided to verify the download. GitHub's
 automatic source archives are for developers, not installable apps.

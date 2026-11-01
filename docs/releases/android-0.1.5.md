@@ -23,12 +23,12 @@ start the game normally instead of loading an older quick save.
 
 Download **Zakuro-Android-0.1.5.apk** below and install it over 0.1.4 — no
 uninstall needed, and your games and saves stay in place. New users: see the
-[setup guide](https://github.com/Sekyleky/zakuro-android/blob/android-v0.1.5/docs/android.md).
+[setup guide](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.5/docs/android.md).
 
 Requirements, limits and credits are unchanged from
-[0.1.4](https://github.com/Sekyleky/zakuro-android/releases/tag/android-v0.1.4).
+[0.1.4](https://github.com/Sekyleky/Zakuroishi/releases/tag/android-v0.1.4).
 No games, compiled game libraries, keys or firmware are distributed.
 `SHA256SUMS.txt` accompanies the APK.
 
-Please report problems through [Issues](https://github.com/Sekyleky/zakuro-android/issues/new/choose),
+Please report problems through [Issues](https://github.com/Sekyleky/Zakuroishi/issues/new/choose),
 without attaching games, game libraries or personal saves.
