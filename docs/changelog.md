@@ -37,6 +37,12 @@
   textures decode tile by tile with the format chosen once (RGBA8 4.7×, RGB565 2.3× on
   a desktop CPU, bit-identical). On the Thor the worst battle-start frame fell from a
   mean of 53.8 ms to 37.6 ms (3 alternating runs each, 46–64 ms vs 37–38 ms).
+- Look textures up in the HD pack on a background thread (**HD textures: look up
+  pictures in the background**, on by default). The lookup decodes each new texture a
+  second time, as Citra laid it out, to hash it; the first field frame after the title
+  screen brings ~28 new textures at once. Thor, 3 alternating runs each: field-entry
+  frame 58.9 ms → 46.8 ms mean. Battle start unchanged (45.9 vs 45.0 ms mean): its HD
+  pictures now arrive a little later and upload during the battle start instead.
 - A second `frame hitch parts` log line splits a hitch frame's emulation time into GPU
   command lists, texture decode, HD-pack lookup, vertex processing, texture upload,
   submit and flush.

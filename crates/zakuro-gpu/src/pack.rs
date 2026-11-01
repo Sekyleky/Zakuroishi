@@ -242,6 +242,24 @@ fn readers() -> &'static rayon::ThreadPool {
     })
 }
 
+/// a pack with one picture, named for these bytes as Citra hashed them.
+#[cfg(test)]
+pub(crate) fn pack_for(data: &[u8], format: TextureFormat, width: u32, height: u32) -> Arc<Pack> {
+    let hash = hash(Hashing::Rows, data, format, width, height, &mut Vec::new()).expect("a hashable texture");
+    let material = Arc::new(Material { hash, path: PathBuf::new(), flipped: false, state: Mutex::new(State::OnDisk) });
+    Arc::new(Pack { hashing: Hashing::Rows, materials: HashMap::from([(hash, material)]), sizes: None })
+}
+
+/// runs a texture's pack lookup on a thread of its own, apart from the
+/// picture readers, so a frame bringing many new textures does not wait on
+/// hashing them.
+pub(crate) fn look_up(job: impl FnOnce() + Send + 'static) {
+    static LOOKUP: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    LOOKUP
+        .get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(1).thread_name(|_| "pack lookup".into()).build().expect("a thread to look textures up on"))
+        .spawn(job);
+}
+
 /// what pack.json says, or what holds without one.
 #[derive(Debug, PartialEq)]
 struct Config {

@@ -47,6 +47,11 @@ Earlier single-run numbers mixed them; quote them separately and repeat runs.
 - Fast decode for all formats, 3 alternating runs each: worst battle frame 37.1/38.3/37.5 ms
   on vs 64.2/51.6/45.7 ms off; battle decode 18–20 → 11–12 ms (pack lookup ~3 ms of it).
   The field-entry frame did not improve (decode 20–31 ms, pack 7 ms, vertices 9–14 ms).
+- Field entry (first field frame after the title): ~28 new textures, mostly ETC1
+  128–512 px at ~0.25 ms each, no outlier; the pack lookup took 6–7 ms of the decode.
+  Background pack lookup, 3 alternating runs each: field entry 45.8/45.0/49.5 ms on vs
+  60.7/59.3/56.6 ms off. Battle worst 35.4/32.9/69.5 vs 49.6/53.4/32.0 ms (no change in
+  mean); with it on, battle decode is ~2 ms but HD upload 12–21 ms in that frame.
 - Remaining in battle-start frames (profile, before the per-frame timers): Turnip/kgsl driver time (134 memory
   allocations in the first 2 s, source not identified — not ordinary textures),
   `process_vertices` waiting on the rayon pool while the JIT and pack threads compete

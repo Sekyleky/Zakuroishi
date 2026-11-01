@@ -123,7 +123,7 @@ submitted presentation FPS separately. These are not counts of unique game
 images. Audio is not time-stretched for fast-forward; the bounded audio queue
 can drop samples when emulation runs faster than playback.
 
-Three Performance switches exist for A/B testing:
+Performance switches for A/B testing (all apply at the next launch):
 
 - **Pace to display refresh (vsync)**, on: even frame times at normal speed. Off
   restores 0.1.8's mailbox presentation (more 33 ms hitches on the Thor).
@@ -131,6 +131,15 @@ Three Performance switches exist for A/B testing:
   of crashing the stock Qualcomm driver. Turn off only to test GPU shaders.
 - **Turnip: render in system memory**, off: custom Turnip drivers only
   (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
+- **Fast texture decoding**, on: decodes every texture format tile by tile; the
+  largest battle-start win (worst frame 53.8 → 37.6 ms on the Thor).
+- **HD textures: look up pictures in the background**, on: field-entry frame
+  58.9 → 46.8 ms; an HD picture may appear a frame later.
+- **HD textures: pooled upload memory / limit upload size per frame / copy pictures
+  in the background**, on: remove HD picture allocations and copies from the game
+  thread; no single one measurably changes the worst frame.
+
+Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 
 Driver results depend on the scene and whether emulation is capped. Earlier
 normal-speed tests on an AYN Thor (Ultra Moon, 3× + HD, 0.1.7) found:

@@ -21,6 +21,8 @@ pub struct RendererOptions {
     pub threaded_picture_copy: bool,
     /// Block-wise ETC1 decode and pack lookups that skip work when the pack cannot match.
     pub fast_texture_decode: bool,
+    /// Look textures up in the HD pack on a thread of its own.
+    pub async_pack_lookup: bool,
 }
 impl RendererOptions {
     fn encode(self) -> u32 {
@@ -31,6 +33,7 @@ impl RendererOptions {
             | ((self.float_depth as u32) << 7) | ((self.static_blend as u32) << 8)
             | ((self.pooled_uploads as u32) << 9) | ((self.upload_size_budget as u32) << 10)
             | ((self.threaded_picture_copy as u32) << 11) | ((self.fast_texture_decode as u32) << 12)
+            | ((self.async_pack_lookup as u32) << 13)
     }
     fn decode(bits: u32) -> Option<Self> {
         if bits & (1 << 31) == 0 { return None; }
@@ -42,6 +45,7 @@ impl RendererOptions {
             static_blend: bits & (1 << 8) != 0,
             pooled_uploads: bits & (1 << 9) != 0, upload_size_budget: bits & (1 << 10) != 0,
             threaded_picture_copy: bits & (1 << 11) != 0, fast_texture_decode: bits & (1 << 12) != 0,
+            async_pack_lookup: bits & (1 << 13) != 0,
         })
     }
 }
@@ -447,7 +451,7 @@ mod tests {
     fn renderer_overrides_round_trip_all_flags_without_global_test_state() {
         assert_eq!(RendererOptions::decode(0), None);
         for gpu_shaders in [None, Some(false), Some(true)] {
-            for flags in 0u32..2048 {
+            for flags in 0u32..4096 {
                 let options = RendererOptions {
                     gpu_shaders, translate_shaders: flags & 1 != 0,
                     cpu_shader_jit: flags & 2 != 0, wait_for_shaders: flags & 4 != 0,
@@ -455,6 +459,7 @@ mod tests {
                     float_depth: flags & 32 != 0, static_blend: flags & 64 != 0,
                     pooled_uploads: flags & 128 != 0, upload_size_budget: flags & 256 != 0,
                     threaded_picture_copy: flags & 512 != 0, fast_texture_decode: flags & 1024 != 0,
+                    async_pack_lookup: flags & 2048 != 0,
                 };
                 assert_eq!(RendererOptions::decode(options.encode()), Some(options));
             }

@@ -1092,6 +1092,8 @@ pub struct TextureCache {
     rows: Vec<u8>,
     /// fast_texture_decode, read on the first decode.
     fast: Option<bool>,
+    /// async_pack_lookup, read on the first decode.
+    threaded_lookup: Option<bool>,
 }
 
 type TextureKey = (u32, TextureFormat, u32, u32);
@@ -1108,7 +1110,13 @@ struct Decoded {
     /// the list it was last checked in, and how many writes that list had
     /// made by then.
     checked: (u64, usize),
-    replacement: Option<Arc<crate::pack::Material>>,
+    replacement: Lookup,
+}
+
+/// the pack's picture for a texture, set once its lookup has run.
+type Lookup = Arc<std::sync::OnceLock<Option<Arc<crate::pack::Material>>>>;
+fn found(lookup: &Lookup) -> Option<Arc<crate::pack::Material>> {
+    lookup.get().cloned().flatten()
 }
 
 /// how many texels the cache holds before it starts over, 256 MiB of them.
@@ -1151,7 +1159,7 @@ impl TextureCache {
         let overwritten = self.written[writes.min(self.written.len())..]
             .iter()
             .any(|&(start, length)| start < addr.saturating_add(size) && addr < start.saturating_add(length));
-        (list == self.list && !overwritten).then(|| (decoded.texels.clone(), decoded.replacement.clone()))
+        (list == self.list && !overwritten).then(|| (decoded.texels.clone(), found(&decoded.replacement)))
     }
 
     fn decoded(&mut self, key: TextureKey, data: &[u8]) -> Found {
@@ -1159,6 +1167,7 @@ impl TextureCache {
         let (_, format, width, height) = key;
         let hash = fingerprint(data);
         let checked = (self.list, self.written.len());
+        let threaded = *self.threaded_lookup.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.async_pack_lookup));
         if let Some(decoded) = self.entries.get_mut(&key) {
             if decoded.hash != hash && decoded.bytes.len() == data.len() && width % 8 == 0 && height % 8 == 0 {
                 // a title changing a few sprites of an atlas rewrites a
@@ -1189,11 +1198,11 @@ impl TextureCache {
                 decoded.bytes.copy_from_slice(data);
                 decoded.texels = copy;
                 decoded.hash = hash;
-                decoded.replacement = picture_for(self.pack.as_deref(), data, &decoded.texels, key, &mut self.rows);
+                decoded.replacement = lookup(&self.pack, threaded, &mut self.rows, data, &decoded.texels, key);
             }
             if decoded.hash == hash {
                 decoded.checked = checked;
-                return (decoded.texels.clone(), decoded.replacement.clone());
+                return (decoded.texels.clone(), found(&decoded.replacement));
             }
         }
         let count = (width * height) as usize;
@@ -1216,14 +1225,35 @@ impl TextureCache {
                 .map(|(x, y)| crate::texture::sample_texel(data, format, width, x, y))
                 .collect(),
         };
-        let replacement = picture_for(self.pack.as_deref(), data, &texels, key, &mut self.rows);
+        let replacement = lookup(&self.pack, threaded, &mut self.rows, data, &texels, key);
         let decoded = Decoded { hash, bytes: data.to_vec(), texels: texels.clone(), checked, replacement: replacement.clone() };
+        let replacement = found(&replacement);
         if let Some(old) = self.entries.insert(key, decoded) {
             self.texels -= old.texels.len();
         }
         self.texels += count;
         (texels, replacement)
     }
+}
+
+/// looks a texture up in the pack, on the lookup thread when threaded (the
+/// picture shows a frame or so later; it is read in the background anyway),
+/// else at once. recording a dump stays here, in draw order.
+fn lookup(pack: &Option<Arc<crate::pack::Pack>>, threaded: bool, rows: &mut Vec<u8>, data: &[u8], texels: &Arc<[[u8; 4]]>, key: TextureKey) -> Lookup {
+    let result: Lookup = Arc::default();
+    match pack {
+        Some(pack) if threaded && !crate::pack::recording() => {
+            let (pack, set, data, texels) = (pack.clone(), result.clone(), data.to_vec(), texels.clone());
+            crate::pack::look_up(move || {
+                let _ = set.set(picture_for(Some(&pack), &data, &texels, key, &mut Vec::new()));
+            });
+        }
+        _ => {
+            let _timed = crate::timed(6);
+            let _ = result.set(picture_for(pack.as_deref(), data, texels, key, rows));
+        }
+    }
+    result
 }
 
 /// the pack's picture for a texture of these bytes, whenever they change.
@@ -1234,7 +1264,6 @@ fn picture_for(
     key: TextureKey,
     rows: &mut Vec<u8>,
 ) -> Option<Arc<crate::pack::Material>> {
-    let _timed = crate::timed(6);
     let (_, format, width, height) = key;
     if crate::pack::recording() {
         crate::pack::record(data, texels, format, width, height);
@@ -2739,6 +2768,23 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
 
 #[cfg(test)]
 mod tests {
+    /// a lookup on the lookup thread finds the picture a direct one does.
+    #[test]
+    fn threaded_pack_lookup_finds_the_same_picture() {
+        let data: Vec<u8> = (0..256).map(|i| (i * 7 % 251) as u8).collect();
+        let key = (0, TextureFormat::Rgba8, 8, 8);
+        let pack = Some(crate::pack::pack_for(&data, TextureFormat::Rgba8, 8, 8));
+        let texels: Arc<[[u8; 4]]> = vec![[0; 4]; 64].into();
+        let direct = found(&lookup(&pack, false, &mut Vec::new(), &data, &texels, key)).map(|m| m.hash());
+        assert!(direct.is_some());
+        let threaded = lookup(&pack, true, &mut Vec::new(), &data, &texels, key);
+        let start = std::time::Instant::now();
+        while threaded.get().is_none() && start.elapsed().as_secs() < 5 {
+            std::thread::yield_now();
+        }
+        assert_eq!(found(&threaded).map(|m| m.hash()), direct);
+    }
+
     use super::*;
     use std::collections::HashMap;
 

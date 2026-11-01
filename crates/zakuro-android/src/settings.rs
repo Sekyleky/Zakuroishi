@@ -144,6 +144,7 @@ pub struct Advanced {
     pub upload_size_budget: bool,
     pub threaded_picture_copy: bool,
     pub fast_texture_decode: bool,
+    pub async_pack_lookup: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -207,6 +208,7 @@ impl Default for Advanced {
             upload_size_budget: true,
             threaded_picture_copy: true,
             fast_texture_decode: true,
+            async_pack_lookup: true,
             enhancements: Vec::new(),
         }
     }
@@ -231,6 +233,7 @@ impl Advanced {
             upload_size_budget: self.upload_size_budget,
             threaded_picture_copy: self.threaded_picture_copy,
             fast_texture_decode: self.fast_texture_decode,
+            async_pack_lookup: self.async_pack_lookup,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {
@@ -387,7 +390,8 @@ mod tests {
         let off = Advanced::parse(r#"{"vsync_pacing":false,"safe_gpu_shaders":false,"turnip_sysmem":true}"#).unwrap();
         assert!(!off.vsync_pacing && !off.safe_gpu_shaders && off.turnip_sysmem);
         let options = settings.renderer_options();
-        assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode);
+        assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode && options.async_pack_lookup);
+        assert!(!Advanced::parse(r#"{"async_pack_lookup":false}"#).unwrap().renderer_options().async_pack_lookup);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
         assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
     }

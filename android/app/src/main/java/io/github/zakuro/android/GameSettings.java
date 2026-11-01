@@ -73,6 +73,7 @@ final class GameSettings {
         flag("Performance", "upload_size_budget", "HD textures: limit upload size per frame", true, "Upload at most a frame's budget of HD picture data; the original texture shows for a frame or two meanwhile. Turn off only to compare. Requires restart."),
         flag("Performance", "threaded_picture_copy", "HD textures: copy pictures in the background", true, "Copy HD pictures into upload memory on background threads instead of the emulation thread. Turn off only to compare. Requires restart."),
         flag("Performance", "fast_texture_decode", "Fast texture decoding", true, "Decode compressed textures block by block and skip HD-pack lookups that cannot match. Turn off only to compare. Requires restart."),
+        flag("Performance", "async_pack_lookup", "HD textures: look up pictures in the background", true, "Match new textures against the HD pack on a background thread; an HD picture may appear a frame later. Turn off only to compare. Requires restart."),
         flag("Performance", "custom_driver", "Use selected custom Vulkan driver", false, "Requires an imported ARM64 Android Vulkan driver and packaged native driver support. Restart after changing. Driver compatibility depends on your GPU."),
         flag("Performance", "aot", "Use compiled native game code", true, "Recommended. Turn off to use the interpreter for troubleshooting; it can be considerably slower."),
         flag("Performance", "skip_idle_loops", "Skip idle loops", true, "Upstream optimization for loops waiting for an event."),
