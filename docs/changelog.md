@@ -41,7 +41,7 @@
   NativeActivity takes the game window's surface and views added to it don't render. The
   HUD now has a window of its own (touches pass through). It also shows battery
   temperature and power draw, and with **Show native FPS** the emulation time per frame,
-  the worst frame and slow frames (> 17 ms) of the last second, and shader compiles.
+  the worst frame and slow frames (> 20 ms) of the last second, and shader compiles.
   The on-screen Pause button is now **Controls → Show pause button**, off by default
   (Back or the controller's menu button pauses). The touch controls (button bar, Circle
   Pad, C-stick) had the same problem and now get windows of their own too; when they

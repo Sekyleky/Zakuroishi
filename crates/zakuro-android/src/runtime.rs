@@ -457,7 +457,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let (mut worst_core, mut worst_frame, mut slow_frames) = (Duration::ZERO, Duration::ZERO, 0u32);
     let mut present_time = Duration::ZERO;
     let mut last_hitch_log: Option<Instant> = None;
-    // The HUD's second: emulation work, worst whole frame, frames over 17 ms.
+    // The HUD's second: emulation work, worst whole frame, frames over 20 ms (vsync frames are ~16.7 ms).
     let (mut hud_work, mut hud_worst, mut hud_frames, mut hud_slow) = (Duration::ZERO, Duration::ZERO, 0u32, 0u32);
     // Shader compiles (pipelines, vertex programs) at the last hitch line and HUD update.
     let compiles = || {
@@ -903,7 +903,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         present_time += present;
         let frame = core_start.elapsed();
         (hud_work, hud_worst, hud_frames) = (hud_work + work, hud_worst.max(frame), hud_frames + 1);
-        hud_slow += u32::from(frame > Duration::from_millis(17));
+        hud_slow += u32::from(frame > Duration::from_millis(20));
         worst_frame = worst_frame.max(frame);
         slow_frames += u32::from(frame > Duration::from_micros(16_000));
         if frame > Duration::from_millis(25)
