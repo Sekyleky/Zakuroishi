@@ -1,0 +1,21 @@
+{
+  "purpose": "Upstream iiSU catalog contribution; not a user-importable replacement catalog",
+  "consoleShortName": "n3ds",
+  "romExtensionsToAdd": [".zkr"],
+  "emulator": {
+    "id": "ZAKURO_ANDROID",
+    "name": "Zakuroishi (Standalone)",
+    "routeType": "uri",
+    "commands": [
+      {
+        "description": "Zakuroishi",
+        "command": "io.github.zakuro.android/.FrontendLaunch -a android.intent.action.VIEW -d %ROM_URI% --grant-read-uri-permission"
+      }
+    ],
+    "packages": ["io.github.zakuro.android"]
+  },
+  "supportedEmulator": {
+    "name": "Zakuroishi",
+    "packages": ["io.github.zakuro.android"]
+  }
+}

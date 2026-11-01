@@ -1,5 +1,9 @@
 # Install, import and play
 
+From 0.1.9 the app is named **Zakuroishi**, with a new launcher logo. It updates
+the existing Zakuro Android installation in place; do not uninstall to rename it.
+The package, game imports and save paths are unchanged.
+
 Zakuro Android is an experimental ARM64 frontend for upstream Zakuro v0.2.30
 (`e174910`). It requires Android 11 or newer and a Vulkan 1.3 driver with the
 renderer features described in [Development](development.md). The app includes

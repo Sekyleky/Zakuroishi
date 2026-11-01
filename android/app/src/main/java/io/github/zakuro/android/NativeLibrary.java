@@ -16,7 +16,7 @@ final class NativeLibrary {
         String describe() { return "ABI " + abi + (fastMemory ? " with Pocket Native fast memory" : ""); }
         void requireCompatible() throws IOException {
             if (abi != ABI || fastMemory) throw new IOException("This title.so uses " + describe()
-                    + ". Zakuro Android requires ABI " + ABI + " without fast memory. Rebuild this game's native code with Zakuro's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
+                    + ". Zakuroishi Android requires ABI " + ABI + " without fast memory. Rebuild this game's native code with Zakuroishi's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
         }
     }
     private static ByteBuffer bytes(SeekableByteChannel file, long offset, int size) throws IOException {
@@ -69,7 +69,7 @@ final class NativeLibrary {
             }
         }
         for (String required : new String[]{"recomp_abi", "recomp_entries", "recomp_entry_count", "recomp_modules", "recomp_module_count"})
-            if (!names.contains(required)) throw new IOException("Native library is missing " + required + ". Use title.so built by the matching Zakuro build-title tool.");
+            if (!names.contains(required)) throw new IOException("Native library is missing " + required + ". Use title.so built by the matching Zakuroishi build-title tool.");
         Long abi = exported.get("recomp_abi");
         if (abi == null) throw new IOException("Cannot read the native-library ABI");
         return new Info(bytes(file, abi, 4).getInt(), names.contains("recomp_fastmem"));

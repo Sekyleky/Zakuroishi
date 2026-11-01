@@ -13,13 +13,13 @@ import org.json.*;
 final class FrontendExport {
     static final String COMPONENT="io.github.zakuro.android/.FrontendLaunch";
     static final String HELP="Zakuro frontend library\n\n"
-        +"Scan the Games folder. Each .zkr file launches a game already installed in Zakuro, using its settings and saves. These files are not ROMs. Keep Zakuro installed. Re-export to add new games.\n\n"
+        +"Scan the Games folder. Each .zkr file launches a game already installed in Zakuroishi, using its settings and saves. These files are not ROMs. Keep Zakuroishi installed. Re-export to add new games.\n\n"
         +"Cocoon: configure a custom player using config/Cocoon-Zakuro.json (a platform definition following Cocoon's published JSON format). Accept .zkr, .3ds, .cci and .cxi. The launch arguments are:\n"
         +"-n "+COMPONENT+" -a android.intent.action.VIEW -d {file.uri} --grant-read-uri-permission\n\n"
         +"iiSU: select Nintendo 3DS, configure a custom launch command:\n"
         +COMPONENT+" -a android.intent.action.VIEW -d %ROM_URI% --grant-read-uri-permission\n"
         +"Alternatively merge config/iiSU-Zakuro-entry.json into the Nintendo 3DS console's emulators array in a COPY of your own emuladores.json, then import that complete edited copy through iiSU Settings > Updates. The exported entry is a snippet, not a replacement catalog. Back up your catalog first.\n"
-        +"If your iiSU build cannot scan .zkr, scan your original decrypted .3ds/.cci/.cxi ROM folder instead. Zakuro reads its title ID and launches the installed game without importing it again. Custom-launch syntax and extension controls depend on the frontend version; Zakuro is not yet in their built-in player catalogs.\n\n"
+        +"If your iiSU build cannot scan .zkr, scan your original decrypted .3ds/.cci/.cxi ROM folder instead. Zakuroishi reads its title ID and launches the installed game without importing it again. Custom-launch syntax and extension controls depend on the frontend version; Zakuroishi is not yet in their built-in player catalogs.\n\n"
         +"Other frontends: use ACTION_VIEW, component "+COMPONENT+", and a readable content:// or file:// URI. A per-game URI also works: zakuro://game/TITLE_ID.\n"
         +"Never point another emulator at these .zkr references. They contain no ROM data and are not suitable for ROM hashing/RetroAchievements.\n";
 
@@ -69,16 +69,16 @@ final class FrontendExport {
     }
     static String cocoonConfig() throws JSONException {
         JSONObject platform=new JSONObject();
-        platform.put("name","Zakuro (Nintendo 3DS)").put("uniqueId","zakuro.n3ds").put("shortname","n3ds")
-            .put("description","Launch games already imported into Zakuro")
+        platform.put("name","Zakuroishi (Nintendo 3DS)").put("uniqueId","zakuro.n3ds").put("shortname","n3ds")
+            .put("description","Launch games already imported into Zakuroishi")
             .put("acceptedFilenameRegex","^(?!(?:\\._|\\.).*).*\\.(?:zkr|3ds|cci|cxi)$")
             .put("scraperSourceList",new JSONArray().put("LIBRETRO:Nintendo - Nintendo 3DS"))
             .put("boxArtAspectRatioId",0).put("useCustomBoxArtAspectRatio",true).put("customBoxArtAspectRatio","8:7")
             .put("screenAspectRatioId",0).put("useCustomScreenAspectRatio",false).put("customScreenAspectRatio",JSONObject.NULL)
             .put("retroAchievementsConsoleIdList",new JSONArray()).put("extra","");
         JSONObject player=new JSONObject();
-        player.put("name","Zakuro Android").put("uniqueId","3ds.io.github.zakuro.android")
-            .put("description","Launch an already imported Zakuro game from a .zkr reference or original decrypted ROM.")
+        player.put("name","Zakuroishi").put("uniqueId","3ds.io.github.zakuro.android")
+            .put("description","Launch an already imported Zakuroishi game from a .zkr reference or original decrypted ROM.")
             .put("acceptedFilenameRegex","(?i)^.*\\.(?:zkr|3ds|cci|cxi)$")
             .put("amStartArguments","-n "+COMPONENT+"\n-a android.intent.action.VIEW\n-d {file.uri}\n--grant-read-uri-permission\n")
             .put("killPackageProcesses",false).put("killPackageProcessesWarning",true).put("extra","");
@@ -86,9 +86,9 @@ final class FrontendExport {
             .put("playerList",new JSONArray().put(player)).toString(2);
     }
     static String iisuEntry() throws JSONException {
-        JSONObject command=new JSONObject().put("description","Zakuro Android")
+        JSONObject command=new JSONObject().put("description","Zakuroishi")
             .put("command",COMPONENT+" -a android.intent.action.VIEW -d %ROM_URI% --grant-read-uri-permission");
-        return new JSONObject().put("id","ZAKURO_ANDROID").put("name","Zakuro Android").put("routeType","uri")
+        return new JSONObject().put("id","ZAKURO_ANDROID").put("name","Zakuroishi").put("routeType","uri")
             .put("commands",new JSONArray().put(command)).put("packages",new JSONArray().put("io.github.zakuro.android")).toString(2);
     }
     static byte[] patchIisu(byte[] original) throws IOException,JSONException {

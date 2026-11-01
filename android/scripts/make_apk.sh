@@ -11,7 +11,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/classes" "$work/dex" "$work/lib/arm64-v8a"
 # Only license notices are bundled; game files and driver packs remain user supplied.
-"$BUILD_TOOLS_BIN/aapt2" link -o "$work/unsigned.apk" --manifest "$manifest" -I "$ANDROID_JAR" -A "$app/src/main/assets"
+"$BUILD_TOOLS_BIN/aapt2" compile --dir "$app/src/main/res" -o "$work/resources.zip"
+"$BUILD_TOOLS_BIN/aapt2" link -o "$work/unsigned.apk" --manifest "$manifest" -I "$ANDROID_JAR" -A "$app/src/main/assets" "$work/resources.zip"
 mapfile -t sources < <(find "$java" -name '*.java' | LC_ALL=C sort)
 ((${#sources[@]} > 0))
 javac -nowarn --release 11 -classpath "$ANDROID_JAR" -d "$work/classes" "${sources[@]}"

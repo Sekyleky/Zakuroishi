@@ -53,7 +53,12 @@ public final class Launcher extends Activity {
         });
         boolean compact = getResources().getConfiguration().screenWidthDp < 500 || getResources().getConfiguration().fontScale > 1.3f;
         LinearLayout heading = new LinearLayout(this); heading.setOrientation(compact ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL); heading.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout identity = column(); identity.addView(text("Zakuro", 16, accent)); identity.addView(text("Your library", 30, ink));
+        LinearLayout identity = new LinearLayout(this); identity.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView logo = new ImageView(this); logo.setImageResource(getApplicationInfo().logo);
+        logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams logoSize = new LinearLayout.LayoutParams(dp(64),dp(64)); logoSize.setMargins(0,0,dp(12),0);
+        identity.addView(logo,logoSize);
+        LinearLayout wordmark = column(); wordmark.addView(text("Zakuroishi", 16, accent)); wordmark.addView(text("Your library", 30, ink)); identity.addView(wordmark);
         heading.addView(identity, compact ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.CENTER_VERTICAL);
         if (getResources().getConfiguration().fontScale > 1.3f) actions.setOrientation(LinearLayout.VERTICAL);
@@ -210,7 +215,7 @@ public final class Launcher extends Activity {
     void saves(String id) {
         if (task.busy) return;
         controllerDialog(new AlertDialog.Builder(this).setTitle("Saves · " + name(id))
-                .setMessage("Export your in-game saves to Downloads, an SD card or cloud storage. The ZIP contains ordinary save files you can extract on a computer.\n\nSave in-game and exit to the library first. Restore accepts a Zakuro save ZIP for this game. Quick save states are separate and are not included.")
+                .setMessage("Export your in-game saves to Downloads, an SD card or cloud storage. The ZIP contains ordinary save files you can extract on a computer.\n\nSave in-game and exit to the library first. Restore accepts a Zakuroishi save ZIP for this game. Quick save states are separate and are not included.")
                 .setPositiveButton("Export ZIP…", (d, w) -> pickSave(id, false))
                 .setNeutralButton("Restore ZIP…", (d, w) -> pickSave(id, true))
                 .setNegativeButton("Cancel", null).create()).show();
@@ -226,7 +231,7 @@ public final class Launcher extends Activity {
         Intent intent = new Intent(restore ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_CREATE_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType(restore ? "*/*" : "application/zip");
         intent.addFlags(restore ? Intent.FLAG_GRANT_READ_URI_PERMISSION : Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-        if (!restore) intent.putExtra(Intent.EXTRA_TITLE, "Zakuro-" + id + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + ".zip");
+        if (!restore) intent.putExtra(Intent.EXTRA_TITLE, "Zakuroishi-" + id + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + ".zip");
         pendingSaveId = id;
         try { startActivityForResult(intent, restore ? RESTORE_SAVE : EXPORT_SAVE); }
         catch (ActivityNotFoundException e) { pendingSaveId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
@@ -256,7 +261,7 @@ public final class Launcher extends Activity {
         String body = "1. Choose one game's Android build folder. It needs the original decrypted game and its Android ARM64 title.so.\n\n"
                 + "2. Texture packs are optional. Leave Include texture pack off to add just the game. You can attach a pack later from the game's Settings.\n\n"
                 + "3. Add the folder, then select Play. Reimporting keeps this app's saves.\n\n"
-                + "Native game code must be built for Zakuro Android ABI 4. If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
+                + "Native game code must be built for Zakuroishi Android ABI 4. If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
                 + "Only add builds you trust: native game code can access this app's files and saves.\n\n"
                 + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.\n\n"
                 + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/cec1270db38411f9c02d3f356fc3ed6c3f007424/docs/interface.md";
@@ -320,7 +325,7 @@ public final class Launcher extends Activity {
     }
     private void frontends() {
         controllerDialog(new AlertDialog.Builder(this).setTitle("Frontend library")
-            .setMessage("Export a small launch file for each imported game to a folder that Cocoon, iiSU or another frontend can scan. Games, textures and saves stay in Zakuro.\n\nChoose the exported Games folder in your frontend and configure Zakuro as its player. A Cocoon configuration and setup instructions are included. Some frontend versions need a custom player or the original ROM folder.\n\nExport again after adding games. Choose an empty folder the first time.")
+            .setMessage("Export a small launch file for each imported game to a folder that Cocoon, iiSU or another frontend can scan. Games, textures and saves stay in Zakuroishi.\n\nChoose the exported Games folder in your frontend and configure Zakuroishi as its player. A Cocoon configuration and setup instructions are included. Some frontend versions need a custom player or the original ROM folder.\n\nExport again after adding games. Choose an empty folder the first time.")
             .setPositiveButton("Export library…",(d,w)->{
                 if(task.busy) return;
                 Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
@@ -329,7 +334,7 @@ public final class Launcher extends Activity {
             }).setNeutralButton("Prepare iiSU config…",(d,w)->{
                 if(task.busy) return;
                 controllerDialog(new AlertDialog.Builder(this).setTitle("Choose iiSU's emuladores.json")
-                    .setMessage("Choose your current iiSU emulator catalog. Zakuro will save an edited copy that adds its player and .zkr extension, preserving other entries. The original is unchanged. Then import the copy in iiSU's Updates settings.\n\nOn this device, iiSU normally stores it in Android/media/com.iisulauncher/iiSULauncher/Emuladores.")
+                    .setMessage("Choose your current iiSU emulator catalog. Zakuroishi will save an edited copy that adds its player and .zkr extension, preserving other entries. The original is unchanged. Then import the copy in iiSU's Updates settings.\n\nOn this device, iiSU normally stores it in Android/media/com.iisulauncher/iiSULauncher/Emuladores.")
                     .setPositiveButton("Choose catalog…",(confirm,which)->{
                         Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
                         pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -440,7 +445,7 @@ public final class Launcher extends Activity {
                 } catch(Exception e) { failure=e.getMessage()==null?"Cannot prepare iiSU catalog":e.getMessage(); }
                 finally { try { context.getContentResolver().releasePersistableUriPermission(source,Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch(Exception ignored) { } }
                 final String result=failure;
-                main.post(()->{ busy=false; error=result; message=result==null?"iiSU catalog copy saved. Import it in iiSU Settings > Updates > Import emuladores.json, then select Zakuro for your 3DS games.":"iiSU preparation failed. Do not import the output file."; refresh(false); });
+                main.post(()->{ busy=false; error=result; message=result==null?"iiSU catalog copy saved. Import it in iiSU Settings > Updates > Import emuladores.json, then select Zakuroishi for your 3DS games.":"iiSU preparation failed. Do not import the output file."; refresh(false); });
             },"iisu-config").start();
         }
         void exportFrontend(Context context, Uri tree) {

@@ -1,9 +1,11 @@
-# Zakuro Android
+# Zakuroishi
 
 **[Download the latest Android release](https://github.com/Sekyleky/zakuro-android/releases/latest)** ·
 [Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/zakuro-android/issues/new/choose)
 
 An unofficial community fork, not an official release from the Zakuro developers.
+Previously named Zakuro Android. Existing installs update in place; the Android
+package, imported games and save locations are unchanged.
 Requires **64-bit ARM Android 11+ and Vulkan 1.3**. Games need a decrypted ROM and
 matching Android ABI-4 native code built on a computer; the APK does not compile
 games on your handheld. **HD texture packs are optional.**

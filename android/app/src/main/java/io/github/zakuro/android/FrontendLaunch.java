@@ -31,11 +31,11 @@ public final class FrontendLaunch extends Activity {
                 }
             } else if("file".equals(uri.getScheme())) {
                 try(FileInputStream in=new FileInputStream(new File(uri.getPath()))) { id=FrontendReference.read(in.getChannel()); }
-            } else throw new IOException("Use a content URI, file URI or Zakuro game link");
+            } else throw new IOException("Use a content URI, file URI or Zakuroishi game link");
             startActivity(GameLaunch.intent(this,id)); finish();
         } catch(Exception e) {
             new AlertDialog.Builder(this).setTitle("Couldn't launch this game")
-                .setMessage("Import this game into Zakuro first. Frontend references use the installed game's settings and saves.\n\n"+e.getMessage())
+                .setMessage("Import this game into Zakuroishi first. Frontend references use the installed game's settings and saves.\n\n"+e.getMessage())
                 .setPositiveButton("Open library",(d,w)->{ startActivity(new Intent(this,Launcher.class)); finish(); })
                 .setNegativeButton("Close",(d,w)->finish()).setOnCancelListener(d->finish()).show();
         }

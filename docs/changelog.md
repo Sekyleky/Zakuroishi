@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — 0.1.9 branding
+
+- Rename the app to **Zakuroishi** and add the supplied logo to the library
+  header, launcher and recent-app identity. Preserve the original SVG alongside
+  Android vector/adaptive-icon resources; both APK build paths compile them.
+- Keep the Android package, signing identity, JNI interface, game/save storage,
+  deep links and frontend reference identifiers compatible with existing installs.
+
 ## 0.1.8 — controller mapping, frontend launching and pacing
 
 - Add a dedicated per-game Button mapping menu with visible custom assignments,

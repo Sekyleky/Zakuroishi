@@ -1,5 +1,22 @@
 # Verification record
 
+## Zakuroishi branding (0.1.9, 2026-11-01)
+
+- Built and signed the Windows APK with application label **Zakuroishi**,
+  versionName **0.1.9**, versionCode **10**, and the existing package/signing key.
+- Replaced the initial artwork with the corrected user-supplied SVG. The full
+  Android vector retains its 22 colored paths, black canvas, CSS fill rules and
+  30480×30480 view box. Adaptive launcher artwork uses the same colored paths
+  over a matching black background. The original SVG is in `branding/`.
+- Installed over the existing Thor app without uninstalling. Visually checked
+  the corrected library logo and new name; both imported games and their
+  resolution/texture preferences remained listed. Java settings, native-contract,
+  driver-package and frontend-reference host checks passed during the branding
+  change. APK signing/alignment and resource linking passed for the corrected art.
+- Container resource compilation was updated to match the Windows build, but
+  a container APK build and a fresh gameplay/save-load test were not repeated
+  for this branding-only change.
+
 ## Controller hotkeys and frontend library (2026-11-01)
 
 Checks below used the pre-release build, retaining the current package and

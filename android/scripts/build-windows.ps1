@@ -86,7 +86,8 @@ try {
     $manifest = Join-Path $repo 'android/app/src/main/AndroidManifest.xml'
     $sources = @(Get-ChildItem "$repo/android/app/src/main/java" -Filter '*.java' -Recurse | Sort-Object FullName | ForEach-Object FullName)
     if (!$sources.Count) { throw 'No Java sources' }
-    Invoke-Tool "$tools/aapt2.exe" @('link','-o',"$work/unsigned.apk",'--manifest',$manifest,'-I',$androidJar)
+    Invoke-Tool "$tools/aapt2.exe" @('compile','--dir',"$repo/android/app/src/main/res",'-o',"$work/resources.zip")
+    Invoke-Tool "$tools/aapt2.exe" @('link','-o',"$work/unsigned.apk",'--manifest',$manifest,'-I',$androidJar,"$work/resources.zip")
     Invoke-Tool "$JavaHome/bin/javac.exe" (@('-nowarn','--release','11','-classpath',$androidJar,'-d',"$work/classes") + $sources)
     $classes = @(Get-ChildItem "$work/classes" -Filter '*.class' -Recurse | ForEach-Object FullName)
     Invoke-Tool "$tools/d8.bat" (@('--min-api','30','--lib',$androidJar,'--output',"$work/dex") + $classes)

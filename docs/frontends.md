@@ -66,6 +66,14 @@ describes platform folders, per-game players and rescanning.
 
 ## iiSU
 
+**Stock iiSU's Add game library folder is not currently a zero-configuration
+Zakuro integration.** The inspected iiSU 0.1.6.1 catalog does not list Zakuro, and
+its resolver detects only players already defined for the console. An Android
+intent filter or different export filename cannot register an unlisted player.
+The workflow below is a custom-catalog workaround, not native iiSU support.
+The [prepared upstream integration request](integrations/iisu-support-request.md)
+describes the catalog changes needed to remove this requirement for users.
+
 For setup without hand-editing JSON, choose **Frontends → Prepare iiSU config**.
 Select iiSU's current **emuladores.json**, then a new output file. Zakuro produces
 a full catalog copy, preserving existing consoles and players, adding its own
