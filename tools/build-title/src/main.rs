@@ -8,7 +8,8 @@ fn run() -> Result<(), String> {
     }
     let rom = PathBuf::from(&args[0]).canonicalize().map_err(|error| format!("Cannot read ROM: {error}"))?;
     let out = PathBuf::from(&args[1]);
-    let ndk = PathBuf::from(&args[2]).canonicalize().map_err(|error| format!("Cannot find NDK: {error}"))?;
+    // absolute, not canonicalize: clang finds its sysroot (math.h) next to itself, which fails from a \\?\ path
+    let ndk = std::path::absolute(PathBuf::from(&args[2])).map_err(|error| format!("Cannot find NDK: {error}"))?;
     let host = if cfg!(windows) { "windows-x86_64" } else if cfg!(target_os = "macos") { "darwin-x86_64" } else { "linux-x86_64" };
     let clang = ndk.join("toolchains/llvm/prebuilt").join(host).join("bin").join(if cfg!(windows) { "clang.exe" } else { "clang" });
     if !clang.is_file() { return Err(format!("Android NDK compiler not found: {}", clang.display())); }
@@ -17,7 +18,8 @@ fn run() -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     std::fs::create_dir(&out).map_err(|error| format!("Choose an output path that does not already exist: {error}"))?;
-    let out = out.canonicalize().map_err(|error| error.to_string())?;
+    // absolute, not canonicalize: Windows' \\?\ form keeps clang from finding recomp.h next to the sources
+    let out = std::path::absolute(&out).map_err(|error| error.to_string())?;
     let work = out.join("generated");
     let compiler = recomp3ds::compile::Compiler::new(clang, &[
         "--target=aarch64-linux-android30", "-fPIC", "-fvisibility=hidden", "-Wl,-z,max-page-size=16384",
