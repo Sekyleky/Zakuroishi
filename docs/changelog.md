@@ -37,6 +37,14 @@
   textures decode tile by tile with the format chosen once (RGBA8 4.7×, RGB565 2.3× on
   a desktop CPU, bit-identical). On the Thor the worst battle-start frame fell from a
   mean of 53.8 ms to 37.6 ms (3 alternating runs each, 46–64 ms vs 37–38 ms).
+- Fix the in-game HUD: clock, battery and FPS were collected but never drawn, because
+  NativeActivity takes the game window's surface and views added to it don't render. The
+  HUD now has a window of its own (touches pass through). It also shows battery
+  temperature and power draw, and with **Show native FPS** the emulation time per frame,
+  the worst frame and slow frames (> 17 ms) of the last second, and shader compiles.
+  The on-screen Pause button is now **Controls → Show pause button**, off by default
+  (Back or the controller's menu button pauses). Touch controls still draw in the
+  game window and remain invisible; not fixed yet.
 - **Warm up shaders at launch** from earlier sessions (two switches, on by default).
   Gameplay monitoring showed the worst spikes (38–67 ms) were CPU vertex processing on
   the interpreter while new vertex programs compiled. Each game's vertex program

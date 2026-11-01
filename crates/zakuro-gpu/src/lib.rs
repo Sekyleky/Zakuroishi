@@ -29,8 +29,8 @@ pub use device::SharedDevice;
 #[cfg(feature = "vulkan")]
 pub use raster::hardware::{take_caller_stats, take_wait_stats};
 
-/// shader work since the last take, GPU pipelines and CPU vertex programs
-/// compiled, for telling a hitch's cause from its log line.
+/// shader work since start, GPU pipelines and CPU vertex programs compiled;
+/// the hitch line and the HUD each report the change since they last looked.
 pub static PIPELINES_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static PROGRAMS_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 

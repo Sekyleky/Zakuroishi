@@ -67,12 +67,39 @@ public final class Game extends NativeActivity {
     private android.hardware.input.InputManager inputManager;
     private android.widget.FrameLayout touchOverlay;
     private String batteryText = "";
+    private float batteryVolts;
+    /** the power the battery gives or takes now, or "" where the device doesn't say. */
+    private String batteryPower() {
+        android.os.BatteryManager manager=(android.os.BatteryManager)getSystemService(BATTERY_SERVICE);
+        int micro=manager==null ? Integer.MIN_VALUE : manager.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
+        if(micro==Integer.MIN_VALUE || micro==0 || batteryVolts<=0) return "";
+        // some devices report mA instead of µA
+        float amps=Math.abs(micro)>=20000 ? Math.abs(micro)/1e6f : Math.abs(micro)/1e3f;
+        return String.format(java.util.Locale.ROOT," %.1f W",amps*batteryVolts);
+    }
+    /** HUD windows of their own: NativeActivity takes this window's surface, so views added to it never draw. */
+    private final java.util.List<android.view.View> panels = new java.util.ArrayList<>();
+    private void panel(android.view.View view, int gravity, boolean touchable) {
+        getWindow().getDecorView().post(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            WindowManager.LayoutParams params = new WindowManager.LayoutParams(-2, -2, WindowManager.LayoutParams.TYPE_APPLICATION_PANEL,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                    | (touchable ? WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL : WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
+                android.graphics.PixelFormat.TRANSLUCENT);
+            params.gravity = gravity; params.x = dp(8); params.y = dp(8);
+            params.token = getWindow().getDecorView().getWindowToken();
+            try { getWindowManager().addView(view, params); panels.add(view); }
+            catch (RuntimeException e) { android.util.Log.w("Zakuro", "Could not show a HUD window", e); }
+        });
+    }
     private boolean batteryRegistered;
     private final android.content.BroadcastReceiver batteryReceiver = new android.content.BroadcastReceiver() {
         public void onReceive(android.content.Context context, android.content.Intent battery) {
             int level=battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1), scale=battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,-1);
-            int status=battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS,-1);
-            batteryText=level>=0 && scale>0 ? Math.round(level*100f/scale)+"%" + ((status==android.os.BatteryManager.BATTERY_STATUS_CHARGING || status==android.os.BatteryManager.BATTERY_STATUS_FULL) ? " charging" : "") : "";
+            int status=battery.getIntExtra(android.os.BatteryManager.EXTRA_STATUS,-1), tenths=battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE,Integer.MIN_VALUE);
+            batteryVolts=battery.getIntExtra(android.os.BatteryManager.EXTRA_VOLTAGE,0)/1000f;
+            batteryText=level>=0 && scale>0 ? Math.round(level*100f/scale)+"%" + ((status==android.os.BatteryManager.BATTERY_STATUS_CHARGING || status==android.os.BatteryManager.BATTERY_STATUS_FULL) ? " charging" : "")
+                + (tenths!=Integer.MIN_VALUE ? String.format(java.util.Locale.ROOT," %.1f°C",tenths/10f) : "") : "";
         }
     };
     private final android.hardware.input.InputManager.InputDeviceListener inputListener = new android.hardware.input.InputManager.InputDeviceListener() {
@@ -104,9 +131,10 @@ public final class Game extends NativeActivity {
         public void run() {
             if (stats != null && settings != null) {
                 String text = settings.flag("show_clock") ? android.text.format.DateFormat.getTimeFormat(Game.this).format(new java.util.Date()) : "";
-                if (settings.flag("show_battery")) text += "  " + batteryText;
-                if (settings.flag("show_fps")) text += "  " + nativeStats;
+                if (settings.flag("show_battery")) text += "  " + batteryText + batteryPower();
+                if (settings.flag("show_fps") && !nativeStats.isEmpty()) text += "\n" + nativeStats;
                 stats.setText(text.trim());
+                stats.setVisibility(text.trim().isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
             }
             hud.postDelayed(this, 1000);
         }
@@ -131,9 +159,10 @@ public final class Game extends NativeActivity {
         });
         android.widget.Button menu = new android.widget.Button(this); menu.setText("Pause");
         menu.setContentDescription("Open game pause menu"); menu.setOnClickListener(v -> pauseMenu());
-        overlay.addView(menu, new android.widget.FrameLayout.LayoutParams(-2, dp(52), android.view.Gravity.TOP | android.view.Gravity.END));
-        stats = new android.widget.TextView(this); stats.setTextColor(0xffffffff); stats.setBackgroundColor(0x99000000); stats.setTextSize(15);
-        overlay.addView(stats, new android.widget.FrameLayout.LayoutParams(-2,-2,android.view.Gravity.TOP | android.view.Gravity.START));
+        if (settings.flag("show_pause_button")) panel(menu, android.view.Gravity.TOP | android.view.Gravity.END, true);
+        stats = new android.widget.TextView(this); stats.setTextColor(0xffffffff); stats.setBackgroundColor(0x99000000); stats.setTextSize(13);
+        stats.setPadding(dp(6), dp(3), dp(6), dp(3)); stats.setVisibility(android.view.View.GONE);
+        panel(stats, android.view.Gravity.TOP | android.view.Gravity.START, false);
         if (settings.flag("touch_controls")) {
             touchOverlay = new android.widget.FrameLayout(this);
             overlay.addView(touchOverlay,new android.widget.FrameLayout.LayoutParams(-1,-1));
@@ -319,6 +348,10 @@ public final class Game extends NativeActivity {
         if (secondDisplay != null) { secondDisplay.dismiss(); secondDisplay=null; }
         nativeSecondSurface(null);
         hud.removeCallbacksAndMessages(null);
+        for (android.view.View view : panels) {
+            try { getWindowManager().removeViewImmediate(view); } catch (RuntimeException e) { android.util.Log.w("Zakuro", "Removing a HUD window", e); }
+        }
+        panels.clear();
         if (pauseDialog != null) pauseDialog.dismiss();
         if (errorDialog != null) { errorDialog.dismiss(); errorDialog = null; }
         // NativeActivity unload joins android_main; only then may a new native session start.

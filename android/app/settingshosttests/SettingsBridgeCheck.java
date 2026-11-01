@@ -41,7 +41,7 @@ public final class SettingsBridgeCheck {
                 || !platform.contains("\"([IJ)V\"") || !platform.contains("JValue::Long(target_nanos)"))
             throw new AssertionError("Performance hint target signature mismatch");
         for(GameSettings.Setting setting:GameSettings.ALL) {
-            if(setting.key.equals("show_clock") || Arrays.asList("touch_controls","touch_auto_hide","show_battery","orientation").contains(setting.key)) continue; // Java overlay settings.
+            if(setting.key.equals("show_clock") || Arrays.asList("touch_controls","touch_auto_hide","show_battery","show_pause_button","orientation").contains(setting.key)) continue; // Java overlay settings.
             if(!Pattern.compile("pub\\s+"+setting.key+"\\s*:").matcher(settings).find())
                 throw new AssertionError("No native advanced setting: "+setting.key);
         }

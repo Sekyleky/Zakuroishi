@@ -457,6 +457,14 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let (mut worst_core, mut worst_frame, mut slow_frames) = (Duration::ZERO, Duration::ZERO, 0u32);
     let mut present_time = Duration::ZERO;
     let mut last_hitch_log: Option<Instant> = None;
+    // The HUD's second: emulation work, worst whole frame, frames over 17 ms.
+    let (mut hud_work, mut hud_worst, mut hud_frames, mut hud_slow) = (Duration::ZERO, Duration::ZERO, 0u32, 0u32);
+    // Shader compiles (pipelines, vertex programs) at the last hitch line and HUD update.
+    let compiles = || {
+        let load = |counter: &std::sync::atomic::AtomicU32| counter.load(std::sync::atomic::Ordering::Relaxed);
+        (load(&zakuro_gpu::PIPELINES_COMPILED), load(&zakuro_gpu::PROGRAMS_COMPILED))
+    };
+    let (mut hitch_compiles, mut hud_compiles) = (compiles(), compiles());
     let hint_target = if emulation_interval.is_zero() { frame_time / 4 } else { emulation_interval };
     platform::start_performance_hints(app, hint_target.as_nanos() as i64);
     loop {
@@ -576,6 +584,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 stats_cycles = 0;
                 stats_frames = 0;
                 stats_start = Instant::now();
+                (hud_work, hud_worst, hud_frames, hud_slow) = (Duration::ZERO, Duration::ZERO, 0, 0);
                 core_time = Duration::ZERO;
                 present_time = Duration::ZERO;
             }
@@ -893,6 +902,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         let present = present_start.elapsed();
         present_time += present;
         let frame = core_start.elapsed();
+        (hud_work, hud_worst, hud_frames) = (hud_work + work, hud_worst.max(frame), hud_frames + 1);
+        hud_slow += u32::from(frame > Duration::from_millis(17));
         worst_frame = worst_frame.max(frame);
         slow_frames += u32::from(frame > Duration::from_micros(16_000));
         if frame > Duration::from_millis(25)
@@ -901,11 +912,13 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             last_hitch_log = Some(Instant::now());
             let timestamp_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
             // Compiles since the previous hitch line: tells shader work from other stalls.
-            let take = |counter: &std::sync::atomic::AtomicU32| counter.swap(0, std::sync::atomic::Ordering::Relaxed);
+            let now = compiles();
+            let since = (now.0.wrapping_sub(hitch_compiles.0), now.1.wrapping_sub(hitch_compiles.1));
+            hitch_compiles = now;
             log::info!("frame hitch timestamp_ms={timestamp_ms} core_ms={:.2} present_ms={:.2} total_ms={:.2} core_over_budget={} present_over_budget={} pipelines_compiled={} programs_compiled={}",
                 work.as_secs_f64() * 1000.0, present.as_secs_f64() * 1000.0, frame.as_secs_f64() * 1000.0,
                 work > Duration::from_nanos(16_666_667), present > Duration::from_nanos(16_666_667),
-                take(&zakuro_gpu::PIPELINES_COMPILED), take(&zakuro_gpu::PROGRAMS_COMPILED));
+                since.0, since.1);
             // where this frame's emulation time went (nested: gpu holds decode/vertices/upload/submit)
             let parts: Vec<String> = zakuro_gpu::FRAME_PARTS.iter().zip(&zakuro_gpu::FRAME_NS)
                 .map(|(name, ns)| format!("{name}_ms={:.2}", ns.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6)).collect();
@@ -916,14 +929,19 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let elapsed = stats_start.elapsed();
             let (fps, speed) = emulation_rates(stats_cycles, elapsed);
             if settings.show_fps {
+                let now = compiles();
+                let new = now.0.wrapping_sub(hud_compiles.0) + now.1.wrapping_sub(hud_compiles.1);
+                hud_compiles = now;
                 platform::stats(
                     app,
                     &format!(
-                        "{:.1} emu FPS ({:.0}%) | {:.1} presented FPS",
-                        fps, speed, f64::from(stats_frames) / elapsed.as_secs_f64()
+                        "{:.1} FPS ({:.0}%) | {:.1} shown\nemu {:.1} ms | worst {:.1} ms | {} slow | {} compiles",
+                        fps, speed, f64::from(stats_frames) / elapsed.as_secs_f64(),
+                        hud_work.as_secs_f64() * 1000.0 / f64::from(hud_frames.max(1)), hud_worst.as_secs_f64() * 1000.0, hud_slow, new
                     ),
                 );
             }
+            (hud_work, hud_worst, hud_frames, hud_slow) = (Duration::ZERO, Duration::ZERO, 0, 0);
             stats_frames = 0;
             stats_cycles = 0;
             stats_start = Instant::now();
