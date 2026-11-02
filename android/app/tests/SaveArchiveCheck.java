@@ -172,12 +172,33 @@ public final class SaveArchiveCheck {
             delete(previous); Files.write(previous, text("do not remove"));
             fails(() -> restore(files, exported)); require(snapshot(user).equals(before));
             require(Arrays.equals(Files.readAllBytes(previous), text("do not remove"))); Files.delete(previous);
+            testEditorAccess(files, root, user, previous);
             testLinks(files, root, user, exported);
             try (DirectoryStream<Path> children = Files.newDirectoryStream(parent, "user.retired-*")) {
                 require(!children.iterator().hasNext());
             }
         }
         try (SaveArchive.Guard again = SaveArchive.lock(files, TITLE)) { require(true); }
+    }
+    // The file picker's saves: paths stay inside user/, and an edit is preceded by a backup.
+    private static void testEditorAccess(File files, Path root, Path user, Path previous) throws Exception {
+        require(SaveArchive.saveFile(files, TITLE, "").equals(user));
+        require(SaveArchive.saveFile(files, TITLE, "empty/nested").equals(user.resolve("empty/nested")));
+        for (String escape : new String[] {"..", "../user.previous", "empty/../../x", "/abs", "a//b", "a\\b", "a:b"})
+            fails(() -> SaveArchive.saveFile(files, TITLE, escape));
+        fails(() -> SaveArchive.saveFile(files, "../../invalid", "slot.bin"));
+        Path link = user.resolve("linked");
+        try { Files.createSymbolicLink(link, root); } catch (IOException | UnsupportedOperationException noLinks) { link = null; }
+        if (link != null) { final Path through = link; fails(() -> SaveArchive.saveFile(files, TITLE, "linked/x")); Files.delete(through); }
+        SaveArchive.backup(files, TITLE);
+        require(Arrays.equals(Files.readAllBytes(previous.resolve("slot.bin")), text("original save")));
+        require(Files.isDirectory(previous.resolve("empty/nested")));
+        Files.write(user.resolve("slot.bin"), text("edited"));
+        SaveArchive.backup(files, TITLE);
+        require(Arrays.equals(Files.readAllBytes(previous.resolve("slot.bin")), text("edited")));
+        Files.write(user.resolve("slot.bin"), text("original save"));
+        try (DirectoryStream<Path> stale = Files.newDirectoryStream(user.getParent(), "save-backup-*")) { require(!stale.iterator().hasNext()); }
+        delete(previous);
     }
     private static void testLinks(File files, Path root, Path user, byte[] exported) throws Exception {
         Path outside = Files.createDirectory(root.resolve("outside"));

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Save editors can open saves directly.** Zakuroishi lists each game's in-game saves
+  in Android's file picker (**Zakuroishi saves**), so editors such as PKForge open and
+  write them in place without root or a copy. Writes are refused while the game runs
+  and back the saves up to `user.previous` first; nothing can be created, renamed or
+  deleted there.
+
 ## 0.1.9 — Zakuroishi, shader warm-up and hitch fixes (2026-11-01)
 
 - Rename the app to **Zakuroishi** and add the supplied logo to the library

@@ -124,6 +124,38 @@ final class SaveArchive {
         } finally { cleanup(work); }
     }
 
+    /** A file or folder of a game's in-game saves, by its path below user/; refuses paths that leave it or pass a link. */
+    static Path saveFile(File filesDir, String titleId, String relative) throws IOException {
+        Path user = parent(filesDir, titleId).resolve("user");
+        checkDirectory(user);
+        if (relative.isEmpty()) return user;
+        validateName("user/" + relative);
+        Path path = user;
+        for (String part : relative.split("/")) {
+            path = path.resolve(part);
+            if (Files.isSymbolicLink(path)) throw new IOException("Symlink in saves");
+        }
+        return path;
+    }
+
+    /** Copies the in-game saves to user.previous, replacing the older copy, before an external editor changes them. */
+    static void backup(File filesDir, String titleId) throws IOException {
+        Path parent = parent(filesDir, titleId), user = parent.resolve("user"), previous = parent.resolve("user.previous");
+        List<Path> paths = new ArrayList<>();
+        collect(user, user, paths, new long[2]);
+        Path staged = Files.createTempDirectory(parent, "save-backup-");
+        try {
+            for (Path path : paths) {
+                Path target = staged.resolve(user.relativize(path).toString());
+                if (Files.isDirectory(path, NOFOLLOW)) Files.createDirectories(target);
+                else Files.copy(path, target, LinkOption.NOFOLLOW_LINKS);
+            }
+            checkDirectory(previous);
+            if (exists(previous)) deleteTree(previous);
+            Files.move(staged, previous);
+        } finally { cleanup(staged); }
+    }
+
     private static byte[] manifest(String title) {
         return ("zakuro-save-archive=1\ntitle=" + title + "\n").getBytes(StandardCharsets.UTF_8);
     }

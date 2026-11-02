@@ -193,6 +193,15 @@ Manage saves**). You do not need root access or an app-data file manager.
   replacement. The archive is checked before replacing the current saves. The
   previous saves are retained locally as a recovery copy.
 
+**Save editors (file picker).** Zakuroishi appears as **Zakuroishi saves** in
+Android's file picker (Open from → scroll the side drawer), with one folder per game
+holding its in-game saves, e.g. `savedata/<TITLE_ID>/main` for the Pokémon games. An
+editor that opens files through the picker (PKForge, PKHeX ports) can open and save
+them in place; no extra permission is needed and other apps only get the file you
+pick. Writes are refused while that game is running, each write first copies the
+saves to `user.previous`, and files can't be created, renamed or deleted from the
+picker. Quick save states are not listed.
+
 Save transfers are blocked while the game's runtime holds its saves open, including
 when it is paused in the background. Exit the game rather than just pressing Home.
 After restoring, launch normally; loading an older quick save state can overwrite
