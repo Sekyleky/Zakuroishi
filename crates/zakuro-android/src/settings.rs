@@ -241,6 +241,8 @@ impl Advanced {
             async_pack_lookup: self.async_pack_lookup,
             warm_vertex_programs: self.warm_vertex_programs,
             warm_pipelines: self.warm_pipelines,
+            // upstream 0.2.31's default; no Android setting for it yet
+            shade_ahead: true,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {

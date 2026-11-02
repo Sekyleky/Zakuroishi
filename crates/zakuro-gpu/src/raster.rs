@@ -862,9 +862,12 @@ pub(crate) fn same_bits(a: &[Vec4], b: &[Vec4]) -> bool {
 }
 
 /// whether draws hand their vertex work to other threads, see Gpu::scout,
-/// unless ZAKURO_SHADE_AHEAD is 0.
+/// unless ZAKURO_SHADE_AHEAD is 0 or the renderer options turn it off.
 #[cfg(feature = "vulkan")]
 fn shading_ahead() -> bool {
+    if let Some(options) = crate::backend::renderer_options() {
+        return options.shade_ahead;
+    }
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var("ZAKURO_SHADE_AHEAD").map_or(true, |value| value != "0"))
 }
