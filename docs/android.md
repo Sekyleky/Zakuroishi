@@ -143,6 +143,8 @@ Performance switches for A/B testing (all apply at the next launch):
 - **Warm up vertex programs / GPU pipelines at launch**, on: compiles what earlier
   sessions used in the background at start; battle-start worst frame 66.7 → 41.3 ms.
   The first session of a game still compiles as it goes.
+- **Shade draws on other threads**, on: upstream 0.2.31's shade-ahead for the CPU
+  vertex path; off only to compare.
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 

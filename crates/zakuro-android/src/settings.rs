@@ -148,6 +148,8 @@ pub struct Advanced {
     /// shader warm-up at launch from earlier sessions (0.1.9).
     pub warm_vertex_programs: bool,
     pub warm_pipelines: bool,
+    /// upstream 0.2.31: shade a command list's draws ahead on other threads.
+    pub shade_ahead: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -214,6 +216,7 @@ impl Default for Advanced {
             async_pack_lookup: true,
             warm_vertex_programs: true,
             warm_pipelines: true,
+            shade_ahead: true,
             enhancements: Vec::new(),
         }
     }
@@ -242,7 +245,7 @@ impl Advanced {
             warm_vertex_programs: self.warm_vertex_programs,
             warm_pipelines: self.warm_pipelines,
             // upstream 0.2.31's default; no Android setting for it yet
-            shade_ahead: true,
+            shade_ahead: self.shade_ahead,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {
@@ -404,6 +407,8 @@ mod tests {
         assert!(options.warm_vertex_programs && options.warm_pipelines);
         let cold = Advanced::parse(r#"{"warm_vertex_programs":false,"warm_pipelines":false}"#).unwrap().renderer_options();
         assert!(!cold.warm_vertex_programs && !cold.warm_pipelines);
+        assert!(options.shade_ahead);
+        assert!(!Advanced::parse(r#"{"shade_ahead":false}"#).unwrap().renderer_options().shade_ahead);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
         assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
     }
