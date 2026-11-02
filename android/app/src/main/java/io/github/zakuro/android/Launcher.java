@@ -261,7 +261,7 @@ public final class Launcher extends Activity {
         String body = "1. Choose one game's Android build folder. It needs the original decrypted game and its Android ARM64 title.so.\n\n"
                 + "2. Texture packs are optional. Leave Include texture pack off to add just the game. You can attach a pack later from the game's Settings.\n\n"
                 + "3. Add the folder, then select Play. Reimporting keeps this app's saves.\n\n"
-                + "Native game code must be built for Zakuroishi Android ABI 4. If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
+                + "Native game code must be built for Zakuroishi Android ABI 5 (ABI 4 code still runs; rebuilding it runs faster). If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
                 + "Only add builds you trust: native game code can access this app's files and saves.\n\n"
                 + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.\n\n"
                 + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/cec1270db38411f9c02d3f356fc3ed6c3f007424/docs/interface.md";

@@ -12,18 +12,23 @@ All of these must agree; filename and ELF machine alone are insufficient:
 | Layer | Required for this Android host | Evidence |
 | --- | --- | --- |
 | OS/CPU | Android ELF64 little-endian AArch64 ET_DYN, Android API 30-compatible imports | `android/scripts/Containerfile`, `ImportPlan.java`, NDK readelf |
-| Recompiler interface | Exported `recomp_abi` **value 4**, not merely a symbol with that name | Cargo.lock pins `recomp-abi` to `cec1270db38411f9c02d3f356fc3ed6c3f007424`; matching abi/src/lib.rs:14 |
-| Generator contract | Compatible `recomp.h`, entry/module tables and generation/origin layout from that same revision | 3dsrecomp abi/src/lib.rs:311 and docs/interface.md |
-| Memory access | Callback/page-table ABI 4; no ABI-5 fastmem context requirement | Android host `crates/zakuro-core/src/recompiled.rs`; local PN recompiler/abi/src/lib.rs:14 is ABI 5 |
+| Recompiler interface | Exported `recomp_abi` **value 5**, or 4 (`OLDEST_ABI`), not merely a symbol with that name | Cargo.lock pins `recomp-abi` to `73b8f9caf3700991c290dd84bccffb92294d6b15`; abi/src/lib.rs:14-18 (`ABI = 5`, `OLDEST_ABI = 4`) |
+| Generator contract | Compatible `recomp.h`, entry/module tables and generation/origin layout from that same revision; `recomp_generation` 5 is current, older generations still run | 3dsrecomp abi/src/lib.rs:25 and docs/interface.md |
+| Memory access | Page tables plus host callbacks, as in ABI 4. Upstream ABI 5 only adds the `svc` host callback (svcs run in place) and the optional `recomp_natives` byte; it has **no** fast-memory context. A library exporting `recomp_fastmem` is Pocket Native's own ABI 5 and is rejected | `crates/zakuro-core/src/recompiled.rs` (`HOST`, `Library::run`); local PN recompiler/abi/src/lib.rs:85 adds `Context::fastmem` |
 | Guest code | Same title ID, game region/version, update and code-changing mods as the input used to recompile | Loader code/origin checks; title ROM header |
 | Native dependencies | All required dynamic symbols available in Android's public system libraries; no desktop glibc or host DLL imports | `llvm-readelf --dynamic --dyn-syms --version-info` |
 | Page sizes | 16 KB-aligned LOAD segments for modern devices; runtime code must also avoid fixed-page assumptions | NDK linker `-Wl,-z,max-page-size=16384`; readelf program headers |
 
-The inspected local Pocket Native branch is `thor-textures`, HEAD `c16f4e3`,
-with additional dirty Vulkan/driver changes. Its recompiler ABI is **5** and its
-Linux kit invokes `RECOMP_CFLAGS=-DRECOMP_FASTMEM` with a Linux AArch64 compiler
-(`scripts/container/inside.sh:35`). That library is not an ABI-4 Android library.
-The reported game failure is consistent with this mismatch. Never change an
+Two different interfaces are both numbered 5. Upstream 3dsrecomp's ABI 5 (pinned
+here) keeps ABI 4's page-table memory model and adds the `svc` callback; the
+runtime still accepts ABI-4 code, which simply never calls it. The inspected local
+Pocket Native branch is `thor-textures`, HEAD `c16f4e3`, with additional dirty
+Vulkan/driver changes. Its recompiler ABI is also **5**, but its `Context` has an
+extra `fastmem` pointer and its Linux kit invokes `RECOMP_CFLAGS=-DRECOMP_FASTMEM`
+with a Linux AArch64 compiler (`scripts/container/inside.sh:35`). Such a library
+exports `recomp_fastmem` and reads memory through a pointer this host never
+provides, so import and replacement reject it. The reported game failure is
+consistent with this mismatch. Never change an
 exported ABI number, remove a loader check, or rename Linux code as an Android
 compatibility fix: these actions do not change structure layouts or memory access.
 
@@ -36,8 +41,11 @@ can establish that a particular library loads and runs on that architecture.
 
 Use the exact generator revision pinned by this APK, not the current default
 branch of Pocket Native or 3dsrecomp. The reference is
-[3dsrecomp at cec1270](https://github.com/fearkov/3dsrecomp/tree/cec1270db38411f9c02d3f356fc3ed6c3f007424)
-and its [interface contract](https://github.com/fearkov/3dsrecomp/blob/cec1270db38411f9c02d3f356fc3ed6c3f007424/docs/interface.md).
+[3dsrecomp at 73b8f9c](https://github.com/fearkov/3dsrecomp/tree/73b8f9caf3700991c290dd84bccffb92294d6b15)
+and its [interface contract](https://github.com/fearkov/3dsrecomp/blob/73b8f9caf3700991c290dd84bccffb92294d6b15/docs/interface.md).
+Libraries built with the earlier pin (`cec1270`, ABI 4) still load; rebuilding
+them with this one gives generation-5 code (svcs run in place, divisions on the
+host), which the runtime logs as an outdated library otherwise.
 If Cargo.lock changes, re-audit this instruction before generating more libraries.
 
 The workspace tool uses that exact generator dependency and applies the Android
@@ -58,7 +66,8 @@ disk space. No output directory is reused across ABI revisions.
 
 The compiler target is `aarch64-linux-android30`; required generator flags include
 `-O2 -ffp-contract=off -fno-math-errno`, PIC, hidden visibility, no undefined
-symbols and 16 KB LOAD alignment. No `RECOMP_FASTMEM` is defined. A Windows-hosted
+symbols and 16 KB LOAD alignment. No `RECOMP_FASTMEM` is defined; the pinned
+generator has no such mode. A Windows-hosted
 generator may name its intermediate output `.dll`; the emitted format is Android
 ELF because the compiler is the Android NDK. The tool copies the result to
 `title.so`. Renaming an actual PE DLL or Linux/glibc library remains invalid.
@@ -90,7 +99,8 @@ Get-FileHash './title.so' -Algorithm SHA256
 ```
 
 Expect AArch64, Android system dependencies, LOAD alignment at least `0x4000`,
-the ABI-4 interface exports and no host RPATH/RUNPATH. `readelf --dyn-syms` shows
+the interface exports (`recomp_abi` 5, plus `recomp_generation` and, when the
+title has the divisions, `recomp_natives`) and no host RPATH/RUNPATH. `readelf --dyn-syms` shows
 that a data symbol exists, not the integer stored in it: use the tested ELF
 inspection helper or a controlled loader probe to read `recomp_abi` and any
 `recomp_fastmem` value. Do not execute an untrusted library merely to inspect it.

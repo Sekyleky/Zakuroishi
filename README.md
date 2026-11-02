@@ -7,7 +7,7 @@ An unofficial community fork, not an official release from the Zakuro developers
 Previously named Zakuro Android. Existing installs update in place; the Android
 package, imported games and save locations are unchanged.
 Requires **64-bit ARM Android 11+ and Vulkan 1.3**. Games need a decrypted ROM and
-matching Android ABI-4 native code built on a computer; the APK does not compile
+matching Android ABI-5 native code built on a computer (ABI-4 builds still run); the APK does not compile
 games on your handheld. **HD texture packs are optional.**
 
 Experimental Android frontend for [Zakuro](https://github.com/fearkov/zakuro), based on
@@ -17,8 +17,9 @@ built native game code. It includes no games, firmware, keys or texture packs.
 **Start here:** [Install, import and play](docs/android.md). For an existing import
 that reports an incompatible native library, use the
 [native-code compatibility and repair guide](docs/native-library.md). An ARM64
-file from Pocket Native is not automatically compatible: this host uses ABI 4,
-while the inspected Pocket Native fastmem generator uses ABI 5.
+file from Pocket Native is not automatically compatible: this host uses upstream
+3dsrecomp's ABI 5 (and still runs ABI 4), while the inspected Pocket Native
+fastmem generator's own ABI 5 needs a fast-memory context this host lacks.
 
 ## Documentation
 

@@ -204,7 +204,7 @@ pub fn load(path: impl AsRef<std::path::Path>, mut config: Config) -> Result<Sys
             }
             Err(error) => {
                 if system.config.require_recompiled {
-                    return Err(LoadError::NativeLibrary(format!("{error}. Use an Android library built for this Zakuro ABI; Pocket Native ABI 5/fast-memory libraries need rebuilding for this runtime.")));
+                    return Err(LoadError::NativeLibrary(format!("{error}. Use an Android library built for this Zakuro (ABI 5, or 4); Pocket Native ABI 5 fast-memory libraries need rebuilding for this runtime.")));
                 }
                 log::warn!("could not load {}, {error}, interpreting everything", path.display());
             }

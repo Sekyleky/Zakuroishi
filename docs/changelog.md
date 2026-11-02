@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Upstream Zakuro 0.2.31 renderer and CPU work.** Draws are shaded on other
+  threads ahead of the walk that draws them (`shade_ahead` renderer option),
+  decoded textures are read again only once memory was written over them,
+  mipmapped textures sample their smaller sizes, and the CPU vertex JIT compiles
+  quickly first and again in full once a program is hot (both through the two
+  queued `shader jit` workers; warm-up compiles in full). Plus framebuffer flip,
+  projected texture and stencil fixes.
+- **Recompiled code runs svcs in place (3dsrecomp ABI 5).** The pinned generator
+  moves to `73b8f9c` (ABI 5, generation 5); `build-title` now makes ABI-5 code.
+  ABI-4 libraries still load and run; rebuild them for the faster code. Memory
+  access is unchanged (page tables and callbacks, no fast memory). Pocket Native
+  fast-memory libraries stay rejected.
 - **Save editors can open saves directly.** Zakuroishi lists each game's in-game saves
   in Android's file picker (**Zakuroishi saves**), so editors such as PKForge open and
   write them in place without root or a copy. Writes are refused while the game runs

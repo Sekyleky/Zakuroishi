@@ -251,7 +251,7 @@ public final class ImportPlanCheck {
     }
     private static void incompatibleCode() throws Exception {
         for (byte[] bytes : new byte[][]{elf(183), NativeFixture.elf(5, true),
-                NativeFixture.elf(5, false), NativeFixture.elf(4, true)}) {
+                NativeFixture.elf(6, false), NativeFixture.elf(4, true)}) {
             Tree tree = valid();
             tree.blobs.get("code").prefix = bytes;
             tree.blobs.get("code").length = bytes.length;

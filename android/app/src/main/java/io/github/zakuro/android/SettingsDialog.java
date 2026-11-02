@@ -117,7 +117,7 @@ final class SettingsDialog {
             }
             if (repair != null) {
                 Button replace = button("Replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);
-                content.addView(text("Choose a trusted Android ABI 4 title.so. The ROM, textures and saves stay in place.", true));
+                content.addView(text("Choose a trusted Android ABI 5 title.so (ABI 4 still runs). The ROM, textures and saves stay in place.", true));
             }
         }
         if (!inGame && activity instanceof Launcher) {

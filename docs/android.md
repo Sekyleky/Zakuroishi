@@ -36,7 +36,7 @@ adb -s DEVICE_SERIAL shell am start -n io.github.zakuro.android/.Launcher
 ## Add a game
 
 1. Prepare one folder containing your original decrypted `.3ds`, `.cci` or `.cxi`
-   ROM and its matching Android ARM64 **ABI 4** `title.so`.
+   ROM and its matching Android ARM64 **ABI 5** `title.so` (ABI 4 builds still run).
 2. Choose **Add game** and select that folder. Leave **Include texture pack** off
    for the original graphics. Textures are optional and can be attached later.
 3. The app inspects the ROM, native interface, selected asset headers and sizes,
@@ -60,8 +60,9 @@ select a matching Android `title.so`. This copies only the replacement library,
 keeps a backup of the previous library, and preserves the ROM, pack and saves.
 Restart the game afterward.
 
-The inspected Pocket Native fast-memory library uses ABI 5 and cannot run on this
-ABI 4 host. Renaming it or changing its ABI number is not a fix. Use the pinned
+The inspected Pocket Native fast-memory library is numbered ABI 5 but is not
+upstream 3dsrecomp's ABI 5: it needs a fast-memory context this host does not
+provide. Renaming it or changing its ABI number is not a fix. Use the pinned
 [build-title tool and compatibility guide](native-library.md) to rebuild it.
 Errors now include the native loader's reason instead of requiring logcat for
 the basic diagnosis. `adb logcat` remains useful for detailed renderer failures.

@@ -8,15 +8,16 @@ import java.util.*;
 
 /** Inspect exported ABI data without loading or executing untrusted native code. */
 final class NativeLibrary {
-    static final int ABI = 4;
+    /** recomp_abi::ABI of the pinned 3dsrecomp, and OLDEST_ABI, the oldest code it still runs. */
+    static final int ABI = 5, OLDEST_ABI = 4;
     static final class Info {
         final int abi;
         final boolean fastMemory;
         Info(int abi, boolean fastMemory) { this.abi = abi; this.fastMemory = fastMemory; }
         String describe() { return "ABI " + abi + (fastMemory ? " with Pocket Native fast memory" : ""); }
         void requireCompatible() throws IOException {
-            if (abi != ABI || fastMemory) throw new IOException("This title.so uses " + describe()
-                    + ". Zakuroishi Android requires ABI " + ABI + " without fast memory. Rebuild this game's native code with Zakuroishi's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
+            if (abi < OLDEST_ABI || abi > ABI || fastMemory) throw new IOException("This title.so uses " + describe()
+                    + ". Zakuroishi Android requires ABI " + ABI + " (or " + OLDEST_ABI + ") without fast memory. Rebuild this game's native code with Zakuroishi's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
         }
     }
     private static ByteBuffer bytes(SeekableByteChannel file, long offset, int size) throws IOException {
