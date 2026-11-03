@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Menus.** One orange palette from the logo for dark and light mode, used by the
+  library, settings and in-game menus. Every control shows focus (solid orange with
+  a ring; rows get an orange outline). The pause menu is a 2x4 grid with Resume
+  focused; Load state and Exit ask first with Cancel focused. The library opens
+  with Play focused; L1/R1 page, Y opens Settings, X Saves, B no longer exits.
+  Settings: Start = Done, "Discard changes?" on B, X clears a binding, defaults
+  marked, Performance grouped with everyday options first.
 - **Romfs mods on Android.** Game settings → **Import romfs mod…** takes a Luma3DS
   or Citra mod folder and copies its `romfs/` and `romfs_ext/` into the game's mods
   folder, which the core already lays over the game's files at launch. Mods with

@@ -234,8 +234,8 @@ public final class Game extends NativeActivity {
             if(i%2==0) { line=new android.widget.LinearLayout(this); card.addView(line,new android.widget.LinearLayout.LayoutParams(-1,-2)); }
             android.widget.Button tile=new android.widget.Button(this);
             tile.setText(entries[which]); tile.setAllCaps(false); tile.setTextSize(17); tile.setStateListAnimator(null);
-            tile.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL); tile.setPadding(p.dp(23),0,p.dp(18),0);
-            tile.setMinHeight(p.dp(66)); tile.setBackground(p.button(Palette.SECONDARY));
+            tile.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+            tile.setMinHeight(p.dp(66)); tile.setBackground(p.button(Palette.SECONDARY)); tile.setPadding(p.dp(23),0,p.dp(18),0); // after the background: its inset would replace the padding
             tile.setTextColor(p.label(which==3 || which==7 ? p.danger : p.ink));
             tile.setOnClickListener(v -> { pauseAction(which); pauseDialog.dismiss(); });
             line.addView(tile,new android.widget.LinearLayout.LayoutParams(0,-2,1));
@@ -254,7 +254,7 @@ public final class Game extends NativeActivity {
             return false;
         });
         pauseDialog.show();
-        p.dialog(pauseDialog,false); pauseDialog.getWindow().setLayout(p.dp(560),-2); first.requestFocus();
+        p.dialog(pauseDialog,false); pauseDialog.getWindow().setLayout(p.dp(560),-2); android.widget.Button focus=first; focus.setFocusableInTouchMode(true); focus.post(focus::requestFocus); // lit on open even in touch mode, once the window is shown
     }
     private void pauseAction(int which) {
         switch(which) {
@@ -302,7 +302,7 @@ public final class Game extends NativeActivity {
             }
             return true;
         });
-        d.show(); palette.dialog(d,true); d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+        d.show(); palette.dialog(d,true); android.widget.Button cancel=d.getButton(AlertDialog.BUTTON_NEGATIVE); cancel.setFocusableInTouchMode(true); cancel.post(cancel::requestFocus);
     }
     @Override protected void onNewIntent(android.content.Intent next) {
         super.onNewIntent(next);

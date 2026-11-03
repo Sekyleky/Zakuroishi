@@ -65,6 +65,10 @@ public final class Launcher extends Activity {
         search = new EditText(this); search.setId(0x1001); search.setSingleLine(true); search.setTextColor(p.ink); search.setHintTextColor(p.muted); search.setHint("Find a game");
         search.setTextSize(16); search.setMinHeight(dp(48)); search.setContentDescription("Find a game in your library");
         search.setBackground(p.row()); search.setPadding(dp(14), dp(8), dp(14), dp(8));
+        // In touch mode only a text field can take focus, so search would win over Play; take it on a tap instead.
+        search.setFocusableInTouchMode(false);
+        search.setOnClickListener(v -> { if (v.isInTouchMode()) { v.setFocusableInTouchMode(true); v.requestFocus();
+            getSystemService(android.view.inputmethod.InputMethodManager.class).showSoftInput(v, 0); } });
         heading.addView(identity, compact ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.CENTER_VERTICAL);
         if (getResources().getConfiguration().fontScale > 1.3f) actions.setOrientation(LinearLayout.VERTICAL);
@@ -349,6 +353,7 @@ public final class Launcher extends Activity {
             LinearLayout empty = column(); empty.setPadding(dp(8), dp(28), dp(8), dp(20)); empty.addView(text("Add your first game", 24, p.ink));
             TextView body = text("Choose Add game to import a game folder. Setup help explains what you'll need.", 17, p.muted); body.setPadding(0, dp(12), 0, dp(12)); empty.addView(body); list.addView(empty);
         } else if (shown == 0) list.addView(text("No matching games. Try a different name.", 17, p.muted));
+        if (search.length() == 0 && !imeShown()) search.setFocusableInTouchMode(false);
         View now = getCurrentFocus(), restore = focus == null ? null : list.findViewWithTag(focus);
         if (restore != null) restore.requestFocus();
         else if ((now == null || now == search) && !(now == search && (search.length() > 0 || imeShown()))) { // first Play, unless the user is typing in search
