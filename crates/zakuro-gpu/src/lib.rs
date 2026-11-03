@@ -34,6 +34,11 @@ pub use raster::hardware::{take_caller_stats, take_wait_stats};
 pub static PIPELINES_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 pub static PROGRAMS_COMPILED: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// launch warm-up still to do and how much was queued, for CPU vertex programs [0]
+/// and GPU pipelines [1]. a program's left count is 1 while its file is still read.
+pub static WARM_LEFT: [std::sync::atomic::AtomicUsize; 2] = [std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0)];
+pub static WARM_QUEUED: [std::sync::atomic::AtomicUsize; 2] = [std::sync::atomic::AtomicUsize::new(0), std::sync::atomic::AtomicUsize::new(0)];
+
 /// emulation-thread time this frame, in ns: GPU command lists, texture
 /// decode, vertex processing, texture upload, batch submit, flush, and the
 /// HD pack lookup inside decode. The

@@ -1413,6 +1413,8 @@ impl Compiler {
         }
         log::info!("{} pipelines of earlier runs are made in the background", keys.len());
         let count = keys.len();
+        crate::WARM_QUEUED[1].store(count, std::sync::atomic::Ordering::Relaxed);
+        crate::WARM_LEFT[1].store(count, std::sync::atomic::Ordering::Relaxed);
         waiting.warm_left = count;
         waiting.warm_started = Some(std::time::Instant::now());
         waiting.warm.extend(keys.into_iter().map(&mut job));
@@ -1458,6 +1460,7 @@ impl Compiler {
         waiting.generic.clear();
         waiting.compiles.clear();
         waiting.warm.clear();
+        crate::WARM_LEFT[1].store(0, std::sync::atomic::Ordering::Relaxed);
         ready.notify_all();
         drop(waiting);
         for thread in self.threads.drain(..) {
@@ -1533,6 +1536,7 @@ fn compile(
         if warmed {
             waiting.warm_running -= 1;
             waiting.warm_left -= 1;
+            crate::WARM_LEFT[1].fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
             if waiting.warm_left == 0 {
                 if let Some(started) = waiting.warm_started.take() {
                     log::info!("the pipelines of earlier runs are made, in {:.1} s", started.elapsed().as_secs_f64());

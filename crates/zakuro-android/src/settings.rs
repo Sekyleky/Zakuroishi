@@ -148,6 +148,8 @@ pub struct Advanced {
     /// shader warm-up at launch from earlier sessions (0.1.9).
     pub warm_vertex_programs: bool,
     pub warm_pipelines: bool,
+    /// hold the first frame until both warm-ups are done, for 30 s at most.
+    pub warm_before_start: bool,
     /// upstream 0.2.31: shade a command list's draws ahead on other threads.
     pub shade_ahead: bool,
     /// the desktop queue (~125 ms target, drift trim, time stretch, fades); off is 0.2.0's.
@@ -226,6 +228,7 @@ impl Default for Advanced {
             async_pack_lookup: true,
             warm_vertex_programs: true,
             warm_pipelines: true,
+            warm_before_start: false,
             shade_ahead: true,
             audio_queue_managed: true,
             low_latency_audio: false,
@@ -428,6 +431,8 @@ mod tests {
         assert!(options.warm_vertex_programs && options.warm_pipelines);
         let cold = Advanced::parse(r#"{"warm_vertex_programs":false,"warm_pipelines":false}"#).unwrap().renderer_options();
         assert!(!cold.warm_vertex_programs && !cold.warm_pipelines);
+        assert!(!settings.warm_before_start);
+        assert!(Advanced::parse(r#"{"warm_before_start":true}"#).unwrap().warm_before_start);
         assert!(options.shade_ahead);
         assert!(!Advanced::parse(r#"{"shade_ahead":false}"#).unwrap().renderer_options().shade_ahead);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();

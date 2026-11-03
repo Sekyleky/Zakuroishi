@@ -382,6 +382,9 @@ impl Input {
     }
 }
 
+/// the longest the first frame waits for shader warm-up.
+const WARM_HOLD_CAP: Duration = Duration::from_secs(30);
+
 pub fn run(app: &AndroidApp) -> Result<(), String> {
     // Rayon defaults to one worker per core (8 on Snapdragon 8 Gen 2); idle workers spin in the
     // kernel on the cores the emulation thread needs. Three cover the big cores beside it.
@@ -434,6 +437,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     // The main presenter while Android has taken its window away (app switch).
     let mut parked: Option<Surface> = None;
     let mut system: Option<System> = None;
+    let mut hold: Option<Instant> = None;
     let mut audio: Option<Audio> = None;
     let mut sensors = Sensors::new();
     let mut input = Input::default();
@@ -794,6 +798,24 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 log::warn!("Vulkan renderer is not sharing the presentation device");
             }
             system = Some(loaded);
+            next_frame = Instant::now();
+            hold = settings.warm_before_start.then(Instant::now);
+        }
+        // the first frame waits for the launch warm-up (30 s at most), the window staying alive meanwhile
+        if let Some(since) = hold {
+            use std::sync::atomic::Ordering::Relaxed;
+            let left = zakuro_gpu::WARM_LEFT.each_ref().map(|n| n.load(Relaxed));
+            if left != [0, 0] && since.elapsed() < WARM_HOLD_CAP {
+                platform::stats(app, &format!("Preparing shaders... {} left", left[0] + left[1]));
+                next_frame = Instant::now() + Duration::from_millis(100);
+                continue;
+            }
+            let queued = zakuro_gpu::WARM_QUEUED.each_ref().map(|n| n.load(Relaxed));
+            log::info!("held the first frame {:?} for shader warm-up: programs {}/{} warmed, pipelines {}/{} warmed{}",
+                since.elapsed(), queued[0].saturating_sub(left[0]), queued[0], queued[1].saturating_sub(left[1]), queued[1],
+                if left == [0, 0] { "" } else { " (cap reached)" });
+            platform::stats(app, "");
+            hold = None;
             next_frame = Instant::now();
         }
         if Instant::now() + Duration::from_millis(2) < next_frame {

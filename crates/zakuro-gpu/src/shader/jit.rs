@@ -1831,11 +1831,10 @@ fn save_if_dirty() {
     }
 }
 
-static WARM_LEFT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static WARM_START: Mutex<Option<std::time::Instant>> = Mutex::new(None);
 
 fn warmed_one() {
-    if WARM_LEFT.fetch_sub(1, Ordering::Relaxed) == 1 {
+    if crate::WARM_LEFT[0].fetch_sub(1, Ordering::Relaxed) == 1 {
         let started = WARM_START.lock().unwrap_or_else(|e| e.into_inner()).take();
         log::info!("warmed up the shader programs of the last launch in {:?}", started.map(|at| at.elapsed()).unwrap_or_default());
     }
@@ -1850,6 +1849,8 @@ pub(crate) fn start_title(path: Option<std::path::PathBuf>) {
     let path = path.filter(|_| on && enabled());
     *memory() = Memory { path: path.clone(), ..Memory::default() };
     let Some(path) = path else { return };
+    // until the thread below has read the file, one program stands for the unknown count
+    crate::WARM_LEFT[0].store(1, Ordering::Relaxed);
     static SAVER: OnceLock<()> = OnceLock::new();
     SAVER.get_or_init(|| {
         let spawned = std::thread::Builder::new().name("shader programs".to_owned()).spawn(|| loop {
@@ -1891,10 +1892,12 @@ pub(crate) fn start_title(path: Option<std::path::PathBuf>) {
         }
         log::info!("queued {} shader programs of the last launch to warm up", jobs.len());
         if jobs.is_empty() {
+            crate::WARM_LEFT[0].store(0, Ordering::Relaxed);
             return;
         }
         *WARM_START.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
-        WARM_LEFT.store(jobs.len(), Ordering::Relaxed);
+        crate::WARM_QUEUED[0].store(jobs.len(), Ordering::Relaxed);
+        crate::WARM_LEFT[0].store(jobs.len(), Ordering::Relaxed);
         let queue = queue();
         for job in jobs {
             queue.push(job);
@@ -1902,6 +1905,7 @@ pub(crate) fn start_title(path: Option<std::path::PathBuf>) {
     });
     if let Err(error) = spawned {
         log::warn!("could not start warming up the shader programs, {error}");
+        crate::WARM_LEFT[0].store(0, Ordering::Relaxed);
     }
 }
 

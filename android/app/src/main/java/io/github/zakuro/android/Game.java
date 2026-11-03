@@ -145,7 +145,7 @@ public final class Game extends NativeActivity {
             if (stats != null && settings != null) {
                 String text = settings.flag("show_clock") ? android.text.format.DateFormat.getTimeFormat(Game.this).format(new java.util.Date()) : "";
                 if (settings.flag("show_battery")) text += "  " + batteryText + batteryPower();
-                if (settings.flag("show_fps") && !nativeStats.isEmpty()) text += "\n" + nativeStats;
+                if ((settings.flag("show_fps") || settings.flag("warm_before_start")) && !nativeStats.isEmpty()) text += "\n" + nativeStats;
                 stats.setText(text.trim());
                 stats.setVisibility(text.trim().isEmpty() ? android.view.View.GONE : android.view.View.VISIBLE);
             }

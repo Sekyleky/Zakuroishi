@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Optional: finish shader warm-up before the game starts** (`warm_before_start`, off).
+  The first frame waits, 30 s at most, for the remembered vertex programs and GPU
+  pipelines; the log says how long it waited and how many were warmed.
 - **Sound stays in step with the picture.** Under vsync the game runs 0.3% fast and
   0.2.0's sound queue filled to its 250 ms cap; Android now uses the desktop queue
   (time stretch, fade instead of hard silence, no silent buffer on a busy lock)
