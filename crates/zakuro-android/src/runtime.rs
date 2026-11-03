@@ -468,6 +468,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         (load(&zakuro_gpu::PIPELINES_COMPILED), load(&zakuro_gpu::PROGRAMS_COMPILED))
     };
     let (mut hitch_compiles, mut hud_compiles) = (compiles(), compiles());
+    let mut hud_game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
     let hint_target = if emulation_interval.is_zero() { frame_time / 4 } else { emulation_interval };
     platform::start_performance_hints(app, hint_target.as_nanos() as i64);
     loop {
@@ -932,6 +933,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         if stats_start.elapsed() >= Duration::from_secs(1) {
             let elapsed = stats_start.elapsed();
             let (fps, speed) = emulation_rates(stats_cycles, elapsed);
+            // pictures the game itself drew: Ultra Moon shows 60 refreshes but 30 of these
+            let game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
+            let game_fps = game.wrapping_sub(hud_game) as f64 / elapsed.as_secs_f64();
+            hud_game = game;
             if settings.show_fps {
                 let now = compiles();
                 let new = now.0.wrapping_sub(hud_compiles.0) + now.1.wrapping_sub(hud_compiles.1);
@@ -939,8 +944,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 platform::stats(
                     app,
                     &format!(
-                        "{:.1} FPS ({:.0}%) | {:.1} shown\nemu {:.1} ms | worst {:.1} ms | {} slow | {} compiles",
-                        fps, speed, f64::from(stats_frames) / elapsed.as_secs_f64(),
+                        "{:.1} FPS ({:.0}%) | {:.0} game | {:.1} shown\nemu {:.1} ms | worst {:.1} ms | {} slow | {} compiles",
+                        fps, speed, game_fps, f64::from(stats_frames) / elapsed.as_secs_f64(),
                         hud_work.as_secs_f64() * 1000.0 / f64::from(hud_frames.max(1)), hud_worst.as_secs_f64() * 1000.0, hud_slow, new
                     ),
                 );

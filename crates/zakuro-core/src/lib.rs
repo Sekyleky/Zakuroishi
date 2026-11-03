@@ -258,6 +258,11 @@ pub enum StepOutcome {
     Faulted,
 }
 
+/// top-screen pictures the game has handed over, a swap each: a 30 fps game
+/// sets one every second refresh, so this is its own frame rate.
+// ponytail: a global counter, one emulated console per process
+pub static GAME_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl System {
     pub fn new(config: Config) -> System {
         let boot_clock = config.clock.unwrap_or_else(memory::config::host_clock);
@@ -938,6 +943,9 @@ impl System {
         stride: u32,
         format: u32,
     ) {
+        if screen == 0 {
+            GAME_FRAMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         self.gpu
             .set_framebuffer(screen, active, left, right, stride, format);
     }
