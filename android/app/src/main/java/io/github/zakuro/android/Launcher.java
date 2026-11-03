@@ -6,7 +6,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.hardware.display.DisplayManager;
-import android.graphics.drawable.*;
 import android.net.Uri;
 import android.os.*;
 import android.text.*;
@@ -24,7 +23,8 @@ public final class Launcher extends Activity {
     private boolean pendingIncludeTextures;
     private LinearLayout list;
     private ScrollView library;
-    private TextView status, count, legend;
+    private TextView status, count;
+    private LinearLayout legend;
     // Library scan cache: search only filters this; showLibrary() rescans.
     private List<String> ids = new ArrayList<>();
     private final Map<String, String> names = new HashMap<>(), summaries = new HashMap<>();
@@ -32,7 +32,7 @@ public final class Launcher extends Activity {
     private Button add;
     private EditText search;
     private ImportTask task;
-    private int background, surface, ink, muted, accent, border, tint;
+    private Palette p;
 
     @Override public void onCreate(Bundle state) {
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
@@ -45,12 +45,10 @@ public final class Launcher extends Activity {
             pendingSaveId = state.getString("pendingSaveId");
             pendingIncludeTextures = state.getBoolean("pendingIncludeTextures", false);
         }
-        background = dark ? 0xff121917 : 0xfff4f6f2; surface = dark ? 0xff1e2924 : 0xfffcfdfa;
-        ink = dark ? 0xffeef3eb : 0xff192a23; muted = dark ? 0xffaabcb1 : 0xff52665a;
-        accent = dark ? 0xffb5d2ab : 0xff365b41; border = dark ? 0xff41574b : 0xffb9c9bb; tint = dark ? 0xff314c3b : 0xffdcebd8;
+        p = new Palette(this);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         getWindow().setDecorFitsSystemWindows(false);
-        LinearLayout page = column(); page.setBackgroundColor(background);
+        LinearLayout page = column(); page.setBackgroundColor(p.background);
         page.setOnApplyWindowInsetsListener((view, insets) -> {
             android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
             view.setPadding(dp(24) + bars.left, dp(12) + bars.top, dp(24) + bars.right, dp(8) + bars.bottom); return insets;
@@ -63,10 +61,10 @@ public final class Launcher extends Activity {
         logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams logoSize = new LinearLayout.LayoutParams(dp(wide ? 40 : 64),dp(wide ? 40 : 64)); logoSize.setMargins(0,0,dp(12),0);
         identity.addView(logo,logoSize);
-        LinearLayout wordmark = column(); wordmark.addView(text("Zakuroishi", 16, accent)); wordmark.addView(text("Your library", wide ? 22 : 30, ink)); identity.addView(wordmark);
-        search = new EditText(this); search.setId(0x1001); search.setSingleLine(true); search.setTextColor(ink); search.setHintTextColor(muted); search.setHint("Find a game");
+        LinearLayout wordmark = column(); wordmark.addView(text("Zakuroishi", 16, p.accent)); wordmark.addView(text("Your library", wide ? 22 : 30, p.ink)); identity.addView(wordmark);
+        search = new EditText(this); search.setId(0x1001); search.setSingleLine(true); search.setTextColor(p.ink); search.setHintTextColor(p.muted); search.setHint("Find a game");
         search.setTextSize(16); search.setMinHeight(dp(48)); search.setContentDescription("Find a game in your library");
-        search.setBackground(states(surface, border, surface, accent, 3)); search.setPadding(dp(14), dp(8), dp(14), dp(8));
+        search.setBackground(p.row()); search.setPadding(dp(14), dp(8), dp(14), dp(8));
         heading.addView(identity, compact ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.CENTER_VERTICAL);
         if (getResources().getConfiguration().fontScale > 1.3f) actions.setOrientation(LinearLayout.VERTICAL);
@@ -77,12 +75,12 @@ public final class Launcher extends Activity {
         if (wide) { LinearLayout.LayoutParams find = new LinearLayout.LayoutParams(0, -2, 1); find.setMargins(dp(16), 0, dp(16), 0); heading.addView(search, find); }
         heading.addView(actions); page.addView(heading); if (!wide) page.addView(search, new LinearLayout.LayoutParams(-1, -2));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setIndeterminate(true);
-        progress.setIndeterminateTintList(ColorStateList.valueOf(accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
-        status = text("", 14, muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
-        count = text("", 14, muted); count.setPadding(0, dp(16), 0, dp(10)); page.addView(count);
-        legend = text("A Play  ·  Y Settings  ·  X Saves  ·  L1/R1 Page", 14, muted); legend.setPadding(0, 0, 0, dp(10)); page.addView(legend);
+        progress.setIndeterminateTintList(ColorStateList.valueOf(p.accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
+        status = text("", 14, p.muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
+        count = text("", 14, p.muted); count.setPadding(0, dp(16), 0, dp(10)); page.addView(count);
+        legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page"); legend.setPadding(0, 0, 0, dp(10)); page.addView(legend);
         list = column(); page.addView(list);
-        library = new ScrollView(this); library.setFillViewport(true); library.setBackgroundColor(background); library.addView(page);
+        library = new ScrollView(this); library.setFillViewport(true); library.setBackgroundColor(p.background); library.addView(page);
         setContentView(library); page.requestApplyInsets();
         WindowInsetsController controller = getWindow().getInsetsController();
         if (controller != null) controller.setSystemBarsAppearance(dark ? 0 : WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
@@ -123,6 +121,9 @@ public final class Launcher extends Activity {
         }
         return super.dispatchKeyEvent(event);
     }
+    private boolean imeShown() {
+        WindowInsets insets = getWindow().getDecorView().getRootWindowInsets(); return insets != null && insets.isVisible(WindowInsets.Type.ime());
+    }
     private boolean hideKeyboard(Window window) {
         WindowInsets insets = window.getDecorView().getRootWindowInsets();
         if (insets != null && insets.isVisible(WindowInsets.Type.ime()) && window.getInsetsController() != null) {
@@ -133,11 +134,7 @@ public final class Launcher extends Activity {
     private AlertDialog controllerDialog(AlertDialog dialog) { return controllerDialog(dialog, false); }
     private AlertDialog controllerDialog(AlertDialog dialog, boolean cancelFocused) {
         dialog.setOnShowListener(window -> {
-            dialog.getWindow().setBackgroundDrawable(shape(surface, border, 1));
-            for (int which : new int[]{DialogInterface.BUTTON_POSITIVE, DialogInterface.BUTTON_NEGATIVE, DialogInterface.BUTTON_NEUTRAL}) {
-                Button button = dialog.getButton(which);
-                if (button != null) { button.setTextColor(accent); button.setAllCaps(false); button.setMinHeight(dp(48)); button.setBackground(states(surface, border, tint, accent, 4)); }
-            }
+            p.dialog(dialog, false);
             Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (cancelFocused && cancel != null) cancel.requestFocus();
         });
         dialog.setOnKeyListener((window, code, event) -> {
@@ -158,21 +155,10 @@ public final class Launcher extends Activity {
         TextView text = new TextView(this); text.setText(value); text.setTextSize(size); text.setTextColor(color);
         if (size >= 20) { text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); text.setAccessibilityHeading(true); } return text;
     }
-    private GradientDrawable shape(int fill, int stroke, int width) {
-        GradientDrawable shape = new GradientDrawable(); shape.setColor(fill); shape.setCornerRadius(dp(12)); shape.setStroke(dp(width), stroke); return shape;
-    }
     private Button button(String label, boolean primary, String tag) {
         Button button = new Button(this); button.setText(label); button.setAllCaps(false); button.setTextSize(15); button.setTag(tag);
-        button.setMinHeight(dp(52)); button.setMinWidth(dp(88)); button.setPadding(dp(18), dp(10), dp(18), dp(10));
-        button.setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled}, new int[]{}}, new int[]{muted, primary ? background : ink}));
-        button.setBackground(primary ? states(accent, accent, accent, ink, 4) : states(surface, border, tint, accent, 4)); return button;
-    }
-    // Focused/pressed: fill + thick ring (ring contrasts >= 3:1 with the card); idle: thin border.
-    private StateListDrawable states(int fill, int stroke, int focusFill, int ring, int ringWidth) {
-        StateListDrawable states = new StateListDrawable(); states.addState(new int[]{-android.R.attr.state_enabled}, shape(surface, border, 1));
-        states.addState(new int[]{android.R.attr.state_focused}, shape(focusFill, ring, ringWidth));
-        states.addState(new int[]{android.R.attr.state_pressed}, shape(focusFill, ring, ringWidth));
-        states.addState(new int[]{}, shape(fill, stroke, 1)); return states;
+        button.setBackground(p.button(primary ? Palette.PRIMARY : Palette.SECONDARY)); button.setTextColor(p.label(p.ink));
+        button.setMinHeight(dp(62)); button.setMinWidth(dp(98)); button.setPadding(dp(23), dp(15), dp(23), dp(15)); return button; // +5dp: the focus ring inset
     }
     @Override protected void onResume() { super.onResume(); if (list != null) { showLibrary(); update(); } }
     @Override protected void onActivityResult(int request, int result, Intent intent) {
@@ -198,7 +184,7 @@ public final class Launcher extends Activity {
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null) {
                 Uri uri = intent.getData();
                 if (request == EXPORT_SAVE) task.transferSave(getApplicationContext(), id, uri, false);
-                else controllerDialog(new AlertDialog.Builder(this).setTitle("Restore saves for " + name(id) + "?")
+                else controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Restore saves for " + name(id) + "?")
                         .setMessage("This replaces this game's in-game saves with the selected backup. Your current saves are kept as a local recovery copy. Close the game first. Quick save states are not included; start the game normally afterward.")
                         .setPositiveButton("Restore", (d, w) -> task.transferSave(getApplicationContext(), id, uri, true))
                         .setNegativeButton("Cancel", null).create(), true).show();
@@ -246,7 +232,7 @@ public final class Launcher extends Activity {
     }
     void saves(String id) {
         if (task.busy) return;
-        controllerDialog(new AlertDialog.Builder(this).setTitle("Saves · " + name(id))
+        controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Saves · " + name(id))
                 .setMessage("Export your in-game saves to Downloads, an SD card or cloud storage. The ZIP contains ordinary save files you can extract on a computer.\n\nSave in-game and exit to the library first. Restore accepts a Zakuroishi save ZIP for this game. Quick save states are separate and are not included.")
                 .setPositiveButton("Export ZIP…", (d, w) -> pickSave(id, false))
                 .setNeutralButton("Restore ZIP…", (d, w) -> pickSave(id, true))
@@ -257,7 +243,7 @@ public final class Launcher extends Activity {
         try (SaveArchive.Guard ignored = SaveArchive.lock(getFilesDir(), id)) {
             SaveArchive.recover(getFilesDir(), id);
         } catch (Exception e) {
-            controllerDialog(new AlertDialog.Builder(this).setTitle("Saves unavailable").setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
+            controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Saves unavailable").setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
             return;
         }
         Intent intent = new Intent(restore ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_CREATE_DOCUMENT)
@@ -305,12 +291,12 @@ public final class Launcher extends Activity {
                 + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.\n\n"
                 + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/73b8f9caf3700991c290dd84bccffb92294d6b15/docs/interface.md";
         LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
-        TextView instructions = text(body, 16, ink); instructions.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
+        TextView instructions = text(body, 16, p.ink); instructions.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
         instructions.setMovementMethod(android.text.method.LinkMovementMethod.getInstance()); content.addView(instructions);
-        CheckBox include = new CheckBox(this); include.setText("Include texture pack (optional)"); include.setTextColor(ink); include.setMinHeight(dp(56));
+        CheckBox include = new CheckBox(this); include.setText("Include texture pack (optional)"); include.setTextColor(p.ink); include.setMinHeight(dp(56));
         include.setChecked(false); if (importing) content.addView(include);
         ScrollView scroll = new ScrollView(this); scroll.addView(content);
-        AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(importing ? "Add a game" : "Getting started").setView(scroll);
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this, p.dialogTheme()).setTitle(importing ? "Add a game" : "Getting started").setView(scroll);
         if (importing) dialog.setPositiveButton("Choose folder", (d, which) -> {
             pendingIncludeTextures = include.isChecked();
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE); intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION); startActivityForResult(intent, IMPORT);
@@ -338,16 +324,17 @@ public final class Launcher extends Activity {
         legend.setVisibility(ids.isEmpty() ? View.GONE : View.VISIBLE);
         String query = search.getText().toString().trim().toLowerCase(Locale.ROOT); int shown = 0;
         boolean wide = getResources().getConfiguration().screenWidthDp >= 760 && getResources().getConfiguration().fontScale <= 1.3f;
+        String firstShown = null;
         for (String id : ids) {
-            String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++;
+            String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++; if (firstShown == null) firstShown = id + ".play";
             LinearLayout row = column(); row.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setBackground(shape(surface, border, 1)); row.setPadding(dp(18), dp(16), dp(18), dp(16));
-            LinearLayout info = column(); TextView name = text(title, 21, ink); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END); info.addView(name);
-            TextView detail = text(summaries.get(id), 14, muted); detail.setPadding(0, dp(6), 0, wide ? 0 : dp(14)); info.addView(detail);
+            row.setBackground(p.shape(p.surface, p.border, 1, 16)); row.setPadding(dp(18), dp(16), dp(18), dp(16));
+            LinearLayout info = column(); TextView name = text(title, 21, p.ink); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END); info.addView(name);
+            TextView detail = text(summaries.get(id), 14, p.muted); detail.setPadding(0, dp(6), 0, wide ? 0 : dp(14)); info.addView(detail);
             row.addView(info, wide ? new LinearLayout.LayoutParams(0, -2, 1) : new LinearLayout.LayoutParams(-1, -2));
             LinearLayout actions = new LinearLayout(this);
             if (getResources().getConfiguration().fontScale > 1.3f || getResources().getConfiguration().screenWidthDp < 400) actions.setOrientation(LinearLayout.VERTICAL);
-            Button play = button("Play", true, id + ".play"); play.setContentDescription("Play " + title);
+            Button play = button("Play", true, id + ".play"); play.setFocusedByDefault(shown == 1); play.setContentDescription("Play " + title);
             play.setEnabled(!task.busy); play.setOnClickListener(v -> play(id)); actions.addView(play);
             Button options = button("Settings", false, id + ".settings"); options.setContentDescription("Settings for " + title); options.setOnClickListener(v -> options(id));
             LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.setMargins(dp(10), 0, 0, 0); actions.addView(options, gap);
@@ -359,22 +346,27 @@ public final class Launcher extends Activity {
         }
         count.setText(query.isEmpty() ? ids.size() + (ids.size() == 1 ? " game" : " games") : shown + " of " + ids.size() + " games");
         if (ids.isEmpty()) {
-            LinearLayout empty = column(); empty.setPadding(dp(8), dp(28), dp(8), dp(20)); empty.addView(text("Add your first game", 24, ink));
-            TextView body = text("Choose Add game to import a game folder. Setup help explains what you'll need.", 17, muted); body.setPadding(0, dp(12), 0, dp(12)); empty.addView(body); list.addView(empty);
-        } else if (shown == 0) list.addView(text("No matching games. Try a different name.", 17, muted));
-        if (focus != null) { View restore = list.findViewWithTag(focus); if (restore != null) restore.requestFocus(); } library.post(() -> library.scrollTo(0, scroll));
+            LinearLayout empty = column(); empty.setPadding(dp(8), dp(28), dp(8), dp(20)); empty.addView(text("Add your first game", 24, p.ink));
+            TextView body = text("Choose Add game to import a game folder. Setup help explains what you'll need.", 17, p.muted); body.setPadding(0, dp(12), 0, dp(12)); empty.addView(body); list.addView(empty);
+        } else if (shown == 0) list.addView(text("No matching games. Try a different name.", 17, p.muted));
+        View now = getCurrentFocus(), restore = focus == null ? null : list.findViewWithTag(focus);
+        if (restore != null) restore.requestFocus();
+        else if ((now == null || now == search) && !(now == search && (search.length() > 0 || imeShown()))) { // first Play, unless the user is typing in search
+            View play = ids.isEmpty() ? null : list.findViewWithTag(firstShown); if (play != null) play.requestFocus();
+        }
+        library.post(() -> library.scrollTo(0, scroll));
     }
     private void options(String id) {
         try {
             SettingsDialog.show(this, id, GameImport.active(this, id), name(id), false,
                     this::showLibrary, null, () -> replaceCode(id), () -> replaceTextures(id), () -> replaceMods(id));
         } catch (Exception e) {
-            controllerDialog(new AlertDialog.Builder(this).setTitle("Settings unavailable")
+            controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Settings unavailable")
                     .setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
         }
     }
     private void frontends() {
-        controllerDialog(new AlertDialog.Builder(this).setTitle("Frontend library")
+        controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Frontend library")
             .setMessage("Export a small launch file for each imported game to a folder that Cocoon, iiSU or another frontend can scan. Games, textures and saves stay in Zakuroishi.\n\nChoose the exported Games folder in your frontend and configure Zakuroishi as its player. A Cocoon configuration and setup instructions are included. Some frontend versions need a custom player or the original ROM folder.\n\nExport again after adding games. Choose an empty folder the first time.")
             .setPositiveButton("Export library…",(d,w)->{
                 if(task.busy) return;
@@ -383,7 +375,7 @@ public final class Launcher extends Activity {
                 startActivityForResult(pick,EXPORT_FRONTEND);
             }).setNeutralButton("Prepare iiSU config…",(d,w)->{
                 if(task.busy) return;
-                controllerDialog(new AlertDialog.Builder(this).setTitle("Choose iiSU's emuladores.json")
+                controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Choose iiSU's emuladores.json")
                     .setMessage("Choose your current iiSU emulator catalog. Zakuroishi will save an edited copy that adds its player and .zkr extension, preserving other entries. The original is unchanged. Then import the copy in iiSU's Updates settings.\n\nOn this device, iiSU normally stores it in Android/media/com.iisulauncher/iiSULauncher/Emuladores.")
                     .setPositiveButton("Choose catalog…",(confirm,which)->{
                         Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
@@ -396,7 +388,7 @@ public final class Launcher extends Activity {
         if (task.busy) return;
         try {
             startActivity(GameLaunch.intent(this,id));
-        } catch (Exception e) { controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't open this game").setMessage("Open Settings to replace native game code without copying the ROM.\n\n" + e.getMessage()).setPositiveButton("OK", null).create()).show(); }
+        } catch (Exception e) { controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Couldn't open this game").setMessage("Open Settings to replace native game code without copying the ROM.\n\n" + e.getMessage()).setPositiveButton("OK", null).create()).show(); }
     }
     private void update() {
         if (task == null || status == null) return;
@@ -406,7 +398,7 @@ public final class Launcher extends Activity {
         status.setText(!arm64 ? "Playing games requires an ARM64 Android device." : task.message); status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
         if (task.error != null && !isFinishing()) { String error = task.error; task.error = null;
             String title = task.errorTitle == null ? "Couldn't complete the operation" : task.errorTitle; task.errorTitle = null;
-            controllerDialog(new AlertDialog.Builder(this).setTitle(title).setMessage(error).setPositiveButton("OK", null).create()).show(); }
+            controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle(title).setMessage(error).setPositiveButton("OK", null).create()).show(); }
     }
     private static void installDriver(Context context, String id, Uri uri) throws Exception {
         File home = new File(context.getFilesDir(),"drivers");
