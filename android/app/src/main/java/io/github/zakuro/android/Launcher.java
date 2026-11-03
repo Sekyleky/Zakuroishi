@@ -5,6 +5,7 @@ import android.content.*;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
+import android.hardware.display.DisplayManager;
 import android.graphics.drawable.*;
 import android.net.Uri;
 import android.os.*;
@@ -23,7 +24,10 @@ public final class Launcher extends Activity {
     private boolean pendingIncludeTextures;
     private LinearLayout list;
     private ScrollView library;
-    private TextView status, count;
+    private TextView status, count, legend;
+    // Library scan cache: search only filters this; showLibrary() rescans.
+    private List<String> ids = new ArrayList<>();
+    private final Map<String, String> names = new HashMap<>(), summaries = new HashMap<>();
     private ProgressBar progress;
     private Button add;
     private EditText search;
@@ -76,6 +80,7 @@ public final class Launcher extends Activity {
         progress.setIndeterminateTintList(ColorStateList.valueOf(accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
         status = text("", 14, muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
         count = text("", 14, muted); count.setPadding(0, dp(16), 0, dp(10)); page.addView(count);
+        legend = text("A Play  ·  Y Settings  ·  X Saves  ·  L1/R1 Page", 14, muted); legend.setPadding(0, 0, 0, dp(10)); page.addView(legend);
         list = column(); page.addView(list);
         library = new ScrollView(this); library.setFillViewport(true); library.setBackgroundColor(background); library.addView(page);
         setContentView(library); page.requestApplyInsets();
@@ -86,10 +91,11 @@ public final class Launcher extends Activity {
         if (task == null) { task = new ImportTask(); getFragmentManager().beginTransaction().add(task, "import").commit(); }
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int n, int after) {}
-            public void onTextChanged(CharSequence s, int start, int before, int n) { showLibrary(); }
+            public void onTextChanged(CharSequence s, int start, int before, int n) { render(); }
             public void afterTextChanged(Editable s) {}
         });
-        showLibrary(); update(); add.requestFocus();
+        showLibrary(); update();
+        View first = ids.isEmpty() ? null : list.findViewWithTag(ids.get(0) + ".play"); if (first == null || !first.requestFocus()) add.requestFocus();
     }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
@@ -99,7 +105,19 @@ public final class Launcher extends Activity {
         }
         if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_B) {
             if (event.getAction() == KeyEvent.ACTION_UP && !hideKeyboard(getWindow())) {
-                if (search.length() > 0) search.setText(""); else onBackPressed();
+                if (search.length() > 0) search.setText(""); // library root: B never exits
+            }
+            return true;
+        }
+        int code = event.getKeyCode();
+        if (code == KeyEvent.KEYCODE_BUTTON_L1 || code == KeyEvent.KEYCODE_BUTTON_R1) {
+            if (event.getAction() == KeyEvent.ACTION_UP) library.pageScroll(code == KeyEvent.KEYCODE_BUTTON_L1 ? View.FOCUS_UP : View.FOCUS_DOWN);
+            return true;
+        }
+        if (code == KeyEvent.KEYCODE_BUTTON_Y || code == KeyEvent.KEYCODE_BUTTON_X) {
+            Object tag = getCurrentFocus() == null ? null : getCurrentFocus().getTag();
+            if (event.getAction() == KeyEvent.ACTION_UP && tag instanceof String && ((String) tag).matches("[0-9A-F]{16}\\..*")) {
+                String id = ((String) tag).substring(0, 16); if (code == KeyEvent.KEYCODE_BUTTON_Y) options(id); else saves(id);
             }
             return true;
         }
@@ -165,7 +183,7 @@ public final class Launcher extends Activity {
                 getContentResolver().takePersistableUriPermission(pendingIisu,Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 Intent output=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE);
                 output.putExtra(Intent.EXTRA_TITLE,"emuladores-zakuro.json"); startActivityForResult(output,WRITE_IISU);
-            } catch(Exception e) { pendingIisu=null; task.error="Cannot retain access to the selected catalog: "+e.getMessage(); update(); }
+            } catch(Exception e) { pendingIisu=null; task.errorTitle="Choosing the iiSU catalog failed"; task.error="Cannot retain access to the selected catalog: "+e.getMessage(); update(); }
         }
         if(request==WRITE_IISU) {
             Uri input=pendingIisu; pendingIisu=null;
@@ -298,23 +316,34 @@ public final class Launcher extends Activity {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE); intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION); startActivityForResult(intent, IMPORT);
         }).setNegativeButton("Cancel", null); else dialog.setPositiveButton("Got it", null); controllerDialog(dialog.create()).show();
     }
-    private void showLibrary() {
-        Object focus = getCurrentFocus() == null ? null : getCurrentFocus().getTag(); int scroll = library.getScrollY(); list.removeAllViews();
+    private void showLibrary() { scan(); render(); }
+    private void scan() {
         File[] files = new File(getFilesDir(), "imports").listFiles(); Set<String> found = new HashSet<>();
         if (files != null) for (File file : files) if (file.getName().matches("[0-9A-F]{16}\\.active(\\.bak)?")) found.add(file.getName().substring(0, 16));
-        List<String> ids = new ArrayList<>(found); Map<String, String> names = new HashMap<>(); for (String id : ids) names.put(id, name(id));
-        ids.sort((a, b) -> names.get(a).compareToIgnoreCase(names.get(b))); String query = search.getText().toString().trim().toLowerCase(Locale.ROOT); int shown = 0;
+        DisplayManager displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        boolean second = displays != null && displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
+        ids = new ArrayList<>(found); names.clear(); summaries.clear();
+        for (String id : ids) { names.put(id, name(id)); summaries.put(id, summary(id, second)); }
+        ids.sort((a, b) -> names.get(a).compareToIgnoreCase(names.get(b)));
+    }
+    private String summary(String id, boolean second) {
+        String summary = Math.max(1, Math.min(3, settings().getInt(id + ".resolution", 1))) + "× resolution";
+        try { if (new File(GameImport.active(this, id), "data/mods/" + id + "/textures").isDirectory()) summary += settings().getBoolean(id + ".textures", true) ? "  ·  HD textures on" : "  ·  HD textures off";
+            else summary += "  ·  Original textures";
+        } catch (Exception e) { return "Files unavailable. Add this game again to repair it."; }
+        return second ? summary + (GameSettings.load(this, id).flag("dual_display") ? "  ·  Second screen on" : "  ·  Second screen off") : summary;
+    }
+    private void render() {
+        Object focus = getCurrentFocus() == null ? null : getCurrentFocus().getTag(); int scroll = library.getScrollY(); list.removeAllViews();
+        legend.setVisibility(ids.isEmpty() ? View.GONE : View.VISIBLE);
+        String query = search.getText().toString().trim().toLowerCase(Locale.ROOT); int shown = 0;
         boolean wide = getResources().getConfiguration().screenWidthDp >= 760 && getResources().getConfiguration().fontScale <= 1.3f;
         for (String id : ids) {
             String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++;
             LinearLayout row = column(); row.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); row.setGravity(Gravity.CENTER_VERTICAL);
             row.setBackground(shape(surface, border, 1)); row.setPadding(dp(18), dp(16), dp(18), dp(16));
             LinearLayout info = column(); TextView name = text(title, 21, ink); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END); info.addView(name);
-            String summary = Math.max(1, Math.min(3, settings().getInt(id + ".resolution", 1))) + "× resolution";
-            try { if (new File(GameImport.active(this, id), "data/mods/" + id + "/textures").isDirectory()) summary += settings().getBoolean(id + ".textures", true) ? "  ·  HD textures on" : "  ·  HD textures off";
-                else summary += "  ·  Original textures";
-            } catch (Exception e) { summary = "Files unavailable. Add this game again to repair it."; }
-            TextView detail = text(summary, 14, muted); detail.setPadding(0, dp(6), 0, wide ? 0 : dp(14)); info.addView(detail);
+            TextView detail = text(summaries.get(id), 14, muted); detail.setPadding(0, dp(6), 0, wide ? 0 : dp(14)); info.addView(detail);
             row.addView(info, wide ? new LinearLayout.LayoutParams(0, -2, 1) : new LinearLayout.LayoutParams(-1, -2));
             LinearLayout actions = new LinearLayout(this);
             if (getResources().getConfiguration().fontScale > 1.3f || getResources().getConfiguration().screenWidthDp < 400) actions.setOrientation(LinearLayout.VERTICAL);
@@ -376,7 +405,8 @@ public final class Launcher extends Activity {
         progress.setContentDescription(task.message);
         status.setText(!arm64 ? "Playing games requires an ARM64 Android device." : task.message); status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
         if (task.error != null && !isFinishing()) { String error = task.error; task.error = null;
-            controllerDialog(new AlertDialog.Builder(this).setTitle("Couldn't complete the operation").setMessage(error).setPositiveButton("OK", null).create()).show(); }
+            String title = task.errorTitle == null ? "Couldn't complete the operation" : task.errorTitle; task.errorTitle = null;
+            controllerDialog(new AlertDialog.Builder(this).setTitle(title).setMessage(error).setPositiveButton("OK", null).create()).show(); }
     }
     private static void installDriver(Context context, String id, Uri uri) throws Exception {
         File home = new File(context.getFilesDir(),"drivers");
@@ -438,7 +468,7 @@ public final class Launcher extends Activity {
         if(count==0) throw new java.io.IOException("Driver ZIP is empty");
     }    /** Rotation retains the worker, never the Activity or its views. */
     public static final class ImportTask extends Fragment {
-        boolean busy; String message = "", error;
+        boolean busy; String message = "", error, errorTitle;
         private final Handler main = new Handler(Looper.getMainLooper());
         @Override public void onCreate(Bundle state) { super.onCreate(state); setRetainInstance(true); }
         void start(Context context, Uri uri) {
@@ -451,7 +481,7 @@ public final class Launcher extends Activity {
         void replaceMods(Context context, String id, Uri uri) { run(context, id, uri, 6, false); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
         void prepareIisu(Context context, Uri source, Uri destination) {
-            if(busy) return; busy=true; error=null; message="Preparing iiSU catalog copy…"; refresh(false);
+            if(busy) return; busy=true; error=null; errorTitle="Preparing iiSU catalog failed"; message="Preparing iiSU catalog copy…"; refresh(false);
             new Thread(()->{
                 String failure=null;
                 try {
@@ -471,7 +501,7 @@ public final class Launcher extends Activity {
             },"iisu-config").start();
         }
         void exportFrontend(Context context, Uri tree) {
-            if(busy) return; busy=true; error=null; message="Exporting frontend library…"; refresh(false);
+            if(busy) return; busy=true; error=null; errorTitle="Exporting frontend library failed"; message="Exporting frontend library…"; refresh(false);
             new Thread(()->{
                 String failure=null; int count=0;
                 try { count=FrontendExport.export(context,tree); }
@@ -483,6 +513,7 @@ public final class Launcher extends Activity {
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
             String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing romfs mod" : "Restoring saves";
+            errorTitle = action + " failed";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
                 String failure = null;
