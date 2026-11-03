@@ -150,6 +150,8 @@ pub struct Advanced {
     pub warm_pipelines: bool,
     /// upstream 0.2.31: shade a command list's draws ahead on other threads.
     pub shade_ahead: bool,
+    /// the desktop queue (~125 ms target, drift trim, time stretch, fades); off is 0.2.0's.
+    pub audio_queue_managed: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -217,6 +219,7 @@ impl Default for Advanced {
             warm_vertex_programs: true,
             warm_pipelines: true,
             shade_ahead: true,
+            audio_queue_managed: true,
             enhancements: Vec::new(),
         }
     }
@@ -401,6 +404,8 @@ mod tests {
         assert!(settings.vsync_pacing && settings.safe_gpu_shaders && !settings.turnip_sysmem);
         let off = Advanced::parse(r#"{"vsync_pacing":false,"safe_gpu_shaders":false,"turnip_sysmem":true}"#).unwrap();
         assert!(!off.vsync_pacing && !off.safe_gpu_shaders && off.turnip_sysmem);
+        assert!(settings.audio_queue_managed);
+        assert!(!Advanced::parse(r#"{"audio_queue_managed":false}"#).unwrap().audio_queue_managed);
         let options = settings.renderer_options();
         assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode && options.async_pack_lookup);
         assert!(!Advanced::parse(r#"{"async_pack_lookup":false}"#).unwrap().renderer_options().async_pack_lookup);

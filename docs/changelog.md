@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Sound stays in step with the picture.** Under vsync the game runs 0.3% fast and
+  0.2.0's sound queue filled to its 250 ms cap; Android now uses the desktop queue
+  (time stretch, fade instead of hard silence, no silent buffer on a busy lock)
+  with a learned rate trim: 100–125 ms behind instead of ~230 ms
+  (`audio_queue_managed`). The benchmark line logs `audio_queue_ms`/`audio_underruns`.
 - **Menus.** One orange palette from the logo for dark and light mode, used by the
   library, settings and in-game menus. Every control shows focus (solid orange with
   a ring; rows get an orange outline). The pause menu is a 2x4 grid with Resume

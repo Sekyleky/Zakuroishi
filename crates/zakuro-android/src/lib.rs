@@ -1,6 +1,11 @@
 //! NativeActivity frontend. Java owns import and launch; this crate owns the runtime.
 #[cfg(target_os = "android")]
 mod audio;
+// The desktop frontend's managed queue and time stretcher, shared by path (no cpal in it).
+#[cfg(any(target_os = "android", test))]
+#[allow(dead_code)] // hold and clear are the desktop's
+#[path = "../../zakuro/src/audio/queue.rs"]
+mod audio_queue;
 #[cfg(target_os = "android")]
 mod bridge;
 #[cfg(any(target_os = "android", test))]

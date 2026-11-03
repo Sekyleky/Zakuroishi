@@ -156,6 +156,8 @@ Performance switches for A/B testing (all apply at the next launch):
   The first session of a game still compiles as it goes.
 - **Shade draws on other threads**, on: upstream 0.2.31's shade-ahead for the CPU
   vertex path; off only to compare.
+- **Keep sound in step with the picture** (`audio_queue_managed`), on: the desktop
+  queue (~125 ms, drift trim, time stretch, fades); off is 0.2.0's, ~230 ms behind.
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 

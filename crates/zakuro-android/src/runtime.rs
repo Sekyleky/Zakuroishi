@@ -856,7 +856,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             audio = None;
         }
         if audio.is_none() && Instant::now() >= retry_audio {
-            audio = Audio::open()
+            audio = Audio::open(settings.audio_queue_managed)
                 .inspect_err(|e| log::warn!("AAudio: {e}"))
                 .ok();
             retry_audio = Instant::now() + Duration::from_secs(2);
@@ -951,15 +951,16 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let by = zakuro_gpu::take_caller_stats();
             let ms = |i: usize| format!("{}/{:.1}ms", by[i].0, by[i].1.as_secs_f64() * 1000.0);
             let elapsed = benchmark_start.elapsed().as_secs_f64();
+            let (audio_ms, underruns) = audio.as_ref().map_or((0.0, 0), Audio::take_stats);
             let (fps, speed) = emulation_rates(benchmark_cycles, benchmark_start.elapsed());
-            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}]",
+            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={}",
                 fps, speed,
                 f64::from(benchmark_presented) / elapsed, effective_speed,
                 core_time.as_secs_f64() * 1000.0 / 300.0,
                 present_time.as_secs_f64() * 1000.0 / 300.0, worst_core.as_secs_f64() * 1000.0, worst_frame.as_secs_f64() * 1000.0,
                 slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared,
                 waits.0 as f64 / 300.0, waits.1.as_secs_f64() * 1000.0 / 300.0, waits.2 as f64 / 300.0, waits.3.as_secs_f64() * 1000.0 / 300.0,
-                ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6));
+                ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6), audio_ms, underruns);
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
             benchmark_cycles = 0;

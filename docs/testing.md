@@ -1,5 +1,19 @@
 # Verification record
 
+## Audio, input and display latency (unreleased, 2026-11-03)
+
+AYN Thor, Turnip (Balemuni Apex Ultimate), Ultra Moon 3× + HD, standing on the
+field after loading the save, vsync pacing on (speed 100.3%). Each switch A/B in
+the same build; numbers from the benchmark line every 300 frames.
+
+| Switch | Off | On | Notes |
+|---|---|---|---|
+| `audio_queue_managed` | queue 72 → 225 ms after 40 s, then 214–237 ms at the cap | 165 → 100–125 ms from 30 s on | 0 underruns after the save load either way; load: legacy 230 short callbacks, managed 18 dry spells; emulation 5.9 vs 5.8 ms/frame |
+
+Host: the queue's tests run in both crates; `a_game_running_a_little_fast_stays_near_the_target`
+fails without the trim (193 ms after 3 min) and holds 104–116 ms with it.
+Not verified: how the sound sounds (stretch splices, fades, 0.5% drift pitch).
+
 ## 0.2.0 release check (2026-11-03)
 
 AYN Thor, Turnip, ABI-5 `title.so` (3dsrecomp `73b8f9c`) for every game.
