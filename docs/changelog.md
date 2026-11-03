@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — ABI-5 game code, upstream 0.2.31 renderer, save editors (2026-11-03)
 
 - **Upstream Zakuro 0.2.31 renderer and CPU work.** Draws are shaded on other
   threads ahead of the walk that draws them (`shade_ahead` renderer option),

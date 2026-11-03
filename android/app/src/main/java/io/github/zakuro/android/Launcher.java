@@ -264,7 +264,7 @@ public final class Launcher extends Activity {
                 + "Native game code must be built for Zakuroishi Android ABI 5 (ABI 4 code still runs; rebuilding it runs faster). If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
                 + "Only add builds you trust: native game code can access this app's files and saves.\n\n"
                 + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.\n\n"
-                + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/cec1270db38411f9c02d3f356fc3ed6c3f007424/docs/interface.md";
+                + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/73b8f9caf3700991c290dd84bccffb92294d6b15/docs/interface.md";
         LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
         TextView instructions = text(body, 16, ink); instructions.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
         instructions.setMovementMethod(android.text.method.LinkMovementMethod.getInstance()); content.addView(instructions);

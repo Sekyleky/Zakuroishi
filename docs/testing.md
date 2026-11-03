@@ -1,5 +1,18 @@
 # Verification record
 
+## 0.2.0 release check (2026-11-03)
+
+AYN Thor, Turnip, ABI-5 `title.so` (3dsrecomp `73b8f9c`) for every game.
+
+- Ultra Moon, 3× + HD: the save loads, the field and a map change hold 60 fps
+  (emulation 4–6 ms), a wild battle starts and runs at 60 fps. Worst battle-start
+  frame 44.3 ms (0.1.9: ~41 ms), mean 5.6 ms; no crash.
+- Boot check, 40 s each, no crash, ~60 fps: Ultra Sun, Alpha Sapphire, X, Y,
+  Rutile Ruby, Ocarina of Time 3D, Majora's Mask 3D, Super Mario 3D Land, New
+  Super Mario Bros. 2, Super Monkey Ball 3D. Only boot was tested (title, menus
+  or attract demo). Omega Ruby shares Rutile Ruby's title id and was not run.
+- Host: zakuro-gpu 142, zakuro-core 147, settings 31, Java settings/contract checks.
+
 ## Shader compiling and battle hitches (0.1.9, 2026-11-01)
 
 AYN Thor, Ultra Moon, 3× + HD, Balemuni Turnip; fresh launch from the title,
