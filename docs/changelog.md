@@ -10,6 +10,10 @@
 - **Low-latency sound switch, off.** `low_latency_audio` asks AAudio for a FAST track
   without the RAW flag the Thor's output lacks; the Thor still gets a normal track,
   because a system-wide software Equalizer on the output mix denies FAST to every app.
+- **Quick taps are no longer lost.** A button pressed and released between two frames
+  used to never reach the game; it now counts as pressed for one frame
+  (`latch_short_presses`, controller keys, hat, triggers and touch). The benchmark
+  line counts such presses as `short_presses`.
 - **Menus.** One orange palette from the logo for dark and light mode, used by the
   library, settings and in-game menus. Every control shows focus (solid orange with
   a ring; rows get an orange outline). The pause menu is a 2x4 grid with Resume

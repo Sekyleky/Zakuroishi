@@ -37,6 +37,25 @@ mod tests {
         assert!(!input.fast_forward(&settings,&virtual_input));
     }
     #[test]
+    fn a_press_released_before_the_frame_still_counts_for_that_frame() {
+        let settings = Advanced::parse(r#"{"controller_bindings":{"96":"a"}}"#).unwrap();
+        let mut input = Input::default();
+        // down and up between two frames, as Input::read leaves it with latching on
+        input.latched.insert(96);
+        input.latched_touch = Some((10, 20));
+        let first = input.configured(&settings, &VirtualInput::default(), None);
+        assert_eq!(first.buttons, PadState::A);
+        assert_eq!(first.touch, Some((10, 20)));
+        let next = input.configured(&settings, &VirtualInput::default(), None);
+        assert!(next.buttons.is_empty());
+        assert_eq!(next.touch, None);
+        assert_eq!(input.short_presses, 1);
+        let off = Advanced::parse(r#"{"controller_bindings":{"96":"a"},"latch_short_presses":false}"#).unwrap();
+        input.latched.insert(96);
+        assert!(input.configured(&off, &VirtualInput::default(), None).buttons.is_empty());
+        assert_eq!(input.short_presses, 2);
+    }
+    #[test]
     fn all_seven_motion_gates_and_independent_tilt_inversion_work() {
         use crate::settings::TiltButton;
         for gate in [
@@ -173,6 +192,12 @@ pub struct Input {
     pub state: InputState,
     pub keys: BTreeSet<i32>,
     pub axes: BTreeSet<i32>,
+    /// Keys/axes that went down, and the touch made, since the last frame: a press and
+    /// release between two frames still reaches the game for one (`latch_short_presses`).
+    pub latched: BTreeSet<i32>,
+    pub latched_touch: Option<(u16, u16)>,
+    /// Presses that went down and up between two frames, for the benchmark line.
+    pub short_presses: u32,
     #[cfg(target_os = "android")]
     pub finger: Option<i32>,
     pub cursor: [f32; 2],
@@ -183,6 +208,9 @@ impl Default for Input {
             state: InputState::default(),
             keys: BTreeSet::new(),
             axes: BTreeSet::new(),
+            latched: BTreeSet::new(),
+            latched_touch: None,
+            short_presses: 0,
             #[cfg(target_os = "android")]
             finger: None,
             cursor: [160.0, 120.0],
@@ -202,12 +230,17 @@ impl Input {
         motion: Option<MotionSample>,
     ) -> InputState {
         let mut input = self.state;
+        let short: Vec<i32> = self.latched.iter().filter(|code| !self.keys.contains(code) && !self.axes.contains(code)).copied().collect();
+        self.short_presses += short.len() as u32;
+        let latched_touch = self.latched_touch.take();
+        self.latched.clear();
+        let short = if settings.latch_short_presses { short } else { Vec::new() };
         input.buttons = PadState::from_bits_truncate(virtual_input.buttons);
         let selected_gate = settings.tilt_button.keycode();
         let gated = settings.stick_motion && settings.stick_motion_gate;
         let mut motion_gate = selected_gate.is_none()
             || (settings.tilt_button.guest_bits() & virtual_input.buttons != 0);
-        for code in self.keys.union(&virtual_input.keys).chain(&self.axes) {
+        for code in self.keys.union(&virtual_input.keys).chain(&self.axes).chain(&short) {
             let gate_key = settings.binding(*code) != Some(Binding::FastForward)
                 && (selected_gate == Some(*code)
                     || settings.controller_bindings.get(code) == Some(&Binding::MotionGate));
@@ -247,7 +280,7 @@ impl Input {
             input.circle_x = 0.0;
             input.circle_y = 0.0;
         }
-        input.touch = virtual_input.touch.or(input.touch);
+        input.touch = virtual_input.touch.or(input.touch).or(latched_touch.filter(|_| settings.latch_short_presses));
         input.motion = motion
             .filter(|_| settings.motion_enabled)
             .map(|mut sample| {

@@ -160,6 +160,8 @@ Performance switches for A/B testing (all apply at the next launch):
   queue (~125 ms, drift trim, time stretch, fades); off is 0.2.0's, ~230 ms behind.
 - **Low-latency sound output** (`low_latency_audio`), off: asks AAudio for a FAST track
   (allocated session, Game usage); on the Thor a global software equalizer denies FAST.
+- **Never miss a quick tap** (`latch_short_presses`), on: a button or touch pressed and
+  released between two frames counts as pressed for one frame (on-screen buttons excepted).
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 

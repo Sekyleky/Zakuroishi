@@ -155,6 +155,8 @@ pub struct Advanced {
     /// AAudio FAST track: allocated session (no RAW flag) and Game usage. Off: the Thor's
     /// global software equalizer denies FAST to every track anyway.
     pub low_latency_audio: bool,
+    /// a press and release between two frames still counts as pressed for one frame.
+    pub latch_short_presses: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -224,6 +226,7 @@ impl Default for Advanced {
             shade_ahead: true,
             audio_queue_managed: true,
             low_latency_audio: false,
+            latch_short_presses: true,
             enhancements: Vec::new(),
         }
     }
@@ -410,6 +413,8 @@ mod tests {
         assert!(!off.vsync_pacing && !off.safe_gpu_shaders && off.turnip_sysmem);
         assert!(settings.audio_queue_managed && !settings.low_latency_audio);
         assert!(Advanced::parse(r#"{"low_latency_audio":true}"#).unwrap().low_latency_audio);
+        assert!(settings.latch_short_presses);
+        assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
         assert!(!Advanced::parse(r#"{"audio_queue_managed":false}"#).unwrap().audio_queue_managed);
         let options = settings.renderer_options();
         assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode && options.async_pack_lookup);
