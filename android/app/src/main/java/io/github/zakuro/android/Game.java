@@ -167,7 +167,7 @@ public final class Game extends NativeActivity {
         android.widget.Button menu = new android.widget.Button(this); menu.setText("Pause");
         menu.setContentDescription("Open game pause menu"); menu.setOnClickListener(v -> pauseMenu());
         if (settings.flag("show_pause_button")) panel(menu, android.view.Gravity.TOP | android.view.Gravity.END, true);
-        stats = new android.widget.TextView(this); stats.setTextColor(0xffffffff); stats.setBackgroundColor(0x99000000); stats.setTextSize(13);
+        stats = new android.widget.TextView(this); stats.setTextColor(0xffffffff); stats.setBackgroundColor(0x99000000); stats.setTextSize(13); stats.setTypeface(android.graphics.Typeface.MONOSPACE);
         stats.setPadding(dp(6), dp(3), dp(6), dp(3)); stats.setVisibility(android.view.View.GONE);
         panel(stats, android.view.Gravity.TOP | android.view.Gravity.START, false);
         if (settings.flag("touch_controls")) {
@@ -204,7 +204,7 @@ public final class Game extends NativeActivity {
     }
     @Override public void onBackPressed() { pauseMenu(); }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
-        if(event.getKeyCode()==KeyEvent.KEYCODE_BACK && !menuOpen && errorDialog==null) {
+        if((event.getKeyCode()==KeyEvent.KEYCODE_BACK || event.getKeyCode()==KeyEvent.KEYCODE_BUTTON_MODE) && !menuOpen && errorDialog==null) {
             if(event.getAction()==KeyEvent.ACTION_UP) pauseMenu(); return true;
         }
         return super.dispatchKeyEvent(event);
@@ -217,12 +217,12 @@ public final class Game extends NativeActivity {
         pauseDialog=new AlertDialog.Builder(this).setTitle("Paused").setItems(entries,(d,which) -> {
             switch(which) {
                 case 1: nativeCommand(SAVE); break;
-                case 2: nativeCommand(LOAD); break;
+                case 2: confirmLoad(); break;
                 case 3: confirmRestart(); break;
                 case 4: nativeCommand(SWAP); break;
                 case 5: nativeCommand(RECALIBRATE); break;
                 case 6: openSettings(); break;
-                case 7: nativeCommand(EXIT); finish(); break;
+                case 7: confirmExit(); break;
             }
         }).setNegativeButton("Resume",null).create();
         pauseDialog.setOnDismissListener(d -> { pauseDialog=null; if(!menuOpen) return; menuOpen=false; nativeCommand(RESUME); });
@@ -242,7 +242,7 @@ public final class Game extends NativeActivity {
     }
     private void confirmRestart() {
         menuOpen=false;
-        new AlertDialog.Builder(this).setTitle("Restart game?").setMessage("Unsaved progress will be lost. Saved states and in-game saves are kept.")
+        confirm(new AlertDialog.Builder(this).setTitle("Restart game?").setMessage("Unsaved progress will be lost. Saved states and in-game saves are kept.")
                 // Relaunch from saved settings: a core-only restart would keep this launch's options (e.g. HD textures).
                 .setPositiveButton("Restart",(d,w) -> {
                     String id=getIntent().getStringExtra("game_id");
@@ -250,16 +250,41 @@ public final class Game extends NativeActivity {
                     try { GameSettings.load(this,id).apply(next,GameImport.active(this,id)); pendingRestart=next; finish(); }
                     catch(Exception e) { nativeCommand(RESTART); }
                 }).setNegativeButton("Cancel",null)
-                .setOnDismissListener(d -> nativeCommand(RESUME)).show();
+                .setOnDismissListener(d -> nativeCommand(RESUME)));
+    }
+    private void confirmLoad() {
+        menuOpen=false;
+        confirm(new AlertDialog.Builder(this).setTitle("Load quick state?").setMessage("Progress since it was saved is lost.")
+                .setPositiveButton("Load",(d,w) -> nativeCommand(LOAD)).setNegativeButton("Cancel",null)
+                .setOnDismissListener(d -> nativeCommand(RESUME)));
+    }
+    private void confirmExit() {
+        menuOpen=false;
+        confirm(new AlertDialog.Builder(this).setTitle("Exit to library?").setMessage("Unsaved progress is lost. In-game saves are kept.")
+                .setPositiveButton("Exit",(d,w) -> { nativeCommand(EXIT); finish(); }).setNegativeButton("Cancel",null)
+                .setOnDismissListener(d -> nativeCommand(RESUME)));
+    }
+    /** Shows a confirmation with Cancel focused; A clicks the focused button, B cancels. */
+    private void confirm(AlertDialog.Builder b) {
+        AlertDialog d=b.create();
+        d.setOnKeyListener((dd,code,event) -> {
+            if(code!=KeyEvent.KEYCODE_BUTTON_A && code!=KeyEvent.KEYCODE_BUTTON_B) return false;
+            if(event.getAction()==KeyEvent.ACTION_UP) {
+                if(code==KeyEvent.KEYCODE_BUTTON_B) dd.cancel();
+                else if(d.getCurrentFocus()!=null) d.getCurrentFocus().performClick();
+            }
+            return true;
+        });
+        d.show(); d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
     }
     @Override protected void onNewIntent(android.content.Intent next) {
         super.onNewIntent(next);
         if (java.util.Objects.equals(getIntent().getStringExtra("game_id"),next.getStringExtra("game_id"))) return;
         nativeCommand(PAUSE);
-        new AlertDialog.Builder(this).setTitle("Switch games?")
+        confirm(new AlertDialog.Builder(this).setTitle("Switch games?")
             .setMessage("Unsaved progress in the current game will be lost. In-game saves are kept.")
             .setPositiveButton("Switch",(d,w)->{ pendingRestart=next; finish(); })
-            .setNegativeButton("Cancel",null).setOnDismissListener(d->nativeCommand(RESUME)).show();
+            .setNegativeButton("Cancel",null).setOnDismissListener(d->nativeCommand(RESUME)));
     }
     private void openSettings() {
         menuOpen=false;
