@@ -61,6 +61,12 @@ final class SettingsDialog {
         background.addState(new int[]{}, shape(surface, 1)); button.setBackground(background);
         return button;
     }
+    private void focusRing(View view) {
+        StateListDrawable background = new StateListDrawable();
+        background.addState(new int[]{android.R.attr.state_focused}, shape(tint, 3));
+        background.addState(new int[]{android.R.attr.state_pressed}, shape(tint, 3));
+        background.addState(new int[]{}, new ColorDrawable(0)); view.setBackground(background);
+    }
     private void addButton(LinearLayout content, Button button) {
         LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2); size.setMargins(0, dp(5), 0, dp(5)); content.addView(button, size);
     }
@@ -74,7 +80,7 @@ final class SettingsDialog {
             dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
             for (int which : new int[]{DialogInterface.BUTTON_POSITIVE, DialogInterface.BUTTON_NEGATIVE, DialogInterface.BUTTON_NEUTRAL}) {
                 Button button = dialog.getButton(which);
-                if (button != null) { button.setAllCaps(false); button.setTextColor(accent); button.setMinHeight(dp(48)); }
+                if (button != null) { button.setAllCaps(false); button.setTextColor(accent); button.setMinHeight(dp(48)); focusRing(button); }
             }
         });
         dialog.setOnKeyListener((d, code, event) -> {
@@ -176,7 +182,7 @@ final class SettingsDialog {
     private String bindingLabel(GameSettings draft, String target) {
         List<String> keys=new ArrayList<>();
         for (Map.Entry<String,String> entry:draft.controllerBindings.entrySet())
-            if(entry.getValue().equals(target)) keys.add(KeyEvent.keyCodeToString(Integer.parseInt(entry.getKey())).replace("KEYCODE_", ""));
+            if(entry.getValue().equals(target)) keys.add(KeyEvent.keyCodeToString(Integer.parseInt(entry.getKey())).replace("KEYCODE_", "").replaceFirst("^BUTTON_", "").replace('_', ' '));
         return label(target) + " · " + (keys.isEmpty() ? "Default / unassigned" : String.join(", ",keys));
     }
     private void refreshBindings(LinearLayout content, GameSettings draft) {
@@ -240,12 +246,14 @@ final class SettingsDialog {
         }
         if (group.equals("Button mapping")) {
             content.addView(text("Controller bindings", false));
-            content.addView(text("Select an action, then press a physical controller button. Back cancels capture. Hold an action here to clear its custom bindings. Touch buttons keep their printed actions. Fast-forward restores normal speed when released.", true));
+            content.addView(text("Select an action, then press a physical controller button. Back cancels capture. Choose Clear binding while capturing, or hold an action here, to clear its custom bindings. Touch buttons keep their printed actions. Fast-forward restores normal speed when released.", true));
             for (String target : GameSettings.BINDING_TARGETS) {
                 Button bind = button(bindingLabel(draft,target));
                 bind.setOnClickListener(v -> {
                     AlertDialog capture = new AlertDialog.Builder(activity).setTitle("Bind " + label(target))
-                            .setMessage("Press a physical controller button. Back cancels.").setNegativeButton("Cancel", null).create();
+                            .setMessage("Press a physical controller button. Back cancels.").setNegativeButton("Cancel", null)
+                            .setNeutralButton("Clear binding", (d, w) -> { draft.controllerBindings.values().removeIf(target::equals); refreshBindings(content,draft); }).create();
+                    show(capture);
                     capture.setOnKeyListener((d, code, event) -> {
                         if (code == KeyEvent.KEYCODE_BACK || code < 0 || code > 1024) return false;
                         if ((event.getSource() & android.view.InputDevice.SOURCE_GAMEPAD) != android.view.InputDevice.SOURCE_GAMEPAD
@@ -255,7 +263,7 @@ final class SettingsDialog {
                             refreshBindings(content,draft); d.dismiss();
                         }
                         return true;
-                    }); capture.show();
+                    });
                 });
                 bind.setOnLongClickListener(v -> { draft.controllerBindings.values().removeIf(target::equals); refreshBindings(content,draft); return true; });
                 bind.setTag(target); addButton(content,bind);
@@ -274,7 +282,7 @@ final class SettingsDialog {
     }
     private Switch toggle(String label, boolean checked) {
         Switch view = new Switch(activity); view.setText(label); view.setTextColor(ink); view.setTextSize(16);
-        view.setMinHeight(dp(56)); view.setPadding(0, dp(8), 0, dp(8)); view.setChecked(checked);
+        view.setMinHeight(dp(56)); view.setPadding(dp(8), dp(8), dp(8), dp(8)); view.setChecked(checked); focusRing(view);
         view.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{accent, muted}));
         view.setTrackTintList(ColorStateList.valueOf(border)); return view;
     }
@@ -328,7 +336,7 @@ final class SettingsDialog {
         } else {
             float step = setting.max <= 1 ? 0.05f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
             TextView caption = text(setting.label + " · " + format(draft.number(setting.key)), false); content.addView(caption);
-            SeekBar slider = new SeekBar(activity); slider.setMinHeight(dp(48)); slider.setProgressTintList(ColorStateList.valueOf(accent));
+            SeekBar slider = new SeekBar(activity); slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setProgressTintList(ColorStateList.valueOf(accent));
             slider.setThumbTintList(ColorStateList.valueOf(accent)); slider.setMax(Math.round((setting.max - setting.min) / step));
             slider.setProgress(Math.round((draft.number(setting.key) - setting.min) / step)); slider.setKeyProgressIncrement(1);
             slider.setContentDescription(caption.getText()); slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
