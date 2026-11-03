@@ -158,6 +158,8 @@ Performance switches for A/B testing (all apply at the next launch):
   vertex path; off only to compare.
 - **Keep sound in step with the picture** (`audio_queue_managed`), on: the desktop
   queue (~125 ms, drift trim, time stretch, fades); off is 0.2.0's, ~230 ms behind.
+- **Low-latency sound output** (`low_latency_audio`), off: asks AAudio for a FAST track
+  (allocated session, Game usage); on the Thor a global software equalizer denies FAST.
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 

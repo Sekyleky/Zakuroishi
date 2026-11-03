@@ -856,7 +856,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             audio = None;
         }
         if audio.is_none() && Instant::now() >= retry_audio {
-            audio = Audio::open(settings.audio_queue_managed)
+            audio = Audio::open(settings.audio_queue_managed, settings.low_latency_audio)
                 .inspect_err(|e| log::warn!("AAudio: {e}"))
                 .ok();
             retry_audio = Instant::now() + Duration::from_secs(2);

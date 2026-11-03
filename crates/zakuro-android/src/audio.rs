@@ -1,7 +1,7 @@
 use crate::audio_queue::{enqueue, Queue as Managed, Stretch};
 use ndk::audio::{
     AudioCallbackResult, AudioDirection, AudioFormat, AudioPerformanceMode, AudioStream,
-    AudioStreamBuilder, AudioStreamDataCallback,
+    AudioStreamBuilder, AudioStreamDataCallback, AudioUsage,
 };
 use std::{
     cell::RefCell,
@@ -29,7 +29,7 @@ pub struct Audio {
     disconnected: Arc<AtomicBool>,
 }
 impl Audio {
-    pub fn open(managed: bool) -> Result<Self, String> {
+    pub fn open(managed: bool, low_latency: bool) -> Result<Self, String> {
         let disconnected = Arc::new(AtomicBool::new(false));
         let failed = disconnected.clone();
         let (shared, callback): (Shared, AudioStreamDataCallback) = if managed {
@@ -91,8 +91,13 @@ impl Audio {
             });
             (Shared::Legacy(queue), callback)
         };
-        let stream = AudioStreamBuilder::new()
-            .map_err(|e| e.to_string())?
+        let mut builder = AudioStreamBuilder::new().map_err(|e| e.to_string())?;
+        if low_latency {
+            // Low latency with no session asks for FAST|RAW; this output has FAST only, so
+            // AudioFlinger refuses FAST altogether. An allocated session drops RAW.
+            builder = builder.session_id(None).usage(AudioUsage::Game);
+        }
+        let stream = builder
             .direction(AudioDirection::Output)
             .channel_count(2)
             .format(AudioFormat::PCM_Float)
@@ -110,13 +115,14 @@ impl Audio {
             return Err("AAudio did not negotiate stereo float PCM".into());
         }
         log::info!(
-            "AAudio stream rate={} burst={} buffer={}/{} performance={:?} managed={}",
+            "AAudio stream rate={} burst={} buffer={}/{} performance={:?} managed={} low_latency={}",
             stream.sample_rate(),
             stream.frames_per_burst(),
             stream.buffer_size_in_frames(),
             stream.buffer_capacity_in_frames(),
             stream.performance_mode(),
-            managed
+            managed,
+            low_latency
         );
         stream.request_start().map_err(|e| e.to_string())?;
         Ok(Self {

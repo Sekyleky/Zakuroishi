@@ -7,6 +7,9 @@
   (time stretch, fade instead of hard silence, no silent buffer on a busy lock)
   with a learned rate trim: 100–125 ms behind instead of ~230 ms
   (`audio_queue_managed`). The benchmark line logs `audio_queue_ms`/`audio_underruns`.
+- **Low-latency sound switch, off.** `low_latency_audio` asks AAudio for a FAST track
+  without the RAW flag the Thor's output lacks; the Thor still gets a normal track,
+  because a system-wide software Equalizer on the output mix denies FAST to every app.
 - **Menus.** One orange palette from the logo for dark and light mode, used by the
   library, settings and in-game menus. Every control shows focus (solid orange with
   a ring; rows get an orange outline). The pause menu is a 2x4 grid with Resume

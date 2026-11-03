@@ -22,7 +22,7 @@ ash = { version = "0.38", default-features = false, features = ["loaded", "std"]
 libloading = "0.8"
 jni = "0.21"
 log = "0.4"
-ndk = { version = "0.9", features = ["audio", "rwh_06"] }
+ndk = { version = "0.9", features = ["audio", "rwh_06", "api-level-28"] }
 ndk-sys = "0.6"
 raw-window-handle = "0.6"
 zakuro-common = { path = "../zakuro-common" }
