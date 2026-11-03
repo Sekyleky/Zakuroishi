@@ -12,6 +12,8 @@ the same build; numbers from the benchmark line every 300 frames.
 
 | `low_latency_audio` | normal track, flags FAST\|RAW requested, "mismatch" with output flags 0x6 | flags FAST requested, granted 0x0; still a normal 2886-frame track, burst 960, ~131 ms track latency | no FAST: `dumpsys media.audio_flinger` shows an Equalizer and a second software effect on session 0 (global output mix); most likely AOSP createTrack_l's "software global effect present" rule (not logged at this log level); 0 underruns after load |
 | `latch_short_presses` | title → field with two `input keyevent BUTTON_A` taps: 11/16 runs; both runs that logged a sub-frame tap (`short_presses=1`) stayed on the title | 23/23 runs, including all 4 that logged a sub-frame tap | sub-frame taps happened in ~40% of counted runs; on-screen (Java) buttons are not latched |
+| `short_vsync_queue`, Turnip | 4 images; ready → shown median 56.9 / 56.4 ms (p90 59.0 / 58.6); 3 / 3 gaps over 20 ms | 3 images; 39.8 / 40.9 ms (p90 41.9 / 42.6); 3 / 2 gaps | 5 SurfaceFlinger `--latency` samples per run (~630 frames), 30 s after reaching the field; emulation 5.8 ms both |
+| `short_vsync_queue`, stock Qualcomm | 16.2 / 16.3 ms (p90 29.1 / 28.9); 23 / 23 gaps | 16.6 / 16.4 ms (p90 29.1 / 29.5); 29 / 27 gaps | the stock driver already shows frames soon after they are ready; fewer images only adds late frames, so the default stays off |
 
 Host: the queue's tests run in both crates; `a_game_running_a_little_fast_stays_near_the_target`
 fails without the trim (193 ms after 3 min) and holds 104–116 ms with it.

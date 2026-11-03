@@ -14,6 +14,11 @@
   used to never reach the game; it now counts as pressed for one frame
   (`latch_short_presses`, controller keys, hat, triggers and touch). The benchmark
   line counts such presses as `short_presses`.
+- **Vsync queue switch, off.** `short_vsync_queue` asks for the surface's minimum
+  swapchain images (3 instead of 4 on the Thor) under vsync pacing: on Turnip a frame
+  reaches the screen 40 ms after it is ready instead of 57 ms, with no extra late frames;
+  on the stock driver it changes nothing (16 ms) and adds a few late frames, so it is off.
+  The image count is logged with the present mode.
 - **Menus.** One orange palette from the logo for dark and light mode, used by the
   library, settings and in-game menus. Every control shows focus (solid orange with
   a ring; rows get an orange outline). The pause menu is a 2x4 grid with Resume

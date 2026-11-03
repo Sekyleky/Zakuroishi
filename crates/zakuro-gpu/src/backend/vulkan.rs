@@ -146,6 +146,9 @@ pub struct VulkanPresenter {
     waits: bool,
     /// FIFO wanted: the display's vsync, not a timer, paces the frames.
     vsync: bool,
+    /// under FIFO, the fewest images the surface allows rather than one more, so fewer
+    /// finished frames wait for the display.
+    short_queue: bool,
     /// the transform differs from the panel's on purpose (see presentation_transform),
     /// which Android reports as suboptimal on every present: that alone is no reason to rebuild.
     rotated: bool,
@@ -455,6 +458,7 @@ impl VulkanPresenter {
             shared: ManuallyDrop::into_inner(shared),
             waits: true,
             vsync: false,
+            short_queue: false,
             rotated: false,
             command_pool,
             command_buffers,
@@ -509,7 +513,7 @@ impl VulkanPresenter {
             return Ok(());
         }
 
-        let mut image_count = capabilities.min_image_count + 1;
+        let mut image_count = capabilities.min_image_count + u32::from(!(self.vsync && self.short_queue));
         if capabilities.max_image_count > 0 && image_count > capabilities.max_image_count {
             image_count = capabilities.max_image_count;
         }
@@ -542,7 +546,7 @@ impl VulkanPresenter {
                 other => format!("mode {}", other.as_raw()),
             };
             let all: Vec<String> = present_modes.iter().copied().map(name).collect();
-            log::info!("presenting in {} mode, of {}", name(present_mode), all.join(", "));
+            log::info!("presenting in {} mode, of {}, {} images (min {})", name(present_mode), all.join(", "), image_count, capabilities.min_image_count);
         }
 
         let old = self.swapchain;
@@ -724,6 +728,14 @@ impl VulkanPresenter {
     pub fn set_vsync(&mut self, vsync: bool) {
         if self.vsync != vsync {
             self.vsync = vsync;
+            self.stale = true;
+        }
+    }
+
+    /// see short_queue; a change rebuilds the swapchain like set_vsync.
+    pub fn set_short_queue(&mut self, short: bool) {
+        if self.short_queue != short {
+            self.short_queue = short;
             self.stale = true;
         }
     }

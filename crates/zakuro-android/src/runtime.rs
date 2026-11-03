@@ -875,6 +875,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         let present_start = Instant::now();
         // Under FIFO the display is the cap; a timer gate would drop frames that arrive a hair early.
         s.presenter.set_vsync(settings.vsync_pacing && display_paced);
+        s.presenter.set_short_queue(settings.short_vsync_queue);
         let vsync = s.presenter.waits_for_display() && display_paced;
         if vsync || present_start >= next_present {
             match s.present(

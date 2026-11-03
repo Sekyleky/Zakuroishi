@@ -157,6 +157,9 @@ pub struct Advanced {
     pub low_latency_audio: bool,
     /// a press and release between two frames still counts as pressed for one frame.
     pub latch_short_presses: bool,
+    /// under vsync, the surface's minimum swapchain images instead of one more. Off: Turnip
+    /// shows frames 57 -> 40 ms sooner, but the stock driver gains nothing and hitches more.
+    pub short_vsync_queue: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -227,6 +230,7 @@ impl Default for Advanced {
             audio_queue_managed: true,
             low_latency_audio: false,
             latch_short_presses: true,
+            short_vsync_queue: false,
             enhancements: Vec::new(),
         }
     }
@@ -415,6 +419,8 @@ mod tests {
         assert!(Advanced::parse(r#"{"low_latency_audio":true}"#).unwrap().low_latency_audio);
         assert!(settings.latch_short_presses);
         assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
+        assert!(!settings.short_vsync_queue);
+        assert!(Advanced::parse(r#"{"short_vsync_queue":true}"#).unwrap().short_vsync_queue);
         assert!(!Advanced::parse(r#"{"audio_queue_managed":false}"#).unwrap().audio_queue_managed);
         let options = settings.renderer_options();
         assert!(options.pooled_uploads && options.upload_size_budget && options.threaded_picture_copy && options.fast_texture_decode && options.async_pack_lookup);

@@ -162,6 +162,9 @@ Performance switches for A/B testing (all apply at the next launch):
   (allocated session, Game usage); on the Thor a global software equalizer denies FAST.
 - **Never miss a quick tap** (`latch_short_presses`), on: a button or touch pressed and
   released between two frames counts as pressed for one frame (on-screen buttons excepted).
+- **Vsync: fewer frames waiting** (`short_vsync_queue`), off: 3 swapchain images instead
+  of 4 under FIFO; Turnip shows frames 57 → 40 ms after they are ready, the stock driver
+  is unchanged (16 ms) with a few more late frames. Worth turning on with Turnip.
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 
