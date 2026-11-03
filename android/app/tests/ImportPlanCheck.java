@@ -382,6 +382,28 @@ public final class ImportPlanCheck {
         empty.file("root", "manifest", "pack.json", new byte[]{'{', '}'});
         rejects(() -> ImportPlan.texturePack(empty, "root", TITLE), "manifest-only explicit texture pack");
     }
+    private static void romfsMods() throws Exception {
+        Tree mod = new Tree();
+        mod.directory("root", "romfs", "romfs"); mod.directory("romfs", "a", "a");
+        mod.file("a", "garc", "0", new byte[]{1, 2, 3}); mod.file("romfs", "empty", "empty.bin", new byte[0]);
+        mod.directory("root", "ext", "romfs_ext"); mod.file("ext", "extra", "x.bin", new byte[]{4});
+        mod.directory("root", "tex", "textures"); mod.file("tex", "png", "t.png", PNG.clone());
+        mod.file("root", "readme", "readme.txt", new byte[]{5});
+        ImportPlan plan = ImportPlan.romfsMod(mod, "root", TITLE);
+        String base = "data/mods/" + TITLE + "/";
+        check(plan.rom == null && plan.code == null && plan.files.size() == 3 && plan.bytes == 4, "Wrong romfs mod plan");
+        check(item(plan, "garc").destination.equals(base + "romfs/a/0") && item(plan, "empty").destination.equals(base + "romfs/empty.bin")
+                && item(plan, "extra").destination.equals(base + "romfs_ext/x.bin"), "Wrong romfs mod destinations");
+        for (String code : new String[]{"code.ips", "code.bin", "exheader.bin"}) {
+            Tree patched = new Tree(); patched.directory("root", "romfs", "romfs"); patched.file("romfs", "f", "f", new byte[]{1});
+            patched.file("root", "code", code, new byte[]{1});
+            rejects(() -> ImportPlan.romfsMod(patched, "root", TITLE), "code mod " + code);
+        }
+        Tree exefs = new Tree(); exefs.directory("root", "romfs", "romfs"); exefs.file("romfs", "f", "f", new byte[]{1}); exefs.directory("root", "exefs", "exefs");
+        rejects(() -> ImportPlan.romfsMod(exefs, "root", TITLE), "exefs mod");
+        Tree none = new Tree(); none.file("root", "f", "f", new byte[]{1});
+        rejects(() -> ImportPlan.romfsMod(none, "root", TITLE), "mod without romfs");
+    }
     private static void unknownSizes() throws Exception {
         Tree tree = valid();
         reportedSize(tree, "title-folder", "rom", -1);
@@ -471,7 +493,7 @@ public final class ImportPlanCheck {
         validPlan(); badStructure(); badPayloads(); unknownSizes(); directHeaders();
         destinationBounds(); capturedHeaders();
         incompatibleCode(); optionalTextures(); componentPlans();
-        executableStructure(); completePngs();
+        executableStructure(); completePngs(); romfsMods();
         System.out.println("Import plan checks passed: preflight ordering, sparse ROM, strict ABI, optional textures, component replacements, destination bounds, captured headers");
     }
 }

@@ -75,7 +75,10 @@ final class ImportPlan {
                     if (!names.add(lower)) throw new IOException("Duplicate document name: " + entry.name);
                     String path = relative + entry.name;
                     if (entry.directory) {
-                        if (kind.isEmpty() && lower.equals("textures")) {
+                        if (kind.equals("mod")) {
+                            if (lower.equals("romfs") || lower.equals("romfs_ext")) walk(source, entry.id, "romfs", lower + "/", ancestors, depth + 1);
+                            else if (lower.equals("exefs")) throw new IOException(CODE_MOD);
+                        } else if (kind.isEmpty() && lower.equals("textures")) {
                             if (!includeTextures) continue;
                             if (++textures > 1) throw new IOException("Multiple textures folders. Select one game's build folder.");
                             walk(source, entry.id, "textures", "", ancestors, depth + 1);
@@ -83,6 +86,9 @@ final class ImportPlan {
                             if (++sysdata > 1) throw new IOException("Multiple sysdata folders. Select one game's build folder.");
                             walk(source, entry.id, "sysdata", "", ancestors, depth + 1);
                         } else walk(source, entry.id, kind, kind.isEmpty() ? "" : path + "/", ancestors, depth + 1);
+                    } else if (kind.equals("romfs")) assets.add(new Item(entry, path));
+                    else if (kind.equals("mod")) {
+                        if (lower.startsWith("code.") || lower.equals("exheader.bin")) throw new IOException(CODE_MOD);
                     } else if (kind.equals("textures")) {
                         if (lower.endsWith(".png") || lower.equals("pack.json")) assets.add(new Item(entry, "textures/" + path));
                     } else if (kind.equals("sysdata")) {
@@ -163,6 +169,22 @@ final class ImportPlan {
             }
         }
         if (!hasPng) throw new IOException("No PNG images found. Select the extracted texture pack folder.");
+        return new ImportPlan(titleId, null, null, files, total);
+    }
+    static final String CODE_MOD = "This mod also changes game code (exefs, code.bin/ips/bps or exheader.bin). Zakuroishi runs prebuilt native code, so only romfs mods can be imported. Remove the code files to import the rest at your own risk.";
+    /** A Luma3DS/Citra mod folder: its romfs and romfs_ext trees, laid over the game's files at launch. */
+    static ImportPlan romfsMod(Source source, String rootId, String titleId) throws IOException {
+        Scan scan = new Scan(false); scan.walk(source, rootId, "mod", "", new HashSet<>(), 0);
+        if (scan.assets.isEmpty()) throw new IOException("No romfs or romfs_ext folder with files found. Select the mod's folder that contains romfs.");
+        List<Item> files = new ArrayList<>(); long total = 0;
+        for (Item item : scan.assets) {
+            try (SeekableByteChannel file = source.open(item.source.id)) {
+                Entry entry = sized(item.source, file);
+                files.add(new Item(entry, "data/mods/" + titleId + "/" + item.destination));
+                try { total = Math.addExact(total, entry.size); }
+                catch (ArithmeticException e) { throw new IOException("Mod is too large", e); }
+            }
+        }
         return new ImportPlan(titleId, null, null, files, total);
     }
     private static Entry sized(Entry entry, SeekableByteChannel file) throws IOException {

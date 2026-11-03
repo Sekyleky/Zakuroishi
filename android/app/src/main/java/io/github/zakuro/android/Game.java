@@ -271,7 +271,7 @@ public final class Game extends NativeActivity {
                     try { GameSettings.load(this,id).apply(next,GameImport.active(this,id)); }
                     catch(Exception e) { showNativeMessage(e.getMessage()); nativeCommand(RESUME); return; }
                     pendingRestart = next; finish();
-                }, () -> nativeCommand(RESUME),null,null);
+                }, () -> nativeCommand(RESUME),null,null,null);
         } catch(Exception e) { showNativeMessage(e.getMessage()); nativeCommand(RESUME); }
     }
     private String runtimeError;

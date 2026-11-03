@@ -19,19 +19,19 @@ final class SettingsDialog {
     private final GameSettings settings;
     private final String title;
     private final int surface, ink, muted, accent, border, tint;
-    private final Runnable saved, closed, repair, textures;
+    private final Runnable saved, closed, repair, textures, mods;
     private final boolean inGame;
     private boolean saving;
     private AlertDialog rootDialog;
 
     static void show(Activity activity, String id, File version, String title, boolean inGame,
-                     Runnable saved, Runnable closed, Runnable repair, Runnable textures) {
-        new SettingsDialog(activity, id, version, title, inGame, saved, closed, repair, textures).root();
+                     Runnable saved, Runnable closed, Runnable repair, Runnable textures, Runnable mods) {
+        new SettingsDialog(activity, id, version, title, inGame, saved, closed, repair, textures, mods).root();
     }
     private SettingsDialog(Activity activity, String id, File version, String title, boolean inGame,
-                           Runnable saved, Runnable closed, Runnable repair, Runnable textures) {
+                           Runnable saved, Runnable closed, Runnable repair, Runnable textures, Runnable mods) {
         this.activity = activity; this.version = version; this.title = title; this.inGame = inGame;
-        this.saved = saved; this.closed = closed; this.repair = repair; this.textures = textures;
+        this.saved = saved; this.closed = closed; this.repair = repair; this.textures = textures; this.mods = mods;
         settings = GameSettings.load(activity, id);
         boolean dark = (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         surface = dark ? 0xff1e2924 : 0xfffcfdfa; ink = dark ? 0xffeef3eb : 0xff192a23;
@@ -114,6 +114,10 @@ final class SettingsDialog {
             if (textures != null) {
                 Button attach = button("Import texture pack…"); attach.setOnClickListener(v -> textures.run()); addButton(content, attach);
                 content.addView(text("Optional. Attach a pack without copying your game again.", true));
+            }
+            if (mods != null) {
+                Button mod = button("Import romfs mod…"); mod.setOnClickListener(v -> mods.run()); addButton(content, mod);
+                content.addView(text("Optional. Choose a Luma3DS or Citra mod folder with romfs. Replaces the previous mod; mods that change game code are refused. Add the game again to remove it.", true));
             }
             if (repair != null) {
                 Button replace = button("Replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);

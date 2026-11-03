@@ -16,10 +16,10 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10;
     private String pendingSaveId;
     private Uri pendingIisu;
-    private String pendingCodeId, pendingTextureId, pendingDriverId;
+    private String pendingCodeId, pendingTextureId, pendingModId, pendingDriverId;
     private boolean pendingIncludeTextures;
     private LinearLayout list;
     private ScrollView library;
@@ -36,7 +36,7 @@ public final class Launcher extends Activity {
         super.onCreate(state);
         if (state != null) {
             String iisu=state.getString("pendingIisu"); if(iisu!=null) pendingIisu=Uri.parse(iisu);
-            pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId");
+            pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId"); pendingModId = state.getString("pendingModId");
             pendingDriverId = state.getString("pendingDriverId");
             pendingSaveId = state.getString("pendingSaveId");
             pendingIncludeTextures = state.getBoolean("pendingIncludeTextures", false);
@@ -195,6 +195,11 @@ public final class Launcher extends Activity {
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
                 task.replaceTextures(getApplicationContext(), id, intent.getData());
         }
+        if (request == REPLACE_MODS) {
+            String id = pendingModId; pendingModId = null;
+            if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
+                task.replaceMods(getApplicationContext(), id, intent.getData());
+        }
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         if(pendingIisu!=null) state.putString("pendingIisu",pendingIisu.toString());
@@ -202,6 +207,7 @@ public final class Launcher extends Activity {
         if (pendingSaveId != null) state.putString("pendingSaveId", pendingSaveId);
         if (pendingCodeId != null) state.putString("pendingCodeId", pendingCodeId);
         if (pendingTextureId != null) state.putString("pendingTextureId", pendingTextureId);
+        if (pendingModId != null) state.putString("pendingModId", pendingModId);
         state.putBoolean("pendingIncludeTextures", pendingIncludeTextures);
         super.onSaveInstanceState(state);
     }
@@ -250,6 +256,13 @@ public final class Launcher extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(intent, REPLACE_TEXTURES);
+    }
+    private void replaceMods(String id) {
+        if (task.busy) return;
+        pendingModId = id;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        startActivityForResult(intent, REPLACE_MODS);
     }
     // The game process edits these too; the shared accessor reloads cross-process changes.
     private android.content.SharedPreferences settings() { return GameSettings.preferences(this); }
@@ -317,7 +330,7 @@ public final class Launcher extends Activity {
     private void options(String id) {
         try {
             SettingsDialog.show(this, id, GameImport.active(this, id), name(id), false,
-                    this::showLibrary, null, () -> replaceCode(id), () -> replaceTextures(id));
+                    this::showLibrary, null, () -> replaceCode(id), () -> replaceTextures(id), () -> replaceMods(id));
         } catch (Exception e) {
             controllerDialog(new AlertDialog.Builder(this).setTitle("Settings unavailable")
                     .setMessage(e.getMessage()).setPositiveButton("OK", null).create()).show();
@@ -427,6 +440,7 @@ public final class Launcher extends Activity {
         void importDriver(Context context, String id, Uri uri) { run(context, id, uri, 3, false); }
         void replaceCode(Context context, String id, Uri uri) { run(context, id, uri, 1, false); }
         void replaceTextures(Context context, String id, Uri uri) { run(context, id, uri, 2, true); }
+        void replaceMods(Context context, String id, Uri uri) { run(context, id, uri, 6, false); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
         void prepareIisu(Context context, Uri source, Uri destination) {
             if(busy) return; busy=true; error=null; message="Preparing iiSU catalog copy…"; refresh(false);
@@ -460,7 +474,7 @@ public final class Launcher extends Activity {
         }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
-            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : "Restoring saves";
+            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing romfs mod" : "Restoring saves";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
                 String failure = null;
@@ -472,6 +486,7 @@ public final class Launcher extends Activity {
                     else if (operation == 1) GameImport.replaceCode(context, id, uri, callback);
                     else if (operation == 2) GameImport.replaceTextures(context, id, uri, callback);
                     else if (operation == 3) installDriver(context, id, uri);
+                    else if (operation == 6) GameImport.replaceRomfs(context, id, uri, callback);
                     else {
                         main.post(() -> { message = action + "…"; refresh(false); });
                         try (SaveArchive.Guard ignored = SaveArchive.lock(context.getFilesDir(), id)) {
@@ -493,7 +508,7 @@ public final class Launcher extends Activity {
                 } catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
                 final String outcome = failure;
                 main.post(() -> { busy = false; error = outcome;
-                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : "Saves restored. Start the game normally; do not load an old quick save state.")
+                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : "Saves restored. Start the game normally; do not load an old quick save state.")
                             : action + " failed. See the error for recovery details."; refresh(true); });
             }, "game-import").start();
         }

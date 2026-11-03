@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Romfs mods on Android.** Game settings → **Import romfs mod…** takes a Luma3DS
+  or Citra mod folder and copies its `romfs/` and `romfs_ext/` into the game's mods
+  folder, which the core already lays over the game's files at launch. Mods with
+  code changes (exefs, code.bin/ips/bps, exheader.bin) are refused, since the game
+  runs its prebuilt native code; a folder named for another title id is refused.
+
 ## 0.2.0 — ABI-5 game code, upstream 0.2.31 renderer, save editors (2026-11-03)
 
 - **Upstream Zakuro 0.2.31 renderer and CPU work.** Draws are shaded on other

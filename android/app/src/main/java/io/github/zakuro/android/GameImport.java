@@ -229,21 +229,41 @@ final class GameImport {
         validId(id); File version = active(context, id);
         DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
         ImportPlan plan = ImportPlan.texturePack(source, DocumentsContract.getTreeDocumentId(tree), id);
+        return swapIn(context, id, version, source, plan, progress, false, "textures");
+    }
+    static String replaceRomfs(android.content.Context context, String id, Uri tree, Progress progress) throws Exception {
+        validId(id); File version = active(context, id);
+        String folder = folderName(context.getContentResolver(), tree);
+        if (folder.matches("[0-9A-Fa-f]{16}") && !folder.equalsIgnoreCase(id))
+            throw new IOException("This mod folder is for game " + folder.toUpperCase(Locale.ROOT) + ", not this one.");
+        DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
+        ImportPlan plan = ImportPlan.romfsMod(source, DocumentsContract.getTreeDocumentId(tree), id);
+        // The old copy goes once replaced: mods can be large and the source folder still has it.
+        return swapIn(context, id, version, source, plan, progress, true, "romfs", "romfs_ext");
+    }
+    /** Stage the plan, then swap each part folder of the game's mods for its staged copy (or none). */
+    private static String swapIn(android.content.Context context, String id, File version, DocumentsSource source,
+            ImportPlan plan, Progress progress, boolean dropOld, String... parts) throws Exception {
         File stage = componentStage(context, plan); boolean uncertain = false;
         try {
             copy(source, plan, stage, progress);
-            File pack = new File(stage, "data/mods/" + id + "/textures");
-            File parent = new File(version, "data/mods/" + id); mkdir(parent);
-            File target = new File(parent, "textures"), backup = new File(parent, "textures.previous-" + UUID.randomUUID());
+            File staged = new File(stage, "data/mods/" + id), parent = new File(version, "data/mods/" + id); mkdir(parent);
             synchronized (POINTER_LOCK) {
                 if (!active(context, id).equals(version)) throw new IOException("The game changed while importing. Select it again.");
-                boolean moved = target.exists();
-                if (moved) Os.rename(target.getAbsolutePath(), backup.getAbsolutePath());
-                try { Os.rename(pack.getAbsolutePath(), target.getAbsolutePath()); }
-                catch (Exception e) {
-                    if (moved) try { Os.rename(backup.getAbsolutePath(), target.getAbsolutePath()); }
-                    catch (Exception restore) { uncertain = true; e.addSuppressed(restore); }
-                    throw e;
+                // ponytail: parts swap one by one; a failure after the first leaves that one new.
+                for (String part : parts) {
+                    File pack = new File(staged, part), target = new File(parent, part), backup = new File(parent, part + ".previous-" + UUID.randomUUID());
+                    boolean moved = target.exists();
+                    if (moved) Os.rename(target.getAbsolutePath(), backup.getAbsolutePath());
+                    if (pack.exists()) {
+                        try { Os.rename(pack.getAbsolutePath(), target.getAbsolutePath()); }
+                        catch (Exception e) {
+                            if (moved) try { Os.rename(backup.getAbsolutePath(), target.getAbsolutePath()); }
+                            catch (Exception restore) { uncertain = true; e.addSuppressed(restore); }
+                            throw e;
+                        }
+                    }
+                    if (dropOld && moved) remove(backup);
                 }
             }
             return id;
