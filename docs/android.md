@@ -94,9 +94,11 @@ compatible enhancement codes to change their own frame rate or remove outlines.
 
 ## Settings and controls
 
-Settings group display layout, filtering, shape/stretch, stereo, resolution,
-compiled/interpreter execution, idle-loop skipping, presentation cap,
-game speed limit, interpolation, motion, controller mapping, audio and console settings. Save
+Settings are grouped as Display (resolution, HD pack, screen layout and second
+display, scaling, on-screen info, 3D), Performance (speed and fast-forward, frame
+cap and vsync, shader warm-up, custom driver), Controls, Button mapping, Motion,
+Audio, System, and Advanced (renderer, shader, HD-texture and driver
+troubleshooting switches). Save
 applies changes; Cancel discards them. Runtime-affecting changes need a restart.
 The [feature matrix](feature-parity.md) identifies supported backend behavior
 and settings still requiring a port.
@@ -117,7 +119,7 @@ latency and calibration still require hardware verification.
 Start with **2× resolution** and the **system Vulkan driver**; on an AYN Thor
 Pokémon Ultra Moon has reached about 60 emulation refreshes/s at 2× and 3× with
 HD textures in the tested scenes; occasional hitches remain. Keep
-Performance → Vertex shader processing on **Auto**: on the stock Qualcomm driver
+Advanced → Vertex shader processing on **Auto**: on the stock Qualcomm driver
 **GPU** crashes the game, and on Turnip it was slower. Leave the presentation cap
 at 60. At 100% speed frames are paced to the display refresh (FIFO); fast-forward
 uses mailbox, with the guest timer controlling game speed. The app asks Android for
@@ -135,7 +137,9 @@ submitted presentation FPS separately. These are not counts of unique game
 images. Audio is not time-stretched for fast-forward; the bounded audio queue
 can drop samples when emulation runs faster than playback.
 
-Performance switches for A/B testing (all apply at the next launch):
+Switches for A/B testing (all apply at the next launch). They are under
+**Advanced**, except vsync, warm-up and the custom driver (Performance) and
+sound/tap latching (Audio/Controls):
 
 - **Pace to display refresh (vsync)**, on: even frame times at normal speed. Off
   restores 0.1.8's mailbox presentation (more 33 ms hitches on the Thor).

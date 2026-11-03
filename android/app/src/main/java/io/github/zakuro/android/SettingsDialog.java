@@ -221,6 +221,7 @@ final class SettingsDialog {
         String start = snapshot(draft, draft.name);
         content.addView(legend(group.equals("Button mapping") ? "A Change · B Back · X Clears · Start Done · L/R Page" : "A Change · B Back · Start Done · L/R Page"));
         if (group.equals("Display")) {
+            content.addView(heading("Picture quality"));
             Button resolution = button("Rendering resolution · " + draft.resolution + "×");
             resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail"}));
             addButton(content, resolution);
@@ -231,8 +232,25 @@ final class SettingsDialog {
             content.addView(text(pack ? "Uses the imported pack. Higher resolutions and large textures use more GPU memory." : "No texture pack attached. Original textures are used. Import a pack from Game settings if you want one.", true));
         }
         for (GameSettings.Setting setting : GameSettings.ALL) if (setting.group.equals(group)) {
-            String section = setting.key.equals("speed_limit") ? "Everyday" : setting.key.equals("hardware_renderer") ? "Renderer"
-                : setting.key.equals("gpu_readback") ? "Troubleshooting · leave at defaults unless comparing" : setting.key.equals("custom_driver") ? "Custom Vulkan driver" : null;
+            String section;
+            switch (setting.key) {
+                case "dual_display": section = "Screens"; break;
+                case "filter": section = "Scaling & shape"; break;
+                case "show_fps": section = "On-screen info"; break;
+                case "stereo": section = "3D"; break;
+                case "speed_limit": section = "Everyday"; break;
+                case "warm_before_start": section = "Shader warm-up · fewer stutters"; break;
+                case "custom_driver": section = "Custom Vulkan driver"; break;
+                case "touch_controls": section = "Touch screen"; break;
+                case "motion_enabled": section = "Device motion"; break;
+                case "stick_motion": section = "Right stick as motion"; break;
+                case "audio_queue_managed": section = "Sound timing"; break;
+                case "hardware_renderer": section = "Core · leave at defaults unless troubleshooting"; break;
+                case "shader_mode": section = "Shaders"; break;
+                case "fast_texture_decode": section = "HD texture loading"; break;
+                case "gpu_readback": section = "Driver workarounds"; break;
+                default: section = null;
+            }
             if (section != null) {
                 content.addView(heading(section));
             }

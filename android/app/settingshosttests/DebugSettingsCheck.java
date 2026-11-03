@@ -13,7 +13,7 @@ public final class DebugSettingsCheck {
     public static void main(String[] args) {
         GameSettings s = GameSettings.from(new HashMap<>(), "0004000000123400");
         String before = DebugSettings.json(s);
-        require(before.startsWith("{\"resolution\":1,\"textures\":true,\"driver\":\"\",\"advanced\":{\"orientation\":\"landscape\""));
+        require(before.startsWith("{\"resolution\":1,\"textures\":true,\"driver\":\"\",\"advanced\":{\"dual_display\":false"));
         require(rejected(s, "resolution", 2, "layout", "bogus") && before.equals(DebugSettings.json(s)));
         require(rejected(s, "nope", true) && rejected(s, "resolution", 4) && rejected(s, "textures", "yes") && rejected(s, "aot", 1));
         require(rejected(s, "volume", 2) && rejected(s, "speed_limit", 1.5) && rejected(s, "driver", "x") && before.equals(DebugSettings.json(s)));

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Settings reorganised: everyday options first; troubleshooting switches moved to a new Advanced page.
 - **Optional: finish shader warm-up before the game starts** (`warm_before_start`, off).
   The first frame waits, 30 s at most, for the remembered vertex programs and GPU
   pipelines; the log says how long it waited and how many were warmed.
