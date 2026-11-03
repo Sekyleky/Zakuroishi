@@ -134,6 +134,7 @@ public final class Game extends NativeActivity {
         }
     }
     private AlertDialog pauseDialog;
+    private Palette palette;
     private boolean menuOpen;
     private android.widget.TextView stats;
     private final android.os.Handler hud = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -213,36 +214,62 @@ public final class Game extends NativeActivity {
     private void pauseMenu() {
         if(menuOpen || errorDialog!=null || isFinishing()) return;
         menuOpen=true; nativeCommand(PAUSE);
+        // Grid order (index = switch case below): Resume|Save, Load|Swap, Recalibrate|Settings, Restart|Exit.
         String[] entries={"Resume","Save state","Load state","Restart game","Swap screens","Recalibrate motion","Settings…","Exit to library"};
-        pauseDialog=new AlertDialog.Builder(this).setTitle("Paused").setItems(entries,(d,which) -> {
-            switch(which) {
-                case 1: nativeCommand(SAVE); break;
-                case 2: confirmLoad(); break;
-                case 3: confirmRestart(); break;
-                case 4: nativeCommand(SWAP); break;
-                case 5: nativeCommand(RECALIBRATE); break;
-                case 6: openSettings(); break;
-                case 7: confirmExit(); break;
-            }
-        }).setNegativeButton("Resume",null).create();
+        int[] grid={0,1,2,4,5,6,3,7};
+        Palette p=palette;
+        android.widget.LinearLayout card=new android.widget.LinearLayout(this);
+        card.setOrientation(android.widget.LinearLayout.VERTICAL); card.setPadding(p.dp(24),p.dp(22),p.dp(24),p.dp(22));
+        android.widget.LinearLayout head=new android.widget.LinearLayout(this); head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.widget.TextView title=new android.widget.TextView(this); title.setText("Paused"); title.setTextSize(24); title.setTextColor(p.ink);
+        android.widget.TextView name=new android.widget.TextView(this); name.setText(getIntent().getStringExtra("game_name")); name.setTextSize(14); name.setTextColor(p.muted);
+        name.setSingleLine(true); name.setEllipsize(android.text.TextUtils.TruncateAt.END); name.setGravity(android.view.Gravity.END);
+        head.addView(title); head.addView(name,new android.widget.LinearLayout.LayoutParams(0,android.view.ViewGroup.LayoutParams.WRAP_CONTENT,1));
+        card.addView(head);
+        android.widget.Button first=null;
+        android.widget.LinearLayout line=null;
+        pauseDialog=new AlertDialog.Builder(this,p.dialogTheme()).setView(card).create();
+        for(int i=0;i<grid.length;i++) {
+            final int which=grid[i];
+            if(i%2==0) { line=new android.widget.LinearLayout(this); card.addView(line,new android.widget.LinearLayout.LayoutParams(-1,-2)); }
+            android.widget.Button tile=new android.widget.Button(this);
+            tile.setText(entries[which]); tile.setAllCaps(false); tile.setTextSize(17); tile.setStateListAnimator(null);
+            tile.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL); tile.setPadding(p.dp(23),0,p.dp(18),0);
+            tile.setMinHeight(p.dp(66)); tile.setBackground(p.button(Palette.SECONDARY));
+            tile.setTextColor(p.label(which==3 || which==7 ? p.danger : p.ink));
+            tile.setOnClickListener(v -> { pauseAction(which); pauseDialog.dismiss(); });
+            line.addView(tile,new android.widget.LinearLayout.LayoutParams(0,-2,1));
+            if(first==null) first=tile;
+        }
+        card.addView(p.legend("A Select · B Resume · ✚ Move"));
         pauseDialog.setOnDismissListener(d -> { pauseDialog=null; if(!menuOpen) return; menuOpen=false; nativeCommand(RESUME); });
         pauseDialog.setOnKeyListener((d,code,event) -> {
             if(code==KeyEvent.KEYCODE_BUTTON_B) { if(event.getAction()==KeyEvent.ACTION_UP) d.cancel(); return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_A) {
                 if(event.getAction()==KeyEvent.ACTION_UP) {
-                    android.widget.ListView items=pauseDialog.getListView(); int selected=items.getSelectedItemPosition();
-                    if(selected>=0) items.performItemClick(items.getSelectedView(),selected,items.getItemIdAtPosition(selected));
-                    else if(pauseDialog.getCurrentFocus()!=null) pauseDialog.getCurrentFocus().performClick();
+                    if(pauseDialog.getCurrentFocus()!=null) pauseDialog.getCurrentFocus().performClick();
                 }
                 return true;
             }
             return false;
         });
         pauseDialog.show();
+        p.dialog(pauseDialog,false); pauseDialog.getWindow().setLayout(p.dp(560),-2); first.requestFocus();
+    }
+    private void pauseAction(int which) {
+        switch(which) {
+            case 1: nativeCommand(SAVE); break;
+            case 2: confirmLoad(); break;
+            case 3: confirmRestart(); break;
+            case 4: nativeCommand(SWAP); break;
+            case 5: nativeCommand(RECALIBRATE); break;
+            case 6: openSettings(); break;
+            case 7: confirmExit(); break;
+        }
     }
     private void confirmRestart() {
         menuOpen=false;
-        confirm(new AlertDialog.Builder(this).setTitle("Restart game?").setMessage("Unsaved progress will be lost. Saved states and in-game saves are kept.")
+        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Restart game?").setMessage("Unsaved progress will be lost. Saved states and in-game saves are kept.")
                 // Relaunch from saved settings: a core-only restart would keep this launch's options (e.g. HD textures).
                 .setPositiveButton("Restart",(d,w) -> {
                     String id=getIntent().getStringExtra("game_id");
@@ -254,13 +281,13 @@ public final class Game extends NativeActivity {
     }
     private void confirmLoad() {
         menuOpen=false;
-        confirm(new AlertDialog.Builder(this).setTitle("Load quick state?").setMessage("Progress since it was saved is lost.")
+        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Load quick state?").setMessage("Progress since it was saved is lost.")
                 .setPositiveButton("Load",(d,w) -> nativeCommand(LOAD)).setNegativeButton("Cancel",null)
                 .setOnDismissListener(d -> nativeCommand(RESUME)));
     }
     private void confirmExit() {
         menuOpen=false;
-        confirm(new AlertDialog.Builder(this).setTitle("Exit to library?").setMessage("Unsaved progress is lost. In-game saves are kept.")
+        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Exit to library?").setMessage("Unsaved progress is lost. In-game saves are kept.")
                 .setPositiveButton("Exit",(d,w) -> { nativeCommand(EXIT); finish(); }).setNegativeButton("Cancel",null)
                 .setOnDismissListener(d -> nativeCommand(RESUME)));
     }
@@ -275,13 +302,13 @@ public final class Game extends NativeActivity {
             }
             return true;
         });
-        d.show(); d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
+        d.show(); palette.dialog(d,true); d.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus();
     }
     @Override protected void onNewIntent(android.content.Intent next) {
         super.onNewIntent(next);
         if (java.util.Objects.equals(getIntent().getStringExtra("game_id"),next.getStringExtra("game_id"))) return;
         nativeCommand(PAUSE);
-        confirm(new AlertDialog.Builder(this).setTitle("Switch games?")
+        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Switch games?")
             .setMessage("Unsaved progress in the current game will be lost. In-game saves are kept.")
             .setPositiveButton("Switch",(d,w)->{ pendingRestart=next; finish(); })
             .setNegativeButton("Cancel",null).setOnDismissListener(d->nativeCommand(RESUME)));
@@ -315,6 +342,7 @@ public final class Game extends NativeActivity {
     private AlertDialog errorDialog;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        palette=new Palette(this);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         fullscreen();
         overlays();
@@ -329,7 +357,7 @@ public final class Game extends NativeActivity {
             if (isFinishing() || isDestroyed() || errorDialog != null) return;
             runtimeError = message == null || message.trim().isEmpty()
                     ? "The game could not start. Please check the imported build." : message;
-            errorDialog = new AlertDialog.Builder(this)
+            errorDialog = new AlertDialog.Builder(this, palette.dialogTheme())
                     .setTitle("Game stopped")
                     .setMessage(runtimeError)
                     .setCancelable(false)
@@ -341,7 +369,7 @@ public final class Game extends NativeActivity {
                 if (event.getAction() == KeyEvent.ACTION_UP) finish();
                 return true;
             });
-            errorDialog.show();
+            errorDialog.show(); palette.dialog(errorDialog, false);
             errorDialog.getButton(DialogInterface.BUTTON_POSITIVE).requestFocus();
         });
     }
