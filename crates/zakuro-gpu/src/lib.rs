@@ -796,10 +796,7 @@ impl Gpu {
     /// the title's frame is done, its draws are the ones the next frame's
     /// match, and how they matched the frame before's.
     pub fn frame_done(&mut self) -> Option<Matches> {
-        self.interpolation.as_mut().map(|interpolation| Matches {
-            lenient: backend::renderer_options().is_some_and(|options| options.interpolate_lenient),
-            ..interpolation.frame_done()
-        })
+        self.interpolation.as_mut().map(interpolation::Interpolation::frame_done)
     }
 
     /// where the picture in between a screen's picture and the one before
