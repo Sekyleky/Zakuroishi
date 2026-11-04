@@ -125,14 +125,18 @@ pub struct Matches {
     pub moved: u32,
     pub jumped: u32,
     pub jumping: u32,
+    /// the lenient setting, see smooth. set by the caller of frame_done.
+    pub lenient: bool,
 }
 
 impl Matches {
     /// whether the picture in between looks right. most of the draws were
     /// there the frame before, and few of those that had not jumped lately
     /// jumped now, as everything does when the camera cuts to somewhere else.
+    /// lenient allows twice as many jumps, one in two instead of one in four.
     pub fn smooth(&self) -> bool {
-        self.moved > 0 && self.matched * 2 >= self.draws && self.jumped * 4 <= self.matched
+        let jumps = if self.lenient { 2 } else { 4 };
+        self.moved > 0 && self.matched * 2 >= self.draws && self.jumped * jumps <= self.matched
     }
 }
 
@@ -237,7 +241,7 @@ impl Interpolation {
     /// the frame is done, its draws are the ones the next frame's match,
     /// and how they matched the frame before's.
     pub(crate) fn frame_done(&mut self) -> Matches {
-        let matches = Matches { draws: self.draws, matched: self.matched, moved: self.moved, jumped: self.jumped, jumping: self.jumping };
+        let matches = Matches { draws: self.draws, matched: self.matched, moved: self.moved, jumped: self.jumped, jumping: self.jumping, lenient: false };
         let mut older = std::mem::replace(&mut self.before, std::mem::take(&mut self.now));
         for drawn in self.before.values_mut() {
             drawn.taken.clear();
@@ -311,7 +315,7 @@ mod tests {
         assert!(interpolation.draw(&registers(3), &unit(4.0), None, true).is_none());
         assert!(interpolation.draw(&registers(6), &unit(1.0), None, true).is_none());
         let first = interpolation.frame_done();
-        assert_eq!(first, Matches { draws: 3, matched: 0, moved: 0, jumped: 0, jumping: 0 });
+        assert_eq!(first, Matches { draws: 3, matched: 0, moved: 0, jumped: 0, jumping: 0, lenient: false });
         assert!(!first.smooth());
 
         let between = interpolation.draw(&registers(3), &unit(0.5), None, true).expect("moved");
@@ -324,8 +328,19 @@ mod tests {
         assert!(interpolation.draw(&registers(6), &unit(1.0), None, true).is_none(), "stayed");
         assert!(interpolation.draw(&registers(9), &unit(1.0), None, true).is_none(), "new");
         let second = interpolation.frame_done();
-        assert_eq!(second, Matches { draws: 4, matched: 3, moved: 2, jumped: 0, jumping: 0 });
+        assert_eq!(second, Matches { draws: 4, matched: 3, moved: 2, jumped: 0, jumping: 0, lenient: false });
         assert!(second.smooth());
+    }
+
+    /// lenient keeps a frame smooth with twice the jumps, a cut is refused
+    /// either way.
+    #[test]
+    fn lenient_allows_more_jumps_but_not_a_cut() {
+        let frame = |jumped, lenient| Matches { draws: 8, matched: 8, moved: 8, jumped, jumping: 0, lenient };
+        assert!(!frame(3, false).smooth() && frame(3, true).smooth(), "3 of 8 jumped");
+        assert!(frame(2, false).smooth() && frame(2, true).smooth());
+        assert!(!frame(8, false).smooth() && !frame(8, true).smooth(), "a cut");
+        assert!(!frame(5, true).smooth());
     }
 
     /// a uniform the coordinates may read too that jumps is as the frame has
@@ -401,7 +416,7 @@ mod tests {
         };
         frame(0.0, 0.0);
         frame(5.0, 0.1);
-        assert_eq!(frame(-5.0, 0.2), Matches { draws: 2, matched: 2, moved: 1, jumped: 0, jumping: 1 });
+        assert_eq!(frame(-5.0, 0.2), Matches { draws: 2, matched: 2, moved: 1, jumped: 0, jumping: 1, lenient: false });
         let matches = frame(5.0, 0.3);
         assert!(matches.smooth() && matches.jumping == 1);
         assert_eq!(frame(-5.0, 9.0).jumped, 1, "the model jumped after moving");
@@ -434,7 +449,7 @@ mod tests {
         let left = interpolation.draw(&registers(3), &unit(-3.6), None, true).expect("the left eye");
         assert!((left[0][3] + 3.65).abs() < 1e-6);
         interpolation.give_back(left);
-        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 2, jumped: 0, jumping: 0 });
+        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 2, moved: 2, jumped: 0, jumping: 0, lenient: false });
     }
 
     /// a draw whose uniforms jump, as a matrix does when the camera cuts or
@@ -450,7 +465,7 @@ mod tests {
         interpolation.give_back(between);
         assert!(interpolation.draw(&registers(4), &unit(1.0), None, true).is_none(), "a flag flipped");
         let matches = interpolation.frame_done();
-        assert_eq!(matches, Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0 });
+        assert_eq!(matches, Matches { draws: 2, matched: 2, moved: 1, jumped: 1, jumping: 0, lenient: false });
         assert!(!matches.smooth());
         interpolation.draw(&registers(3), &unit(200.0), None, true);
         assert_eq!(interpolation.frame_done().jumped, 1, "five sixths of its distance");
@@ -466,7 +481,7 @@ mod tests {
         interpolation.frame_done();
         assert!(interpolation.draw(&registers(3), &unit(0.2), None, true).is_none(), "no geometry stage");
         assert!(interpolation.draw(&registers(3), &unit(0.2), Some(&geometry), true).is_none());
-        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 1, moved: 0, jumped: 0, jumping: 0 });
+        assert_eq!(interpolation.frame_done(), Matches { draws: 2, matched: 1, moved: 0, jumped: 0, jumping: 0, lenient: false });
     }
 
     /// only the uniforms that place the vertices move in between, a
