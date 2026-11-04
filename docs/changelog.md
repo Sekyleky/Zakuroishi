@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- **Frame interpolation counters and switches (not yet measured on a device).** The HUD
-  and the benchmark line show `distinct` pictures per second (`game_fps distinct_fps
-  between rough off_beat`); `device-test.sh latency` and `shots` are added. Two
-  off-by-default switches: `interpolate_lenient` and `interpolate_keep_cadence`.
+- **Frame generation measured on the Thor.** The existing Frame interpolation setting
+  takes Ultra Moon from 30 to 58-60 distinct pictures per second on Turnip at unchanged
+  game speed. It stays off by default: on the stock Qualcomm driver the game fell to
+  65-77% speed. The HUD and the benchmark line show `distinct` pictures per second
+  (`game_fps distinct_fps between rough off_beat`); `device-test.sh latency` and `shots`
+  are added.
 
 - Settings reorganised: everyday options first; troubleshooting switches moved to a new Advanced page.
 - **Optional: finish shader warm-up before the game starts** (`warm_before_start`, off).

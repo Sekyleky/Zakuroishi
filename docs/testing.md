@@ -1,18 +1,48 @@
 # Verification record
 
-## Frame interpolation (pending)
+## Frame interpolation (unreleased, 2026-11-04)
 
-Not measured on a device yet.
+AYN Thor, Ultra Moon 3x + HD, a save in a cave area. Same build and settings, `interpolate`
+off then on, one run per side; benchmark line averaged over each scene. "Battle" is the
+idle battle camera with the command menu up. Worst frame and latency read off -> on.
 
-| Scene | distinct_fps | game_fps | between | rough | off_beat | speed_percent | worst_frame_ms | latency median |
-|---|---|---|---|---|---|---|---|---|
-| standing | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
-| walking | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
-| battle intro | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
-| battle menu | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
-| door | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
+| Driver | Scene | distinct_fps off -> on | between/rough/off_beat per 300 frames | speed_percent on | emulation ms | worst_frame_ms | ready to shown ms |
+|---|---|---|---|---|---|---|---|
+| Turnip | standing | 30.0 -> 59.3 | 146 / 3.8 / 0 | 100.4 | 4.3 -> 7.7 | 25.7 -> 27.1 | 41.0 -> 37.9 |
+| Turnip | walking | 29.9 -> 58.3 | 142 / 7.3 / 0.7 | 100.3 | 4.7 -> 7.2 | 32.5 -> 33.0 | not measured |
+| Turnip | battle intro | 30.0 -> 59.8 | 149 / 1.0 / 0 | 100.3 | 5.2 -> 10.0 | 26.2 -> 28.5 | not measured |
+| Turnip | battle | 30.0 -> 59.8 | 149 / 1.0 / 0 | 100.3 | 5.3 -> 8.5 | 30.3 -> 30.9 | 40.5 -> 36.3 |
+| Stock | standing | 30.0 -> 45.6 | 146 / 3.7 / 0 | **77.1** | 4.5 -> 8.1 | 24.4 -> 33.8 | 51.6 -> 16.4 |
+| Stock | walking | 29.6 -> 43.7 | 144 / 5.5 / 0.5 | **74.7** | 5.7 -> 8.6 | 84.3 -> 94.2 | not measured |
+| Stock | battle intro | 30.0 -> 38.6 | 149 / 1.0 / 0 | **64.8** | 5.6 -> 10.0 | 23.9 -> 31.7 | not measured |
+| Stock | battle | 30.0 -> 40.8 | 148 / 2.0 / 0 | **68.8** | 5.3 -> 9.0 | 23.6 -> 40.1 | 52.8 -> 16.6 |
 
-Gate: PASS at distinct_fps >= 55 in standing, walking and battle menu, speed_percent >= 99.5, no broken in-between pictures, worst frame at most 5 ms worse than off.
+- Gate (distinct_fps >= 55, speed_percent >= 99.5, worst frame at most 5 ms worse, no broken
+  pictures): **Turnip passes apart from the walking spikes below, stock fails** on speed. The stock driver's present time rises
+  to 13-15 ms, which with emulation goes over the 16.7 ms budget; audio underruns follow.
+  The cause inside the driver was not profiled.
+- Repeat runs with interpolation on (Turnip): standing 59.2-59.3, walking 57.4-58.5, battle
+  59.7-59.8 distinct. The walking window, which runs into a battle start, is the noisy one:
+  worst frame 33.0, 38.8 and once 91.7 ms at 99.3% speed, against 32.5 ms in the one matching
+  off run. The other scenes stayed within the gate. Not enough runs to say whether the spike
+  comes from interpolation; stock with it off showed an 84 ms one in the same window.
+- Screenshot bursts (6 frames each, walking into a battle transition and battle camera moves)
+  showed no ghosting or broken pictures. That is a small sample: a burst catches only some
+  in-between pictures, and it was judged from screenshots, not in motion.
+- Ready to shown does not see the extra refresh the newest picture waits for, so input delay
+  should still rise by about 16.7 ms. No end-to-end input measurement was made.
+- Not tested: a door or map change, other games, Turnip without the short vsync queue.
+- `rough` and `off_beat` were at most 7.3 and 0.7 per 300 frames, so the two fixes built ahead
+  of this test (a looser motion check, riding out a late frame) had nothing to fix on Turnip.
+  They were removed unmeasured.
+
+## Shader warm-up before the game starts (unreleased, 2026-11-04)
+
+Same device and game on Turnip. On: the first frame held 9.6 s for 512 programs and 443
+pipelines (cap not reached), launch to first benchmark line 17 s against 7 s off. Worst
+frame from launch to the field 37.7 ms on against 40.3 ms off, one run each. Off, the
+background warm-up also finishes in about 9.4 s, so holding only helps what plays in the
+first seconds. First battle not compared.
 
 ## Audio, input and display latency (unreleased, 2026-11-03)
 
