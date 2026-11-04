@@ -155,6 +155,22 @@ struct Pacing {
     between: bool,
     /// the refreshes that showed pictures in between so far.
     shown: u64,
+    /// new pictures at the title's every other refresh the draws did not
+    /// match smoothly, and new pictures at any other gap.
+    rough: u64,
+    off_beat: u64,
+    /// the top screen's picture last put up, and whether it was the one in
+    /// between.
+    put_up: Option<(zakuro_gpu::ScreenRef, bool)>,
+}
+
+/// whether `now` differs from the picture put up before it, remembering it.
+fn is_new<T: PartialEq>(last: &mut Option<T>, now: T) -> bool {
+    let new = last.as_ref() != Some(&now);
+    if new {
+        *last = Some(now);
+    }
+    new
 }
 
 pub struct System {
@@ -262,6 +278,10 @@ pub enum StepOutcome {
 /// sets one every second refresh, so this is its own frame rate.
 // ponytail: a global counter, one emulated console per process
 pub static GAME_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// distinct pictures the left eye's top screen put up, the pictures in between
+/// included: a game at 30 fps shows 60 with frame interpolation.
+pub static DISTINCT_PICTURES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl System {
     pub fn new(config: Config) -> System {
@@ -859,6 +879,8 @@ impl System {
         pacing.matches = matches;
         pacing.between = gap == 2 && matches.is_some_and(|matches| matches.smooth());
         pacing.shown += pacing.between as u64;
+        pacing.rough += (gap == 2 && !pacing.between) as u64;
+        pacing.off_beat += (gap != 2) as u64;
         // the next frame is drawn in between too while the title keeps to
         // every other refresh
         self.gpu.set_twins(gap == 2);
@@ -876,6 +898,13 @@ impl System {
     /// interpolation.
     pub fn interpolation_matches(&self) -> Option<zakuro_gpu::Matches> {
         self.pacing.matches
+    }
+
+    /// the refreshes that showed pictures in between, new pictures at the
+    /// every other refresh that were not smooth, and new pictures at any
+    /// other gap, since interpolation went on.
+    pub fn interpolation_counts(&self) -> (u64, u64, u64) {
+        (self.pacing.shown, self.pacing.rough, self.pacing.off_beat)
     }
 
     /// whether the screens show the pictures in between at this refresh.
@@ -1129,12 +1158,13 @@ impl System {
         }
         let now = self.screen_ref(screen, right)?;
         // frame interpolation's picture in between, where the screen has one
-        if self.pacing.between {
-            if let Some(between) = self.gpu.between_image(now) {
-                return Some(between);
-            }
+        let between = if self.pacing.between { self.gpu.between_image(now) } else { None };
+        let used_between = between.is_some();
+        let image = between.or_else(|| self.gpu.screen_image(now))?;
+        if screen == zakuro_common::Screen::Top && !right && is_new(&mut self.pacing.put_up, (now, used_between)) {
+            DISTINCT_PICTURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        self.gpu.screen_image(now)
+        Some(image)
     }
 
     /// a screen's picture as the GPU showing the screens has it, or the
@@ -1163,6 +1193,9 @@ impl System {
         // one, so each picture stays up as long as the title kept it
         let show = self.showing[index].replace(now).unwrap_or(now);
         let (image, scale) = self.gpu.scaled_picture(show).or_else(|| self.gpu.scaled_picture(now))?;
+        if index == 0 && is_new(&mut self.pacing.put_up, (now, false)) {
+            DISTINCT_PICTURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         Some((image, width * scale, height * scale))
     }
 
@@ -1433,6 +1466,19 @@ mod tests {
     use kernel::object::KObject;
     use kernel::thread::ThreadStatus;
     use zakuro_cpu::Bus;
+
+    #[test]
+    fn distinct_pictures_follow_the_picture_and_its_between() {
+        let count = |shown: &[(u32, bool)]| {
+            let mut last = None;
+            shown.iter().filter(|now| is_new(&mut last, **now)).count()
+        };
+        assert_eq!(count(&[(1, false), (1, false)]), 1);
+        // the picture in between, then the title's own, of one id
+        assert_eq!(count(&[(1, true), (1, false)]), 2);
+        // a between asked for but none drawn shows the own picture both times
+        assert_eq!(count(&[(1, false), (1, false), (2, false)]), 2);
+    }
 
     fn mutex_state(system: &System, handle: u32) -> (Option<ThreadId>, u32) {
         let object = system.kernel.handles.resolve(handle).expect("a mutex handle");

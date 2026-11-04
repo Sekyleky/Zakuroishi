@@ -473,6 +473,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     };
     let (mut hitch_compiles, mut hud_compiles) = (compiles(), compiles());
     let mut hud_game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
+    let mut hud_distinct = zakuro_core::DISTINCT_PICTURES.load(std::sync::atomic::Ordering::Relaxed);
+    // Benchmark window baselines: game pictures, distinct pictures, interpolation counts (between, rough, off beat).
+    let (mut bench_game, mut bench_distinct, mut bench_counts) = (hud_game, hud_distinct, (0u64, 0u64, 0u64));
     let hint_target = if emulation_interval.is_zero() { frame_time / 4 } else { emulation_interval };
     platform::start_performance_hints(app, hint_target.as_nanos() as i64);
     loop {
@@ -959,6 +962,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
             let game_fps = game.wrapping_sub(hud_game) as f64 / elapsed.as_secs_f64();
             hud_game = game;
+            let distinct = zakuro_core::DISTINCT_PICTURES.load(std::sync::atomic::Ordering::Relaxed);
+            let distinct_fps = distinct.wrapping_sub(hud_distinct) as f64 / elapsed.as_secs_f64();
+            hud_distinct = distinct;
             if settings.show_fps {
                 let now = compiles();
                 let new = now.0.wrapping_sub(hud_compiles.0) + now.1.wrapping_sub(hud_compiles.1);
@@ -966,8 +972,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 platform::stats(
                     app,
                     &format!(
-                        "{:.1} FPS ({:.0}%) | {:.0} game | {:.1} shown\nemu {:.1} ms | worst {:.1} ms | {} slow | {} compiles",
-                        fps, speed, game_fps, f64::from(stats_frames) / elapsed.as_secs_f64(),
+                        "{:.1} FPS ({:.0}%) | {:.0} game | {:.0} distinct | {:.1} shown\nemu {:.1} ms | worst {:.1} ms | {} slow | {} compiles",
+                        fps, speed, game_fps, distinct_fps, f64::from(stats_frames) / elapsed.as_secs_f64(),
                         hud_work.as_secs_f64() * 1000.0 / f64::from(hud_frames.max(1)), hud_worst.as_secs_f64() * 1000.0, hud_slow, new
                     ),
                 );
@@ -985,14 +991,23 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let (audio_ms, underruns) = audio.as_ref().map_or((0.0, 0), Audio::take_stats);
             let short_presses = std::mem::take(&mut input.short_presses);
             let (fps, speed) = emulation_rates(benchmark_cycles, benchmark_start.elapsed());
-            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={} short_presses={}",
+            let (game_now, distinct_now) = (
+                zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed),
+                zakuro_core::DISTINCT_PICTURES.load(std::sync::atomic::Ordering::Relaxed),
+            );
+            let bench_game_fps = game_now.wrapping_sub(bench_game) as f64 / elapsed;
+            let bench_distinct_fps = distinct_now.wrapping_sub(bench_distinct) as f64 / elapsed;
+            let counts = system.interpolation_counts();
+            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={} short_presses={} game_fps={:.2} distinct_fps={:.2} between={} rough={} off_beat={}",
                 fps, speed,
                 f64::from(benchmark_presented) / elapsed, effective_speed,
                 core_time.as_secs_f64() * 1000.0 / 300.0,
                 present_time.as_secs_f64() * 1000.0 / 300.0, worst_core.as_secs_f64() * 1000.0, worst_frame.as_secs_f64() * 1000.0,
                 slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared,
                 waits.0 as f64 / 300.0, waits.1.as_secs_f64() * 1000.0 / 300.0, waits.2 as f64 / 300.0, waits.3.as_secs_f64() * 1000.0 / 300.0,
-                ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6), audio_ms, underruns, short_presses);
+                ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6), audio_ms, underruns, short_presses,
+                bench_game_fps, bench_distinct_fps, counts.0.saturating_sub(bench_counts.0), counts.1.saturating_sub(bench_counts.1), counts.2.saturating_sub(bench_counts.2));
+            (bench_game, bench_distinct, bench_counts) = (game_now, distinct_now, counts);
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
             benchmark_cycles = 0;
