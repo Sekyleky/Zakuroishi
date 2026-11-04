@@ -134,7 +134,7 @@ cap** at 60 to display up to 60 pictures/s while the game advances faster.
 Changing that presentation cap alone does not unlock the emulation clock.
 The FPS overlay shows emulation FPS, percent of normal game-clock speed and
 submitted presentation FPS separately. These are not counts of unique game
-images. Audio is not time-stretched for fast-forward; the bounded audio queue
+images. The HUD's `game` number counts game pictures per second; `distinct` counts new top-screen pictures per second, not repeats. Audio is not time-stretched for fast-forward; the bounded audio queue
 can drop samples when emulation runs faster than playback.
 
 Switches for A/B testing (all apply at the next launch). They are under
@@ -147,6 +147,11 @@ sound/tap latching (Audio/Controls):
   of crashing the stock Qualcomm driver. Turn off only to test GPU shaders.
 - **Turnip: render in system memory**, off: custom Turnip drivers only
   (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
+- **Frame interpolation** (`interpolate`, Performance, off by default): for games that
+  draw every other refresh, such as Ultra Moon, it draws a picture in between from the
+  game's own draws with positions halfway, so game speed does not change. It adds about
+  one refresh (16.7 ms) of delay. Camera cuts are refused. It needs hardware rendering,
+  and it is disabled during GPU readback or when the top screen goes to the second display.
 - **Interpolation: accept rougher motion**, off: draws an in-between picture even
   when motion is less steady; may show ghosting at camera cuts.
 - **Interpolation: ride out a late picture**, off: keeps drawing in-between

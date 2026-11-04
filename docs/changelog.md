@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Frame interpolation counters and switches (not yet measured on a device).** The HUD
+  and the benchmark line show `distinct` pictures per second (`game_fps distinct_fps
+  between rough off_beat`); `device-test.sh latency` and `shots` are added. Two
+  off-by-default switches: `interpolate_lenient` and `interpolate_keep_cadence`.
+
 - Settings reorganised: everyday options first; troubleshooting switches moved to a new Advanced page.
 - **Optional: finish shader warm-up before the game starts** (`warm_before_start`, off).
   The first frame waits, 30 s at most, for the remembered vertex programs and GPU

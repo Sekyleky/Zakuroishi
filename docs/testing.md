@@ -1,5 +1,19 @@
 # Verification record
 
+## Frame interpolation (pending)
+
+Not measured on a device yet.
+
+| Scene | distinct_fps | game_fps | between | rough | off_beat | speed_percent | worst_frame_ms | latency median |
+|---|---|---|---|---|---|---|---|---|
+| standing | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
+| walking | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
+| battle intro | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
+| battle menu | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
+| door | not measured | not measured | not measured | not measured | not measured | not measured | not measured | not measured |
+
+Gate: PASS at distinct_fps >= 55 in standing, walking and battle menu, speed_percent >= 99.5, no broken in-between pictures, worst frame at most 5 ms worse than off.
+
 ## Audio, input and display latency (unreleased, 2026-11-03)
 
 AYN Thor, Turnip (Balemuni Apex Ultimate), Ultra Moon 3× + HD, standing on the
