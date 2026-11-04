@@ -129,9 +129,11 @@ final class SettingsDialog {
     private void root() {
         LinearLayout content = column();
         content.addView(text(inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts." : "Settings are saved for this game and apply the next time you play.", true));
+        Button firstGroup = null;
         for (String group : GameSettings.GROUPS) {
             Button button = button(group); button.setContentDescription(group + " settings for " + title);
             button.setOnClickListener(v -> group(group)); addButton(content, button);
+            if (firstGroup == null) firstGroup = button;
         }
         if (!inGame) {
             if (textures != null) {
@@ -192,6 +194,8 @@ final class SettingsDialog {
         rootDialog = root;
         root.setOnDismissListener(d -> { if (!saving && closed != null) closed.run(); });
         show(root, dirty);
+        // the Thor stays in touch mode under a controller; let the first group take focus anyway
+        Button opening = firstGroup; opening.setFocusableInTouchMode(true); opening.post(opening::requestFocus);
         if (inGame) root.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener(v -> {
             settings.name = name.getText().toString().trim();
             try { settings.save(activity); root.dismiss(); }
