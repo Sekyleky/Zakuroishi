@@ -161,9 +161,19 @@ struct Pacing {
     off_beat: u64,
     /// keep interpolating across one late title frame.
     keep_cadence: bool,
+    /// the last new picture came at the title's every other refresh.
+    on_beat: bool,
     /// the top screen's picture last put up, and whether it was the one in
     /// between.
     put_up: Option<(zakuro_gpu::ScreenRef, bool)>,
+}
+
+/// whether the next frame is drawn in between too, after a new picture `gap`
+/// refreshes after the one before. one late picture (`gap` 3) after a picture
+/// on the beat (`on_beat`) is ridden out if `keep_cadence`, any other gap, or
+/// a second late one in a row, stops it.
+fn keeps_twins(keep_cadence: bool, gap: u64, on_beat: bool) -> bool {
+    gap == 2 || (keep_cadence && gap == 3 && on_beat)
 }
 
 /// whether `now` differs from the picture put up before it, remembering it.
@@ -885,7 +895,8 @@ impl System {
         pacing.off_beat += (gap != 2) as u64;
         // the next frame is drawn in between too while the title keeps to
         // every other refresh
-        self.gpu.set_twins(gap == 2);
+        self.gpu.set_twins(keeps_twins(pacing.keep_cadence, gap, pacing.on_beat));
+        self.pacing.on_beat = gap == 2;
     }
 
     /// draws a picture in between each two of the title's own from now on,
@@ -1473,6 +1484,20 @@ mod tests {
     use kernel::object::KObject;
     use kernel::thread::ThreadStatus;
     use zakuro_cpu::Bus;
+
+    #[test]
+    fn one_late_picture_keeps_the_twins_only_with_keep_cadence() {
+        for gap in 1..6 {
+            assert_eq!(keeps_twins(false, gap, true), gap == 2);
+        }
+        assert!(keeps_twins(true, 2, false));
+        // one gap-3 after a gap-2 is ridden out, a second in a row is not
+        assert!(keeps_twins(true, 3, true));
+        assert!(!keeps_twins(true, 3, false));
+        // no run before it, or any other gap
+        assert!(!keeps_twins(true, 4, true));
+        assert!(!keeps_twins(true, 1, true));
+    }
 
     #[test]
     fn distinct_pictures_follow_the_picture_and_its_between() {
