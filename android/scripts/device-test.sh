@@ -379,7 +379,7 @@ cmd_latency() {
   local name=${1:-} n=${2:-5} layer i files=()
   [[ $name =~ ^[A-Za-z0-9._-]+$ && $n =~ ^[1-9][0-9]*$ ]] || die "usage: latency NAME [SAMPLES]"
   need_unlocked
-  layer=$(adb_cmd shell dumpsys SurfaceFlinger --list | tr -d '\r' | grep "$PKG" | grep -i surfaceview | head -1)
+  layer=$(adb_cmd shell dumpsys SurfaceFlinger --list | tr -d '\r' | grep "^$PKG/" | head -1) # the buffer layer: no hash prefix, no Panel:
   [[ -n $layer ]] || layer=$(adb_cmd shell dumpsys SurfaceFlinger --list | tr -d '\r' | grep "$PKG" | head -1)
   [[ -n $layer ]] || die "no SurfaceFlinger layer for $PKG (is the game running?)"
   mkdir -p "$OUT" || die "cannot create $OUT"
