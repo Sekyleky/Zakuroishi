@@ -23,6 +23,10 @@
 #                             values, print the summaries and a per-run table with mean/median
 #   repeat NAME N             fight NAME-1 .. NAME-N with current settings, then the per-run table
 #   wake                     wake the screen (never unlocks)
+#   latency NAME [SAMPLES=5]  sample the game layer's SurfaceFlinger --latency SAMPLES times ~2 s apart,
+#                             print median/p90 of (present - frame ready) in ms and present gaps >20 ms,
+#                             raw samples in $OUT/NAME.lat1 ..
+#   shots NAME N              N back-to-back screencaps of display 4630946441858561667 -> $OUT/NAME-1.png ..
 #
 # Examples:
 #   export GAME=0123456789abcdef
@@ -98,6 +102,14 @@ kv() {
   v=$(grep -o "$1=[^ ,;]*" <<<"$2" | head -1 | cut -d= -f2-)
   echo "${v:-?}"
 }
+kvna() { local v; v=$(kv "$@"); echo "${v/\?/NA}"; }   # like kv, NA when missing (old logs)
+
+need_unlocked() {
+  if adb_cmd shell dumpsys window | grep -q 'isKeyguardShowing=true'; then
+    echo "device is locked — unlock it"
+    exit 3
+  fi
+}
 
 set_values() {   # set_values KEY=VALUE... (prints returned data)
   local json
@@ -113,10 +125,7 @@ cmd_set() {
 
 do_launch() {
   need_game
-  if adb_cmd shell dumpsys window | grep -q 'isKeyguardShowing=true'; then
-    echo "device is locked — unlock it"
-    exit 3
-  fi
+  need_unlocked
   adb_cmd logcat -c
   adb_cmd shell am force-stop "$PKG"
   out=$(adb_cmd shell "am start -W -a android.intent.action.VIEW -d zakuro://game/$GAME")
@@ -190,7 +199,7 @@ cmd_summary() {
   top=$(sed -E 's/.*core_ms=([^ ]*).*/\1/' <<<"$hitches" | sort -rn | head -5 | tr '\n' ' ')
 
   bench=$(grep 'benchmark' <<<"$log" | tail -6 | while IFS= read -r line; do
-    echo "fps=$(kv fps "$line") worst_core_ms=$(kv worst_core_ms "$line")"
+    echo "fps=$(kv fps "$line") worst_core_ms=$(kv worst_core_ms "$line") game_fps=$(kvna game_fps "$line") distinct_fps=$(kvna distinct_fps "$line") between=$(kvna between "$line") rough=$(kvna rough "$line") off_beat=$(kvna off_beat "$line") presented_fps=$(kvna presented_fps "$line") speed_percent=$(kvna speed_percent "$line")"
   done)
 
   echo "== code loads"
@@ -346,6 +355,54 @@ cmd_repeat() {
   run_report "${specs[@]}"
 }
 
+# latency_stats FILE... -> "median_ms=.. p90_ms=.. gaps_over_20ms=.. n=.."
+# FILE = `dumpsys SurfaceFlinger --latency` output: refresh period, then rows of
+# desiredPresent actualPresent frameReady (ns). Rows with actual 0 or INT64_MAX are unfinished.
+latency_stats() {
+  awk '
+    FNR == 1 { prev = 0; next }
+    NF == 3 && $2 > 0 && $2 < 9e18 && $3 > 0 && $3 < 9e18 {
+      d[++n] = ($2 - $3) / 1e6
+      if (prev && $2 - prev > 20e6) gaps++
+      prev = $2
+    }
+    END {
+      if (!n) { print "median_ms=NA p90_ms=NA gaps_over_20ms=NA n=0"; exit }
+      m = n   # insertion sort, ponytail: O(n^2) fine for ~600 rows
+      for (i = 2; i <= m; i++) { t = d[i]; for (j = i - 1; j >= 1 && d[j] > t; j--) d[j + 1] = d[j]; d[j + 1] = t }
+      printf "median_ms=%.2f p90_ms=%.2f gaps_over_20ms=%d n=%d\n", \
+        (m % 2) ? d[(m + 1) / 2] : (d[m / 2] + d[m / 2 + 1]) / 2, d[int((m - 1) * 0.9) + 1], gaps, m
+    }' "$@"
+}
+
+cmd_latency() {
+  local name=${1:-} n=${2:-5} layer i files=()
+  [[ $name =~ ^[A-Za-z0-9._-]+$ && $n =~ ^[1-9][0-9]*$ ]] || die "usage: latency NAME [SAMPLES]"
+  need_unlocked
+  layer=$(adb_cmd shell dumpsys SurfaceFlinger --list | tr -d '\r' | grep "$PKG" | grep -i surfaceview | head -1)
+  [[ -n $layer ]] || layer=$(adb_cmd shell dumpsys SurfaceFlinger --list | tr -d '\r' | grep "$PKG" | head -1)
+  [[ -n $layer ]] || die "no SurfaceFlinger layer for $PKG (is the game running?)"
+  mkdir -p "$OUT" || die "cannot create $OUT"
+  for i in $(seq 1 "$n"); do
+    adb_cmd shell dumpsys SurfaceFlinger --latency "'$layer'" | tr -d '\r' > "$OUT/$name.lat$i"
+    files+=("$OUT/$name.lat$i")
+    (( i < n )) && sleep 2
+  done
+  echo "layer: $layer"
+  latency_stats "${files[@]}"
+}
+
+cmd_shots() {
+  local name=${1:-} n=${2:-} i
+  [[ $name =~ ^[A-Za-z0-9._-]+$ && $n =~ ^[1-9][0-9]*$ ]] || die "usage: shots NAME N"
+  need_unlocked
+  mkdir -p "$OUT" || die "cannot create $OUT"
+  for i in $(seq 1 "$n"); do
+    adb_cmd exec-out screencap -p -d 4630946441858561667 > "$OUT/$name-$i.png"
+  done
+  echo "saved $n screenshots as $OUT/$name-N.png"
+}
+
 cmd=${1:-}
 case $cmd in
   ''|-h|--help|help) usage; exit 0 ;;
@@ -364,6 +421,8 @@ case $cmd in
   summary)        cmd_summary "$@" ;;
   ab)             cmd_ab "$@" ;;
   repeat)         cmd_repeat "$@" ;;
+  latency)        cmd_latency "$@" ;;
+  shots)          cmd_shots "$@" ;;
   wake)           adb_cmd shell input keyevent KEYCODE_WAKEUP ;;
   *)              usage; exit 2 ;;
 esac
