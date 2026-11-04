@@ -1,5 +1,13 @@
 # Verification record
 
+## Second display on one Vulkan device (unreleased, 2026-11-04)
+
+`second_display_shared` compiles and passes host checks (`zakuro-gpu` 142, `zakuro-core` 148,
+`zakuro-android` 43, `run.ps1`, aarch64 check). Not run on a GPU: adb did not answer, so there
+are no device numbers and the default stays off. Still to measure on the Thor, off then on:
+bottom-panel pixels, `cpu_bottom`, `wb[sync]`, core and present ms, worst frame, frame gaps,
+`second_skips`, speed and underruns, surface loss and app switching.
+
 ## Frame generation and the 120 Hz pacing fix (0.3.1, 2026-11-04)
 
 AYN Thor, Turnip, Ultra Moon 3x + HD, field scene. Presents per second by SurfaceFlinger

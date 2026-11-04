@@ -117,6 +117,7 @@ final class GameSettings {
         flag("Advanced", "pooled_uploads", "HD textures: pooled upload memory", true, "Reuse GPU memory for HD texture pictures instead of allocating it per picture. Reduces hitches when a battle starts. Turn off only to compare. Requires restart."),
         flag("Advanced", "upload_size_budget", "HD textures: limit upload size per frame", true, "Upload at most a frame's budget of HD picture data; the original texture shows for a frame or two meanwhile. Turn off only to compare. Requires restart."),
         flag("Advanced", "threaded_picture_copy", "HD textures: copy pictures in the background", true, "Copy HD pictures into upload memory on background threads instead of the emulation thread. Turn off only to compare. Requires restart."),
+        flag("Advanced", "second_display_shared", "Bottom screen: full resolution on second display", false, "With the bottom screen on a second display, draw it from the GPU at the selected resolution on one shared Vulkan device. Off, that screen is read from the game's memory at native size and repeated. Requires restart."),
         flag("Advanced", "gpu_readback", "GPU screen readback", false, "Troubleshooting: copy the GPU screens back before presenting instead of sharing GPU images. Can reduce performance."),
         flag("Advanced", "turnip_sysmem", "Turnip: render in system memory", false, "Custom Mesa/Turnip drivers only (TU_DEBUG=sysmem). Testing option for a black block in a screen corner; may cost performance. Requires restart."),
     };
