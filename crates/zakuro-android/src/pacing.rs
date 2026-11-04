@@ -12,9 +12,25 @@ pub(crate) fn next_deadline(deadline: Instant, now: Instant, step: Duration) -> 
     (deadline + step).max(now.checked_sub(step).unwrap_or(now))
 }
 
+/// frames between looks at how fast vsync pacing runs, 2 s on a 60 Hz panel.
+pub(crate) const PACE_WINDOW: u32 = 120;
+
+/// whether frames paced by vsync came faster than a 60 Hz panel can show them.
+pub(crate) fn outruns_60(frames: u32, elapsed: Duration) -> bool {
+    frames as f64 > 60.5 * elapsed.as_secs_f64()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_panel_faster_than_60_counts_as_outrunning_it() {
+        let window = |fps: f64| Duration::from_secs_f64(PACE_WINDOW as f64 / fps);
+        assert!(outruns_60(PACE_WINDOW, window(61.0)));
+        assert!(!outruns_60(PACE_WINDOW, window(60.04)));
+        assert!(!outruns_60(PACE_WINDOW, window(30.0)));
+    }
 
     #[test]
     fn speed_comes_from_guest_time_not_present_count() {

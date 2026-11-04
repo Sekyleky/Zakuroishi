@@ -3,7 +3,7 @@ use crate::{
     bridge::{self, Command},
     geometry,
     input::Input,
-    pacing::{emulation_rates, next_deadline},
+    pacing::{emulation_rates, next_deadline, outruns_60, PACE_WINDOW},
     presentation::cpu_pixels,
     platform,
     sensors::Sensors,
@@ -438,6 +438,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let mut parked: Option<Surface> = None;
     let mut system: Option<System> = None;
     let mut hold: Option<Instant> = None;
+    let (mut pace_since, mut pace_frames, mut panel_outruns_60) = (Instant::now(), 0u32, false);
     let mut audio: Option<Audio> = None;
     let mut sensors = Sensors::new();
     let mut input = Input::default();
@@ -1016,8 +1017,18 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             present_time = Duration::ZERO;
         }
         // Keep one step of debt for alternating heavy/cheap guest ticks; lifecycle resets above.
-        // With vsync pacing the timer is only a ceiling (61 Hz) in case the panel stays at 120 Hz.
-        let step = if vsync { Duration::from_secs_f64(1.0 / 61.0) } else { emulation_interval };
+        // With vsync pacing the timer is only a ceiling above a 60 Hz panel. A panel that stays
+        // at 120 Hz lets that ceiling set the pace, so it becomes exactly 60 Hz once measured.
+        if vsync {
+            pace_frames += 1;
+            if pace_frames == PACE_WINDOW {
+                panel_outruns_60 |= outruns_60(pace_frames, pace_since.elapsed());
+                (pace_since, pace_frames) = (Instant::now(), 0);
+            }
+        } else {
+            (pace_since, pace_frames, panel_outruns_60) = (Instant::now(), 0, false);
+        }
+        let step = if !vsync { emulation_interval } else { Duration::from_secs_f64(1.0 / if panel_outruns_60 { 60.0 } else { 61.0 }) };
         next_frame = next_deadline(next_frame, Instant::now(), step);
     }
     Ok(())
