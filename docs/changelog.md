@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — Orange controller menus, romfs mods, sound in step, frame interpolation measured (2026-11-04)
 
 - **Frame generation measured on the Thor.** The existing Frame interpolation setting
   takes Ultra Moon from 30 to 58-60 distinct pictures per second on Turnip at unchanged
