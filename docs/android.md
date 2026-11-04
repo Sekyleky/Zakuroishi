@@ -149,13 +149,11 @@ sound/tap latching (Audio/Controls):
   (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
 - **Frame interpolation** (`interpolate`, Performance, off by default): for games that
   draw every other refresh, such as Ultra Moon, it draws a picture in between from the
-  game's own draws with positions halfway, so game speed does not change. It adds about
-  one refresh (16.7 ms) of delay. Camera cuts are refused. It needs hardware rendering,
-  and it is disabled during GPU readback or when the top screen goes to the second display.
-- **Interpolation: accept rougher motion**, off: draws an in-between picture even
-  when motion is less steady; may show ghosting at camera cuts.
-- **Interpolation: ride out a late picture**, off: keeps drawing in-between
-  pictures across one late game frame.
+  game's own draws with positions halfway, so game speed does not change. Use it with a
+  Turnip driver: on the Thor, Ultra Moon held 58-60 distinct pictures per second on
+  Turnip but fell to 65-77% speed on the stock Qualcomm driver. The newest picture waits
+  about one refresh (16.7 ms). Camera cuts are refused. It needs hardware rendering, and
+  it is disabled during GPU readback or when the top screen goes to the second display.
 - **Fast texture decoding**, on: decodes every texture format tile by tile; the
   largest battle-start win (worst frame 53.8 → 37.6 ms on the Thor).
 - **HD textures: look up pictures in the background**, on: field-entry frame

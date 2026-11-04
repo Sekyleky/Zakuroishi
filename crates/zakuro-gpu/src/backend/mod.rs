@@ -29,8 +29,6 @@ pub struct RendererOptions {
     pub warm_pipelines: bool,
     /// Shade a command list's draws on other threads, ahead of the walk that draws them.
     pub shade_ahead: bool,
-    /// Interpolate even when the draws match less smoothly.
-    pub interpolate_lenient: bool,
 }
 impl RendererOptions {
     fn encode(self) -> u32 {
@@ -43,7 +41,6 @@ impl RendererOptions {
             | ((self.threaded_picture_copy as u32) << 11) | ((self.fast_texture_decode as u32) << 12)
             | ((self.async_pack_lookup as u32) << 13) | ((self.warm_vertex_programs as u32) << 14)
             | ((self.warm_pipelines as u32) << 15) | ((self.shade_ahead as u32) << 16)
-            | ((self.interpolate_lenient as u32) << 17)
     }
     fn decode(bits: u32) -> Option<Self> {
         if bits & (1 << 31) == 0 { return None; }
@@ -57,7 +54,6 @@ impl RendererOptions {
             threaded_picture_copy: bits & (1 << 11) != 0, fast_texture_decode: bits & (1 << 12) != 0,
             async_pack_lookup: bits & (1 << 13) != 0, warm_vertex_programs: bits & (1 << 14) != 0,
             warm_pipelines: bits & (1 << 15) != 0, shade_ahead: bits & (1 << 16) != 0,
-            interpolate_lenient: bits & (1 << 17) != 0,
         })
     }
 }
@@ -463,7 +459,7 @@ mod tests {
     fn renderer_overrides_round_trip_all_flags_without_global_test_state() {
         assert_eq!(RendererOptions::decode(0), None);
         for gpu_shaders in [None, Some(false), Some(true)] {
-            for flags in 0u32..65536 {
+            for flags in 0u32..32768 {
                 let options = RendererOptions {
                     gpu_shaders, translate_shaders: flags & 1 != 0,
                     cpu_shader_jit: flags & 2 != 0, wait_for_shaders: flags & 4 != 0,
@@ -472,7 +468,7 @@ mod tests {
                     pooled_uploads: flags & 128 != 0, upload_size_budget: flags & 256 != 0,
                     threaded_picture_copy: flags & 512 != 0, fast_texture_decode: flags & 1024 != 0,
                     async_pack_lookup: flags & 2048 != 0, warm_vertex_programs: flags & 4096 != 0,
-                    warm_pipelines: flags & 8192 != 0, shade_ahead: flags & 16384 != 0, interpolate_lenient: flags & 32768 != 0,
+                    warm_pipelines: flags & 8192 != 0, shade_ahead: flags & 16384 != 0,
                 };
                 assert_eq!(RendererOptions::decode(options.encode()), Some(options));
             }

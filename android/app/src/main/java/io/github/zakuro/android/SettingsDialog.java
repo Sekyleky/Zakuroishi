@@ -253,7 +253,6 @@ final class SettingsDialog {
                 case "shader_mode": section = "Shaders"; break;
                 case "fast_texture_decode": section = "HD texture loading"; break;
                 case "gpu_readback": section = "Driver workarounds"; break;
-                case "interpolate_lenient": section = "Frame interpolation"; break;
                 default: section = null;
             }
             if (section != null) {

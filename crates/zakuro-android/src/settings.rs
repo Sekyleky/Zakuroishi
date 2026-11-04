@@ -152,10 +152,6 @@ pub struct Advanced {
     pub warm_before_start: bool,
     /// upstream 0.2.31: shade a command list's draws ahead on other threads.
     pub shade_ahead: bool,
-    /// interpolate even when the draws match less smoothly.
-    pub interpolate_lenient: bool,
-    /// keep interpolating across one late title frame.
-    pub interpolate_keep_cadence: bool,
     /// the desktop queue (~125 ms target, drift trim, time stretch, fades); off is 0.2.0's.
     pub audio_queue_managed: bool,
     /// AAudio FAST track: allocated session (no RAW flag) and Game usage. Off: the Thor's
@@ -234,8 +230,6 @@ impl Default for Advanced {
             warm_pipelines: true,
             warm_before_start: false,
             shade_ahead: true,
-            interpolate_lenient: false,
-            interpolate_keep_cadence: false,
             audio_queue_managed: true,
             low_latency_audio: false,
             latch_short_presses: true,
@@ -269,7 +263,6 @@ impl Advanced {
             warm_pipelines: self.warm_pipelines,
             // upstream 0.2.31's default; no Android setting for it yet
             shade_ahead: self.shade_ahead,
-            interpolate_lenient: self.interpolate_lenient,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {
@@ -440,9 +433,7 @@ mod tests {
         assert!(!cold.warm_vertex_programs && !cold.warm_pipelines);
         assert!(!settings.warm_before_start);
         assert!(Advanced::parse(r#"{"warm_before_start":true}"#).unwrap().warm_before_start);
-        assert!(options.shade_ahead && !options.interpolate_lenient && !settings.interpolate_keep_cadence);
-        assert!(Advanced::parse(r#"{"interpolate_lenient":true}"#).unwrap().renderer_options().interpolate_lenient);
-        assert!(Advanced::parse(r#"{"interpolate_keep_cadence":true}"#).unwrap().interpolate_keep_cadence);
+        assert!(options.shade_ahead);
         assert!(!Advanced::parse(r#"{"shade_ahead":false}"#).unwrap().renderer_options().shade_ahead);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
         assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
