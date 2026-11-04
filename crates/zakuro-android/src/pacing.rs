@@ -20,9 +20,24 @@ pub(crate) fn outruns_60(frames: u32, elapsed: Duration) -> bool {
     frames as f64 > 60.5 * elapsed.as_secs_f64()
 }
 
+/// whether frame generation's two presents per frame run into a panel held at 60 Hz: the loop then
+/// runs at half speed, game included, with nothing else wrong. a GPU that can't keep up lands elsewhere.
+pub(crate) fn held_at_60(frames: u32, elapsed: Duration) -> bool {
+    let fps = frames as f64 / elapsed.as_secs_f64();
+    (29.0..31.0).contains(&fps)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_presents_a_frame_on_a_60_hz_panel_count_as_held() {
+        let window = |fps: f64| Duration::from_secs_f64(PACE_WINDOW as f64 / fps);
+        assert!(held_at_60(PACE_WINDOW, window(30.0)));
+        assert!(!held_at_60(PACE_WINDOW, window(60.0)));
+        assert!(!held_at_60(PACE_WINDOW, window(48.0)));
+    }
 
     #[test]
     fn only_a_panel_faster_than_60_counts_as_outrunning_it() {

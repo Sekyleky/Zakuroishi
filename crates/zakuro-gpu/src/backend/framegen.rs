@@ -246,6 +246,11 @@ impl FrameGen {
         })
     }
 
+    /// whether this graph makes the pictures the options ask for.
+    pub(super) fn follows(&self, options: &FrameGenOptions) -> bool {
+        self.per_tick == options.per_tick()
+    }
+
     pub(super) fn fits(&self, gpu: &GpuScreen) -> bool {
         gpu.rect[2] == self.width && gpu.rect[3] == self.height
     }

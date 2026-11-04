@@ -767,6 +767,9 @@ impl VulkanPresenter {
         if !right.is_empty() || self.framegen_failed || self.shared.is_none() {
             return None;
         }
+        if self.framegen.as_ref().is_some_and(|made| !made.follows(options)) {
+            self.framegen = None;
+        }
         if self.framegen.is_none() {
             let on = framegen::Device {
                 entry: &self._entry,

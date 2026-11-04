@@ -3,7 +3,7 @@ use crate::{
     bridge::{self, Command},
     geometry,
     input::Input,
-    pacing::{emulation_rates, next_deadline, outruns_60, PACE_WINDOW},
+    pacing::{emulation_rates, held_at_60, next_deadline, outruns_60, PACE_WINDOW},
     presentation::cpu_pixels,
     platform,
     sensors::Sensors,
@@ -497,7 +497,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let mut hud_game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
     let mut hud_distinct = pictures_shown();
     let mut told_frame_generation_failed = false;
-    let frame_generation = app.internal_data_path().map(|files| framegen::FrameGenOptions {
+    let mut frame_generation = app.internal_data_path().map(|files| framegen::FrameGenOptions {
         multiplier: if settings.frame_generation_multiplier >= 4 { 4 } else { 2 },
         flow_percent: settings.frame_generation_flow.clamp(25, 100) as u32,
         dir: files.join("lsfg"),
@@ -1065,6 +1065,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             pace_frames += 1;
             if pace_frames == PACE_WINDOW {
                 panel_outruns_60 |= outruns_60(pace_frames, pace_since.elapsed());
+                if settings.frame_generation && held_at_60(pace_frames, pace_since.elapsed()) {
+                    if let Some(options) = frame_generation.as_mut().filter(|options| options.multiplier == 4) {
+                        options.multiplier = 2;
+                        platform::message(app, "This screen is set to 60 Hz, so frame generation uses 2× instead of 4×. Allow 120 Hz in the Android display settings for 4×.");
+                    }
+                }
                 (pace_since, pace_frames) = (Instant::now(), 0);
             }
         } else {
