@@ -843,6 +843,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         if system.gpu.interpolates() != interpolate {
             system.set_interpolation(interpolate);
         }
+        system.set_interpolation_keep_cadence(settings.interpolate_keep_cadence);
         let virtual_input = bridge::input();
         let speed = if input.fast_forward(&settings, &virtual_input) { settings.fast_forward_speed } else { settings.speed_limit };
         if speed != effective_speed {

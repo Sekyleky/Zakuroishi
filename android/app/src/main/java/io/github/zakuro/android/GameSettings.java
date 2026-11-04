@@ -116,6 +116,8 @@ final class GameSettings {
         flag("Advanced", "threaded_picture_copy", "HD textures: copy pictures in the background", true, "Copy HD pictures into upload memory on background threads instead of the emulation thread. Turn off only to compare. Requires restart."),
         flag("Advanced", "gpu_readback", "GPU screen readback", false, "Troubleshooting: copy the GPU screens back before presenting instead of sharing GPU images. Can reduce performance."),
         flag("Advanced", "turnip_sysmem", "Turnip: render in system memory", false, "Custom Mesa/Turnip drivers only (TU_DEBUG=sysmem). Testing option for a black block in a screen corner; may cost performance. Requires restart."),
+        flag("Advanced", "interpolate_lenient", "Interpolation: accept rougher motion", false, "Draw an in-between picture even when motion is less steady; may show ghosting at camera cuts."),
+        flag("Advanced", "interpolate_keep_cadence", "Interpolation: ride out a late picture", false, "Keep drawing in-between pictures across one late game frame."),
     };
     static final String[] BINDING_TARGETS = {"fast_forward","a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate"};
     final String id;

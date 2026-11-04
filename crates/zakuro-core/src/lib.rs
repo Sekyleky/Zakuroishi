@@ -159,6 +159,8 @@ struct Pacing {
     /// match smoothly, and new pictures at any other gap.
     rough: u64,
     off_beat: u64,
+    /// keep interpolating across one late title frame.
+    keep_cadence: bool,
     /// the top screen's picture last put up, and whether it was the one in
     /// between.
     put_up: Option<(zakuro_gpu::ScreenRef, bool)>,
@@ -890,8 +892,13 @@ impl System {
     /// when it draws one every other refresh, see pace, or stops. it says
     /// whether it does, it takes the host's GPU showing the screens.
     pub fn set_interpolation(&mut self, on: bool) -> bool {
-        self.pacing = Pacing::default();
+        self.pacing = Pacing { keep_cadence: self.pacing.keep_cadence, ..Pacing::default() };
         self.gpu.set_interpolation(on)
+    }
+
+    /// whether interpolation rides out one late title frame, see Pacing.
+    pub fn set_interpolation_keep_cadence(&mut self, on: bool) {
+        self.pacing.keep_cadence = on;
     }
 
     /// how the draws of the last frame matched the frame before's, for frame

@@ -147,6 +147,10 @@ sound/tap latching (Audio/Controls):
   of crashing the stock Qualcomm driver. Turn off only to test GPU shaders.
 - **Turnip: render in system memory**, off: custom Turnip drivers only
   (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
+- **Interpolation: accept rougher motion**, off: draws an in-between picture even
+  when motion is less steady; may show ghosting at camera cuts.
+- **Interpolation: ride out a late picture**, off: keeps drawing in-between
+  pictures across one late game frame.
 - **Fast texture decoding**, on: decodes every texture format tile by tile; the
   largest battle-start win (worst frame 53.8 → 37.6 ms on the Thor).
 - **HD textures: look up pictures in the background**, on: field-entry frame
