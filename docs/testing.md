@@ -1,5 +1,38 @@
 # Verification record
 
+## Frame generation and the 120 Hz pacing fix (0.3.1, 2026-11-04)
+
+AYN Thor, Turnip, Ultra Moon 3x + HD, field scene. Presents per second by SurfaceFlinger
+(`device-test.sh latency`), game speed and sound queue from the benchmark line.
+
+| Build | Panel | frame_generation | Scene | Presents/s | game_fps | Speed | audio_queue_ms |
+|---|---|---|---|---|---|---|---|
+| 0.3.0 | 120 Hz | off | field | 60 | 30 | **102%** | **sawing 100-450** |
+| 0.3.1 | 120 Hz | off | field | 59.9 | 30.0 | 100.3-100.5% | 100-117, no underruns |
+| 0.3.1 | 60 Hz | off | field | 59.8-60.3 | 30.0 | 100.2-100.6% | 103-135, no underruns |
+| 0.3.1 | 120 Hz | on, x4 | field | 119.3 | 29.8 | 99.7% | 99-128, no underruns |
+| 0.3.1 | 120 Hz | on, x2 | field | 60.0 | 30.0 | 100.3-100.5% | 108-125, no underruns |
+| before the fallback | **60 Hz** | on, x4 | field | 60 | **15** | **50.1%** | **0-30, 67-78 underruns per 300 frames** |
+| prototype | 120 Hz | on, x4 | title, intro (game draws at 60) | about 95 | 60 | **about 80%** | |
+| 0.3.1 | 120 Hz | off, `interpolate` on | field | 59.9-60.0 | 30.0 | 100.1-100.4% | 97-109, no underruns |
+
+- Off, on, off and on again each took effect at the next launch: 119.3, 59.9, 119.3 and, after a fresh
+  import through the file picker, 119.3 presents/s. GPU time per pass 7.7 ms at x4, 4.3 ms at x2.
+- Import, scripted through the system picker: a text file named `.dll` was refused with its message and
+  the shaders stayed; `Lossless.dll` was accepted, and the game ran from what it translated. The pushed
+  files were deleted from the device right after. A screenshot of the field at x4 showed no damage.
+- The Thor's display setting moved between 60 Hz (`peak_refresh_rate=60`) and 120 Hz during this
+  test; nothing in the test changed it and the cause is unknown. That gave both rows above.
+- The x4 row at 60 Hz led to the fallback: with a steady 30 ticks/s the game rebuilds the graph at x2
+  and says so. **That switch has not run on a 60 Hz panel**, only its check as a unit test.
+- With nothing imported the game is meant to start without frame generation and say so. **Not run on
+  the device**: the app's private folder can't be emptied from adb. Unit test of the check only.
+- Added input delay is about 25 ms by design plus queue. It was not measured end to end.
+- Not tested: a long thermal run, the stock driver, other games, other devices, a panel that can't
+  reach 120 Hz, any Lossless.dll other than 3.2.2.0.
+- With a second display the bottom screen still shows native 320x240; the change that would fix it
+  is not in this release, because it has not been measured.
+
 ## Frame interpolation (unreleased, 2026-11-04)
 
 AYN Thor, Ultra Moon 3x + HD, a save in a cave area. Same build and settings, `interpolate`

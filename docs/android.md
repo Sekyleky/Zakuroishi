@@ -147,7 +147,25 @@ sound/tap latching (Audio/Controls):
   of crashing the stock Qualcomm driver. Turn off only to test GPU shaders.
 - **Turnip: render in system memory**, off: custom Turnip drivers only
   (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
-- **Frame generation** (`frame_generation`, Performance, off by default, branch `framegen-lsfg` only): whole pictures between the game's own from lsfg-vk 1.0 and the user's own `Lossless.dll` imported over adb; `frame_generation_multiplier` 4 runs the panel at 120 Hz, 2 at 60 Hz; `frame_generation_flow` sizes the motion search.
+- **Frame generation** (`frame_generation`, Performance, off by default, experimental): whole
+  pictures between the game's own from the MIT lsfg-vk 1.0 code and the shaders of your own
+  `Lossless.dll`. You need a copy of Lossless Scaling, a paid app; nothing from it comes with
+  Zakuroishi, which is not affiliated with it or its developer. Use a Turnip driver: the stock
+  driver has not been measured. It adds input delay (about 25 ms by design plus queue, not
+  measured end to end), and text and menus can smear. Top screen only.
+  - **Import once:** copy `Lossless.dll` from your Lossless Scaling folder to the device, then
+    Game settings → Performance → **Import your Lossless.dll…** and choose it. It is checked,
+    translated in the app's private storage and the app's copy deleted; you can delete yours from
+    the device too. A file that isn't a usable DLL is refused and shaders already imported stay.
+    Lossless.dll 3.2.2.0 is the version tested; another may not fit, and frame generation then
+    says so and stays off. No file is ever downloaded.
+  - **On and off, per game:** the **Frame generation** switch, applied at the next launch.
+    Turning it on turns off Frame interpolation in the same page, and the other way around.
+    If it is on with nothing imported, the game starts normally without it and says so.
+  - **Pictures per game picture** (`frame_generation_multiplier`): 4× runs the panel at 120 Hz,
+    2× stays at 60 Hz. If Android holds the screen at 60 Hz, 4× switches itself to 2× and says so.
+    **Motion search size**
+    (`frame_generation_flow`): smaller costs the GPU less and follows motion less closely.
 - **Frame interpolation** (`interpolate`, Performance, off by default): for games that
   draw every other refresh, such as Ultra Moon, it draws a picture in between from the
   game's own draws with positions halfway, so game speed does not change. Use it with a

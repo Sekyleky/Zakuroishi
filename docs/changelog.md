@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.1 — Optional frame generation with your own Lossless Scaling, 120 Hz pacing fix (2026-11-04)
+
+- **Games no longer run fast on a panel that stays at 120 Hz.** With vsync pacing on such a
+  panel, games ran at 102% with the sound lag sawing between 100 and 450 ms. The loop's 61 Hz
+  ceiling set the pace; it now measures its pace and uses exactly 60 Hz once it runs faster
+  than a 60 Hz panel could show. 0.3.0 was affected. A 60 Hz panel keeps the old ceiling.
+- **Frame generation, experimental and off by default** (`frame_generation`,
+  `frame_generation_multiplier`, `frame_generation_flow`). Shows pictures made between the
+  game's own with the MIT lsfg-vk 1.0 code and the shaders of **your own Lossless.dll**, which is
+  never included or downloaded. Performance settings → **Import your Lossless.dll…** translates
+  it on the device and deletes the app's copy. Needs Turnip. Unaffiliated with Lossless Scaling
+  and its developer. On the Thor, Ultra Moon: 119 presents/s from 30 game fps at 99.7% speed;
+  screens that draw at 60, such as the title and intro, reach only about 95 fps at about 80%
+  speed with x4. With Android holding the screen at 60 Hz, x4 ran the game at half speed, so it
+  now switches itself to x2 and says so (that switch not yet run on a 60 Hz screen). Numbers in
+  `testing.md`.
+- With the switch on and no imported shaders the game starts normally without it and says so.
+  Frame generation and frame interpolation turn each other off in settings.
+
 ## 0.3.0 — Orange controller menus, romfs mods, sound in step, frame interpolation measured (2026-11-04)
 
 - **Frame generation measured on the Thor.** The existing Frame interpolation setting

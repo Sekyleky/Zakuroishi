@@ -1,0 +1,56 @@
+# Zakuroishi 0.3.1
+
+A fix for panels that stay at 120 Hz, and optional, experimental frame generation that uses your
+own copy of Lossless Scaling. Installs over 0.3.0 and keeps games, settings and saves (same package
+and signing key).
+
+## What's new
+
+- **Games no longer run fast on a panel that stays at 120 Hz.** On such a panel games ran at 102%
+  with the sound lag sawing between 100 and 450 ms. **0.3.0 was affected.** Nothing to set.
+- **Frame generation: experimental and off by default.** It shows pictures made between the game's
+  own, so a 30 fps game looks much smoother. Turn it on per game in Performance settings.
+
+  It **requires your own copy of Lossless Scaling**, a paid app. Its files are never included in
+  Zakuroishi or downloaded by it: Performance → **Import your Lossless.dll…** translates the shaders
+  of your own `Lossless.dll` on the device and deletes the app's copy. The rest is the MIT lsfg-vk
+  1.0 code. Zakuroishi is not affiliated with Lossless Scaling or its developer.
+
+  It **needs a Turnip driver**; the stock driver has not been measured. It replaces Frame
+  interpolation while on: turning on one turns off the other.
+
+  | Ultra Moon, 3× + HD, AYN Thor, Turnip, x4 | Presents/s | Game speed |
+  |---|---|---|
+  | Field, game at 30 fps | 119 | 99.7% |
+  | Title and intro screens, which draw at 60 | about 95 | **about 80%** |
+
+## Limits and what wasn't tested
+
+- Frame generation adds input delay: about 25 ms by design plus queue, not measured end to end.
+- Text and menus can smear, because they are guessed like everything else. Top screen only.
+- There has been no long thermal test.
+- Title and intro screens run slow with x4, as in the table.
+- Everything was measured on one device, an AYN Thor, with one game and Lossless.dll 3.2.2.0. Other
+  devices, drivers, games and DLL versions may differ.
+- With 4× and Android holding the screen at 60 Hz, the game ran at half speed in testing. It now
+  switches itself to 2× and says so, but that switch has not been run on a 60 Hz screen. Use 2× there.
+- Starting with nothing imported, meant to run the game without frame generation and say so, has
+  not been run on a device either.
+- With a second display, the bottom screen still shows the game's native 320×240 picture, not
+  your render scale.
+
+See the [verification record](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.3.1/docs/testing.md)
+and [changelog](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.3.1/docs/changelog.md).
+Host tests: zakuro-gpu 142 (plus 2 frame generation tests in the Vulkan build), zakuro-core 148,
+zakuro-android 45, Java settings/contract checks.
+
+## Install
+
+Download **Zakuroishi-0.3.1.apk** below and install over the existing app; do not uninstall
+first. Requires ARM64 Android 11+ and Vulkan 1.3. New users: see the
+[setup guide](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.3.1/docs/android.md).
+Games need separately built Android ABI-5 (or ABI-4) native game code; texture packs are optional.
+
+`SHA256SUMS.txt` accompanies the APK. No games, compiled game libraries, saves, keys, firmware,
+texture packs or Lossless Scaling files are distributed. Credits to the upstream Zakuro, 3dsrecomp,
+Pocket Native, libadrenotools, lsfg-vk, DXVK, pe-parse and volk projects and their contributors.
