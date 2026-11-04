@@ -426,6 +426,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         platform::message(app, "GPU vertex shaders crash the system driver, using Auto. Turn off the guard in Performance settings to test.");
         settings.shader_mode = crate::settings::ShaderMode::Auto;
     }
+    // The game runs as if the switch were off, on the renderer's side too.
+    if settings.frame_generation && !app.internal_data_path().is_some_and(|files| framegen::shaders_ready(&files.join("lsfg"))) {
+        log::warn!("frame generation is on with no imported shaders: off for this run");
+        platform::message(app, "Frame generation is off for this game: no Lossless.dll has been imported. Import yours in Performance settings.");
+        settings.frame_generation = false;
+    }
     // Read by Mesa when the custom driver creates its device, which happens below.
     if settings.custom_driver && settings.turnip_sysmem {
         std::env::set_var("TU_DEBUG", "sysmem");
@@ -490,6 +496,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let (mut hitch_compiles, mut hud_compiles) = (compiles(), compiles());
     let mut hud_game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
     let mut hud_distinct = pictures_shown();
+    let mut told_frame_generation_failed = false;
     let frame_generation = app.internal_data_path().map(|files| framegen::FrameGenOptions {
         multiplier: if settings.frame_generation_multiplier >= 4 { 4 } else { 2 },
         flow_percent: settings.frame_generation_flow.clamp(25, 100) as u32,
@@ -922,7 +929,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         let present_start = Instant::now();
         // Under FIFO the display is the cap; a timer gate would drop frames that arrive a hair early.
         // fast-forward and other frame caps go without: the panel paces the generated pictures
-        let generating = settings.frame_generation && display_paced && s.shared && settings.frame_cap == 60;
+        let failed = s.presenter.frame_generation_failed();
+        if failed && !told_frame_generation_failed {
+            told_frame_generation_failed = true;
+            platform::message(app, "Frame generation could not start on this device or driver. The game goes on without it.");
+        }
+        let generating = settings.frame_generation && !failed && display_paced && s.shared && settings.frame_cap == 60;
         let generation = frame_generation.as_ref().filter(|_| generating);
         s.presenter.set_frame_generation(generation);
         s.set_rate(generation.map_or(60.0, |options| options.per_tick() as f32 * 60.0));

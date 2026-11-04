@@ -755,6 +755,11 @@ impl VulkanPresenter {
         }
     }
 
+    /// whether frame generation gave up on this surface; the game goes on without it.
+    pub fn frame_generation_failed(&self) -> bool {
+        self.framegen_failed
+    }
+
     /// the pictures to present for this refresh, none when this frame goes up as it is.
     fn generated_pictures(&mut self, top: &ScreenImage<'_>, right: &ScreenImage<'_>) -> Option<Vec<(GpuScreen, bool)>> {
         let options = self.frame_generation.as_ref()?;

@@ -243,6 +243,7 @@ final class SettingsDialog {
                 case "show_fps": section = "On-screen info"; break;
                 case "stereo": section = "3D"; break;
                 case "speed_limit": section = "Everyday"; break;
+                case "frame_generation": section = "Frame generation"; break;
                 case "warm_before_start": section = "Shader warm-up · fewer stutters"; break;
                 case "custom_driver": section = "Custom Vulkan driver"; break;
                 case "touch_controls": section = "Touch screen"; break;
@@ -259,6 +260,12 @@ final class SettingsDialog {
                 content.addView(heading(section));
             }
             control(content, draft, setting);
+            if (setting.key.equals("frame_generation_flow")) {
+                Button lossless = button("Import your Lossless.dll…");
+                lossless.setOnClickListener(v -> ((Launcher) activity).importLossless()); addButton(content, lossless);
+                TextView state = text(losslessState(), true); content.addView(state);
+                state.getViewTreeObserver().addOnWindowFocusChangeListener(focused -> state.setText(losslessState()));
+            }
         }
         if (group.equals("Performance")) {
             File home=new File(activity.getFilesDir(),"drivers");
@@ -330,6 +337,9 @@ final class SettingsDialog {
             settings.enhancements.clear(); settings.enhancements.addAll(draft.enhancements);
         }).create(); show(dialog, () -> !start.equals(snapshot(draft, draft.name)));
     }
+    private String losslessState() {
+        return LosslessImport.ready(activity.getFilesDir()) ? "Shaders imported. They apply to every game with Frame generation on." : "Not imported yet. Copy Lossless.dll from your own Lossless Scaling folder to this device and choose it here. It is translated on the device and the app keeps no copy of the file.";
+    }
     private Switch toggle(String label, boolean checked) {
         Switch view = new Switch(activity); view.setText(label); view.setTextColor(p.ink); view.setTextSize(16);
         view.setMinHeight(dp(56)); view.setPadding(dp(8), dp(8), dp(8), dp(8)); view.setChecked(checked); focusRing(view);
@@ -360,7 +370,13 @@ final class SettingsDialog {
         Object value = draft.values.get(setting.key);
         if (value instanceof Boolean) {
             Switch toggle = toggle(setting.label, (Boolean) value);
-            toggle.setOnCheckedChangeListener((button, checked) -> draft.values.put(setting.key, checked)); content.addView(toggle);
+            toggle.setTag(setting.key);
+            toggle.setOnCheckedChangeListener((button, checked) -> {
+                draft.values.put(setting.key, checked);
+                // the two draw in-between pictures in different ways, only one can run
+                String rival = setting.key.equals("frame_generation") ? "interpolate" : setting.key.equals("interpolate") ? "frame_generation" : null;
+                if (checked && rival != null) ((Switch) content.findViewWithTag(rival)).setChecked(false);
+            }); content.addView(toggle);
         } else if (setting.choices != null) {
             Button choose = button(setting.label + " · " + label((String) value));
             choose.setOnClickListener(v -> {
@@ -371,13 +387,15 @@ final class SettingsDialog {
                             draft.values.put(setting.key, setting.choices[which]); choose.setText(setting.label + " · " + names[which]); d.dismiss();
                         }).setNegativeButton("Cancel", null).create(); show(choices);
             }); addButton(content, choose);
-        } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("speed_limit") || setting.key.equals("fast_forward_speed") || setting.key.equals("region") || setting.key.equals("language")) {
+        } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("speed_limit") || setting.key.equals("fast_forward_speed") || setting.key.equals("region") || setting.key.equals("language") || setting.key.equals("frame_generation_multiplier") || setting.key.equals("frame_generation_flow")) {
             float[] values; String[] names;
             switch (setting.key) {
                 case "top_width": values = new float[]{400, 426.66666f, 560}; names = new String[]{"Original · 5:3", "16:9", "21:9"}; break;
                 case "frame_cap": values = new float[]{0, 30, 60, 90, 120, 144, 240}; names = new String[]{"Unlimited", "30 FPS", "60 FPS", "90 FPS", "120 FPS", "144 FPS", "240 FPS"}; break;
                 case "fast_forward_speed":
                 case "speed_limit": values = new float[]{0, 100, 150, 200, 300, 400}; names = new String[]{"Unlimited", "Normal · 100%", "1.5× · 150%", "2× · 200%", "3× · 300%", "4× · 400%"}; break;
+                case "frame_generation_multiplier": values = new float[]{2, 4}; names = new String[]{"2×", "4×"}; break;
+                case "frame_generation_flow": values = new float[]{25, 50, 75, 100}; names = new String[]{"25%", "50%", "75%", "100%"}; break;
                 case "region": values = new float[]{-1, 0, 1, 2, 3, 4, 5, 6}; names = new String[]{"Automatic", "Japan", "USA", "Europe", "Australia", "China", "Korea", "Taiwan"}; break;
                 default: values = new float[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; names = new String[]{"Japanese", "English", "French", "German", "Italian", "Spanish", "Chinese (Simplified)", "Korean", "Dutch", "Portuguese", "Russian", "Chinese (Traditional)"};
             }

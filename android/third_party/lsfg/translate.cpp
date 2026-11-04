@@ -77,7 +77,11 @@ std::map<std::string, std::vector<uint8_t>> zlsfg::translateDll(const std::strin
         auto found = resources.find(id);
         if (found == resources.end())
             throw std::runtime_error(std::string("shader not found: ") + name);
-        out[name] = translate(found->second);
+        try {
+            out[name] = translate(found->second);
+        } catch (const dxvk::DxvkError& e) { // not a std::exception
+            throw std::runtime_error(std::string(name) + ": " + e.message());
+        }
     }
     return out;
 }

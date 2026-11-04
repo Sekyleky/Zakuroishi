@@ -1,9 +1,11 @@
 // C interface between Zakuroishi and lsfg-vk 1.0's frame generation, on the device the renderer
-// draws on. Loaded with dlopen only while the frame_generation setting is on.
+// draws on. The game loads it with dlopen only while the frame_generation setting is on; the launcher
+// loads it to translate an import.
 #include "translate.hpp"
 #include "lsfg_3_1p.hpp"
 
 #include <android/log.h>
+#include <jni.h>
 
 #include <exception>
 #include <filesystem>
@@ -23,30 +25,33 @@ void logFailure(const char* where, const std::exception& e) {
 }
 }
 
-/// translates an imported files/lsfg/Lossless.dll once, keeps only the SPIR-V beside it and deletes
-/// the DLL. returns the number of shaders ready, negative on failure.
-EXPORT int zlsfg_prepare(const char* dir) {
+/// translates the user's Lossless.dll into dir/spv, all of it or nothing: a failure keeps the shaders
+/// already there. returns null, or why it failed. the caller deletes the DLL.
+EXPORT jstring Java_io_github_zakuro_android_LosslessImport_translate(JNIEnv* env, jclass, jstring jdll, jstring jdir) {
+    const char* dllChars = env->GetStringUTFChars(jdll, nullptr);
+    const char* dirChars = env->GetStringUTFChars(jdir, nullptr);
+    std::string failure;
     try {
-        const fs::path root(dir);
-        const fs::path dll = root / "Lossless.dll";
-        const fs::path spv = root / "spv";
-        if (fs::exists(dll)) {
-            fs::create_directories(spv);
-            for (const auto& [name, code] : zlsfg::translateDll(dll.string())) {
-                std::ofstream out(spv / (name + ".spv"), std::ios::binary | std::ios::trunc);
-                out.write(reinterpret_cast<const char*>(code.data()), static_cast<std::streamsize>(code.size()));
-                if (!out) throw std::runtime_error("could not store a translated shader");
-            }
-            fs::remove(dll);
+        const auto shaders = zlsfg::translateDll(dllChars);
+        const fs::path spv = fs::path(dirChars) / "spv", fresh = fs::path(dirChars) / "spv.new";
+        fs::remove_all(fresh);
+        fs::create_directories(fresh);
+        for (const auto& [name, code] : shaders) {
+            std::ofstream out(fresh / (name + ".spv"), std::ios::binary | std::ios::trunc);
+            out.write(reinterpret_cast<const char*>(code.data()), static_cast<std::streamsize>(code.size()));
+            if (!out) throw std::runtime_error("could not store a translated shader");
         }
-        if (!fs::exists(spv)) return 0;
-        int count = 0;
-        for (const auto& entry : fs::directory_iterator(spv)) count += entry.path().extension() == ".spv";
-        return count;
+        fs::remove_all(spv);
+        fs::rename(fresh, spv);
     } catch (const std::exception& e) {
         logFailure("import", e);
-        return -1;
+        failure = e.what();
+    } catch (...) {
+        failure = "unexpected failure";
     }
+    env->ReleaseStringUTFChars(jdll, dllChars);
+    env->ReleaseStringUTFChars(jdir, dirChars);
+    return failure.empty() ? nullptr : env->NewStringUTF(failure.c_str());
 }
 
 EXPORT int zlsfg_init(PFN_vkGetInstanceProcAddr gipa, VkInstance instance, VkPhysicalDevice physical,

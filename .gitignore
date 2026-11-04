@@ -1,5 +1,7 @@
 /target
 /build/
+# each user's own copy, never in the repository
+Lossless.dll
 /build-transform-check.exe
 *.log
 /roms

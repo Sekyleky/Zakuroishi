@@ -29,6 +29,9 @@ public final class GameSettingsCheck {
         }
     }
     public static void main(String[] args) throws Exception {
+        byte[] pe = new byte[128]; pe[0] = 'M'; pe[1] = 'Z'; pe[60] = 64; pe[64] = 'P'; pe[65] = 'E';
+        require(LosslessImport.looksLikePe(pe, pe.length) && !LosslessImport.looksLikePe(pe, 66) && !LosslessImport.looksLikePe(new byte[128], 128));
+        pe[60] = -1; pe[63] = -1; require(!LosslessImport.looksLikePe(pe, pe.length));
         String id = "0004000000123400";
         Map<String,Object> prefs = new HashMap<>();
         prefs.put(id + ".name", "Existing title");

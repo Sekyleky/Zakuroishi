@@ -16,7 +16,7 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10, IMPORT_LOSSLESS = 11;
     private String pendingSaveId;
     private Uri pendingIisu;
     private String pendingCodeId, pendingTextureId, pendingModId, pendingDriverId;
@@ -91,6 +91,7 @@ public final class Launcher extends Activity {
                 WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);
         task = (ImportTask) getFragmentManager().findFragmentByTag("import");
         if (task == null) { task = new ImportTask(); getFragmentManager().beginTransaction().add(task, "import").commit(); }
+        if (!task.busy) LosslessImport.clean(getFilesDir());
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int n, int after) {}
             public void onTextChanged(CharSequence s, int start, int before, int n) { render(); }
@@ -201,6 +202,8 @@ public final class Launcher extends Activity {
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
                 task.importDriver(getApplicationContext(), id, intent.getData());
         }
+        if (request == IMPORT_LOSSLESS && result == RESULT_OK && intent != null && intent.getData() != null)
+            task.importLossless(getApplicationContext(), intent.getData());
         if (request == REPLACE_CODE) {
             String id = pendingCodeId; pendingCodeId = null;
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
@@ -233,6 +236,11 @@ public final class Launcher extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivityForResult(intent, IMPORT_DRIVER);
+    }
+    void importLossless() {
+        if (task.busy) return;
+        // ponytail: a DLL has no MIME type pickers agree on, so any file; the import checks it
+        startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), IMPORT_LOSSLESS);
     }
     void saves(String id) {
         if (task.busy) return;
@@ -476,6 +484,7 @@ public final class Launcher extends Activity {
         void replaceCode(Context context, String id, Uri uri) { run(context, id, uri, 1, false); }
         void replaceTextures(Context context, String id, Uri uri) { run(context, id, uri, 2, true); }
         void replaceMods(Context context, String id, Uri uri) { run(context, id, uri, 6, false); }
+        void importLossless(Context context, Uri uri) { run(context, null, uri, 7, false); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
         void prepareIisu(Context context, Uri source, Uri destination) {
             if(busy) return; busy=true; error=null; errorTitle="Preparing iiSU catalog failed"; message="Preparing iiSU catalog copy…"; refresh(false);
@@ -509,7 +518,7 @@ public final class Launcher extends Activity {
         }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
-            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing romfs mod" : "Restoring saves";
+            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing romfs mod" : operation == 7 ? "Importing Lossless.dll" : "Restoring saves";
             errorTitle = action + " failed";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
@@ -523,6 +532,7 @@ public final class Launcher extends Activity {
                     else if (operation == 2) GameImport.replaceTextures(context, id, uri, callback);
                     else if (operation == 3) installDriver(context, id, uri);
                     else if (operation == 6) GameImport.replaceRomfs(context, id, uri, callback);
+                    else if (operation == 7) LosslessImport.install(context, uri);
                     else {
                         main.post(() -> { message = action + "…"; refresh(false); });
                         try (SaveArchive.Guard ignored = SaveArchive.lock(context.getFilesDir(), id)) {
@@ -544,7 +554,9 @@ public final class Launcher extends Activity {
                 } catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
                 final String outcome = failure;
                 main.post(() -> { busy = false; error = outcome;
-                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : "Saves restored. Start the game normally; do not load an old quick save state.")
+                    // settings stay open over the status line, so the result needs its own dialog
+                    if (outcome == null && operation == 7) { errorTitle = "Lossless.dll imported"; error = LosslessImport.DONE; }
+                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : operation == 7 ? LosslessImport.DONE : "Saves restored. Start the game normally; do not load an old quick save state.")
                             : action + " failed. See the error for recovery details."; refresh(true); });
             }, "game-import").start();
         }

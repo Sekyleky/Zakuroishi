@@ -148,6 +148,8 @@ try {
         if ('lib/arm64-v8a/libzakuro_android.so' -notin $entries) { throw 'Native library missing' }
         $allowedAssets = @('assets/licenses/ADRENOTOOLS.txt','assets/licenses/LINKERNSBYPASS.txt','assets/licenses/LSFG.txt','assets/licenses/ZAKURO.txt')
         if (@($entries | Where-Object { $_ -match '^assets/' -and !$_.EndsWith('/') -and $_ -notin $allowedAssets }).Count) { throw 'Unexpected bundled assets' }
+        if (@($entries | Where-Object { $_ -match '\.(dll|spv|dxbc)$' }).Count) { throw 'Shader or DLL files in the APK' }
+        if ('lib/arm64-v8a/liblsfg_bridge.so' -notin $entries) { throw 'Frame generation bridge missing' }
         foreach ($library in @('libadrenotools.so','libhook_impl.so','libmain_hook.so','libfile_redirect_hook.so','libgsl_alloc_hook.so')) {
             if ("lib/arm64-v8a/$library" -notin $entries) { throw "Driver support missing: $library" }
         }

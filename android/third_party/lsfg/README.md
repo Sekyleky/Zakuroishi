@@ -1,10 +1,13 @@
 # Frame generation sources
 
-Local prototype on branch `framegen-lsfg`. **Not for pushing or release until David settles the licence question.**
-
 Nothing from Lossless Scaling is in this directory or in the APK. The user imports their own
-`Lossless.dll` at run time. `translate.cpp` reads DXBC resources 255-302 from it on the device and keeps
-the SPIR-V in app-private storage. Resources 303-400 of the DLL are never read.
+`Lossless.dll` at run time with the file picker in Performance settings. `translate.cpp` reads DXBC
+resources 255-302 from it on the device and keeps the SPIR-V in app-private storage; the app's copy of
+the DLL is deleted right after. Resources 303-400 of the DLL are never read. Not affiliated with
+Lossless Scaling or its developer.
+
+The translated shaders come only from the user's DLL. `framegen/` holds no shader data; `p_mipmaps` and
+the rest are loaded by name from that storage.
 
 | Directory | Source | Licence |
 |---|---|---|

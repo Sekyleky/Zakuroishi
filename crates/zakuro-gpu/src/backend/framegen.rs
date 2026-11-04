@@ -68,14 +68,12 @@ fn schedule(generated: usize, gap: u32, current: usize) -> VecDeque<Item> {
     items
 }
 
-type Prepare = unsafe extern "C" fn(*const std::ffi::c_char) -> i32;
 type Init = unsafe extern "C" fn(vk::PFN_vkGetInstanceProcAddr, vk::Instance, vk::PhysicalDevice, vk::Device, u32, vk::Queue, f32, u64, *const std::ffi::c_char) -> i32;
 type Create = unsafe extern "C" fn(vk::Image, vk::Image, *const vk::Image, u32, u32, u32, vk::Format) -> i32;
 type Run = unsafe extern "C" fn(i32) -> i32;
 type Finish = unsafe extern "C" fn();
 
 struct Bridge {
-    prepare: Prepare,
     init: Init,
     create: Create,
     run: Run,
@@ -100,7 +98,6 @@ fn load_bridge() -> Result<Bridge, String> {
             if found.is_null() { Err(format!("liblsfg_bridge.so has no {name:?}")) } else { Ok(found) }
         };
         Ok(Bridge {
-            prepare: std::mem::transmute::<*mut std::ffi::c_void, Prepare>(symbol(c"zlsfg_prepare")?),
             init: std::mem::transmute::<*mut std::ffi::c_void, Init>(symbol(c"zlsfg_init")?),
             create: std::mem::transmute::<*mut std::ffi::c_void, Create>(symbol(c"zlsfg_create")?),
             run: std::mem::transmute::<*mut std::ffi::c_void, Run>(symbol(c"zlsfg_run")?),
@@ -115,7 +112,14 @@ fn load_bridge() -> Result<Bridge, String> {
 }
 
 const SLOTS: usize = 8;
-const SHADERS: i32 = 26;
+const SHADERS: usize = 26;
+
+/// whether the folder holds a whole translated set, written only by the import.
+pub fn shaders_ready(dir: &std::path::Path) -> bool {
+    std::fs::read_dir(dir.join("spv")).is_ok_and(|entries| {
+        entries.flatten().filter(|entry| entry.path().extension().is_some_and(|extension| extension == "spv")).count() == SHADERS
+    })
+}
 
 struct Slot {
     copy: vk::CommandBuffer,
@@ -167,13 +171,9 @@ impl FrameGen {
     pub(super) fn new(on: Device<'_>, options: &FrameGenOptions, width: u32, height: u32) -> Result<FrameGen, String> {
         let bridge = load_bridge()?;
         let dir = std::ffi::CString::new(options.dir.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
-        let started = Instant::now();
-        // SAFETY: a C string; the bridge keeps no pointer to it
-        let ready = unsafe { (bridge.prepare)(dir.as_ptr()) };
-        if ready != SHADERS {
-            return Err(format!("{ready} of {SHADERS} shaders ready, import Lossless.dll first"));
+        if !shaders_ready(&options.dir) {
+            return Err("import Lossless.dll first".into());
         }
-        log::info!("frame generation: {ready} shaders ready in {:?}", started.elapsed());
         let device = on.device.clone();
         let generated = options.multiplier.max(2) as usize - 1;
         let flow = 100.0 / options.flow_percent.clamp(25, 100) as f32;
@@ -425,6 +425,22 @@ fn make_image(device: &ash::Device, memory: &vk::PhysicalDeviceMemoryProperties,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_whole_set_of_shaders_counts_as_ready() {
+        let dir = std::env::temp_dir().join(format!("zakuro-lsfg-{}", std::process::id()));
+        let spv = dir.join("spv");
+        assert!(!shaders_ready(&dir));
+        std::fs::create_dir_all(&spv).unwrap();
+        for shader in 0..SHADERS - 1 {
+            std::fs::write(spv.join(format!("{shader}.spv")), b"").unwrap();
+        }
+        std::fs::write(spv.join("other.txt"), b"").unwrap();
+        assert!(!shaders_ready(&dir));
+        std::fs::write(spv.join("last.spv"), b"").unwrap();
+        assert!(shaders_ready(&dir));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn a_new_picture_goes_up_after_what_was_made_before_it() {
