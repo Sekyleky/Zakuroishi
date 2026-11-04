@@ -78,6 +78,15 @@ try {
         if ($found.Count -ne 1) { throw "Missing or duplicate driver support library: $library" }
         Invoke-Tool "$ndkBin/llvm-strip.exe" @('-o',"$work/lib/arm64-v8a/$library",$found[0].FullName)
     }
+    $lsfgBuild = Join-Path $env:CARGO_TARGET_DIR 'lsfg-bridge'
+    Invoke-Tool $CMake @('-S',"$repo/android/third_party/lsfg",'-B',$lsfgBuild,'-G','MinGW Makefiles',
+        "-DCMAKE_MAKE_PROGRAM=$Ndk/prebuilt/windows-x86_64/bin/make.exe",
+        "-DCMAKE_TOOLCHAIN_FILE=$Ndk/build/cmake/android.toolchain.cmake",
+        '-DANDROID_ABI=arm64-v8a','-DANDROID_PLATFORM=android-30','-DANDROID_STL=c++_static',
+        '-DCMAKE_CXX_FLAGS=--driver-mode=g++',
+        '-DCMAKE_BUILD_TYPE=Release','-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-z,max-page-size=16384')
+    Invoke-Tool $CMake @('--build',$lsfgBuild,'--parallel','8')
+    Invoke-Tool "$ndkBin/llvm-strip.exe" @('-o',"$work/lib/arm64-v8a/liblsfg_bridge.so","$lsfgBuild/liblsfg_bridge.so")
     Invoke-Tool 'rustup' @('target','add','--toolchain','1.95.0','aarch64-linux-android')
     Invoke-Tool 'cargo' @('+1.95.0','build','--release','--locked','--target','aarch64-linux-android',
         '-p','zakuro-android','--lib','--features','zakuro-gpu/vulkan')
@@ -93,7 +102,7 @@ try {
     Invoke-Tool "$tools/d8.bat" (@('--min-api','30','--lib',$androidJar,'--output',"$work/dex") + $classes)
     # Windows aapt2 emits backslashes in nested asset names; jar writes portable ZIP paths.
     New-Item -ItemType Directory -Force "$work/assets/licenses" | Out-Null
-    foreach ($license in @('ADRENOTOOLS','LINKERNSBYPASS','ZAKURO')) {
+    foreach ($license in @('ADRENOTOOLS','LINKERNSBYPASS','LSFG','ZAKURO')) {
         Copy-Item -LiteralPath "$repo/android/app/src/main/assets/licenses/$license.txt" -Destination "$work/assets/licenses/$license.txt"
     }
     Invoke-Tool "$JavaHome/bin/jar.exe" @('--update','--file',"$work/unsigned.apk",'--no-manifest',
@@ -137,7 +146,7 @@ try {
     try {
         $entries = @($archive.Entries | ForEach-Object FullName)
         if ('lib/arm64-v8a/libzakuro_android.so' -notin $entries) { throw 'Native library missing' }
-        $allowedAssets = @('assets/licenses/ADRENOTOOLS.txt','assets/licenses/LINKERNSBYPASS.txt','assets/licenses/ZAKURO.txt')
+        $allowedAssets = @('assets/licenses/ADRENOTOOLS.txt','assets/licenses/LINKERNSBYPASS.txt','assets/licenses/LSFG.txt','assets/licenses/ZAKURO.txt')
         if (@($entries | Where-Object { $_ -match '^assets/' -and !$_.EndsWith('/') -and $_ -notin $allowedAssets }).Count) { throw 'Unexpected bundled assets' }
         foreach ($library in @('libadrenotools.so','libhook_impl.so','libmain_hook.so','libfile_redirect_hook.so','libgsl_alloc_hook.so')) {
             if ("lib/arm64-v8a/$library" -notin $entries) { throw "Driver support missing: $library" }

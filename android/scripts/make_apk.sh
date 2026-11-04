@@ -42,7 +42,7 @@ grep -q "package: name='io.github.zakuro.android'" "$work/badging"
 grep -q "launchable-activity: name='io.github.zakuro.android.Launcher'" "$work/badging"
 unzip -Z1 "$out" > "$work/entries"
 grep -qx 'lib/arm64-v8a/libzakuro_android.so' "$work/entries"
-if grep '^assets/' "$work/entries" | grep -Ev '^assets/licenses/(ADRENOTOOLS|LINKERNSBYPASS|ZAKURO)\.txt$'; then
+if grep '^assets/' "$work/entries" | grep -Ev '^assets/licenses/(ADRENOTOOLS|LINKERNSBYPASS|LSFG|ZAKURO)\.txt$'; then
     echo 'Unexpected bundled assets' >&2; exit 1
 fi
 for library in libadrenotools.so libhook_impl.so libmain_hook.so libfile_redirect_hook.so libgsl_alloc_hook.so; do

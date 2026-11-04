@@ -7,6 +7,7 @@ use std::sync::Arc;
 use ash::vk;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
+use super::framegen::{self, FrameGen, FrameGenOptions};
 use super::vulkan_overlay::OverlayPainter;
 use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, Shown, Stereo, StereoMode, Viewport};
 use crate::raster::hardware::{can_render, render_device};
@@ -175,6 +176,10 @@ pub struct VulkanPresenter {
     swap_screens: bool,
     /// set when the swapchain no longer matches the window.
     stale: bool,
+    /// frame generation wanted for now, and the graph once the first picture gave its size.
+    frame_generation: Option<FrameGenOptions>,
+    framegen: Option<FrameGen>,
+    framegen_failed: bool,
 }
 
 impl VulkanPresenter {
@@ -477,6 +482,9 @@ impl VulkanPresenter {
             stretch: false,
             swap_screens: false,
             stale: false,
+            frame_generation: None,
+            framegen: None,
+            framegen_failed: false,
         };
 
         presenter.build_swapchain()?;
@@ -740,6 +748,54 @@ impl VulkanPresenter {
         }
     }
 
+    /// generates pictures between the top screen's own while this is some. callers may set it every frame.
+    pub fn set_frame_generation(&mut self, options: Option<&FrameGenOptions>) {
+        if self.frame_generation.as_ref() != options {
+            self.frame_generation = options.cloned();
+        }
+    }
+
+    /// the pictures to present for this refresh, none when this frame goes up as it is.
+    fn generated_pictures(&mut self, top: &ScreenImage<'_>, right: &ScreenImage<'_>) -> Option<Vec<(GpuScreen, bool)>> {
+        let options = self.frame_generation.as_ref()?;
+        let gpu = top.gpu?;
+        if !right.is_empty() || self.framegen_failed || self.shared.is_none() {
+            return None;
+        }
+        if self.framegen.is_none() {
+            let on = framegen::Device {
+                entry: &self._entry,
+                instance: &self.instance,
+                physical: self.physical_device,
+                device: &self.device,
+                family: self.queue_family,
+                queue: self.queue,
+                memory: &self.memory_properties,
+            };
+            match FrameGen::new(on, options, gpu.rect[2], gpu.rect[3]) {
+                Ok(made) => self.framegen = Some(made),
+                Err(error) => {
+                    log::error!("frame generation is off: {error}");
+                    self.framegen_failed = true;
+                    return None;
+                }
+            }
+        }
+        let made = self.framegen.as_mut()?;
+        if !made.fits(&gpu) {
+            return None;
+        }
+        match made.tick(gpu) {
+            Ok(pictures) if !pictures.is_empty() => Some(pictures),
+            Ok(_) => None,
+            Err(error) => {
+                log::error!("frame generation stopped: {error}");
+                self.framegen_failed = true;
+                None
+            }
+        }
+    }
+
     /// whether a present waits for the display, rather than handing the
     /// frame over and going on.
     pub fn waits_for_display(&self) -> bool {
@@ -950,12 +1006,8 @@ impl VulkanPresenter {
     }
 }
 
-impl Presenter for VulkanPresenter {
-    fn name(&self) -> &'static str {
-        "vulkan"
-    }
-
-    fn present(
+impl VulkanPresenter {
+    fn present_one(
         &mut self,
         top: ScreenImage<'_>,
         bottom: ScreenImage<'_>,
@@ -1087,6 +1139,41 @@ impl Presenter for VulkanPresenter {
             Err(error) => Err(vk_fail("presenting")(error)),
         }
     }
+}
+
+impl Presenter for VulkanPresenter {
+    fn name(&self) -> &'static str {
+        "vulkan"
+    }
+
+    fn present(
+        &mut self,
+        top: ScreenImage<'_>,
+        bottom: ScreenImage<'_>,
+        right: ScreenImage<'_>,
+        overlay: &Overlay,
+    ) -> Result<(), PresentError> {
+        let Some(pictures) = self.generated_pictures(&top, &right) else {
+            return self.present_one(top, bottom, right, overlay);
+        };
+        // ponytail: what is drawn over the screens shows on the first picture only (the right-stick
+        // cursor flickers), keep the overlay for all of them if frame generation ships
+        let nothing_over = Overlay::default();
+        for (index, (gpu, generated)) in pictures.into_iter().enumerate() {
+            let shown = ScreenImage { width: top.width, height: top.height, pixels: &[], gpu: Some(gpu) };
+            let under = ScreenImage { width: bottom.width, height: bottom.height, pixels: bottom.pixels, gpu: bottom.gpu };
+            let none = ScreenImage { width: 0, height: 0, pixels: &[], gpu: None };
+            self.present_one(shown, under, none, if index == 0 { overlay } else { &nothing_over })?;
+            use std::sync::atomic::Ordering::Relaxed;
+            if index > 0 {
+                framegen::EXTRA_PRESENTS.fetch_add(1, Relaxed);
+            }
+            if generated {
+                framegen::GENERATED_SHOWN.fetch_add(1, Relaxed);
+            }
+        }
+        Ok(())
+    }
 
     fn resize(&mut self, width: u32, height: u32) {
         self.window = (width.max(1), height.max(1));
@@ -1113,6 +1200,7 @@ impl Presenter for VulkanPresenter {
 
 impl Drop for VulkanPresenter {
     fn drop(&mut self) {
+        self.framegen = None;
         unsafe {
             let _ = self.device.device_wait_idle();
             for screen in std::mem::replace(&mut self.screens, [Screen::null(), Screen::null(), Screen::null()]) {

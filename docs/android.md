@@ -147,6 +147,7 @@ sound/tap latching (Audio/Controls):
   of crashing the stock Qualcomm driver. Turn off only to test GPU shaders.
 - **Turnip: render in system memory**, off: custom Turnip drivers only
   (`TU_DEBUG=sysmem`); try it if a black block appears in a screen corner.
+- **Frame generation** (`frame_generation`, Performance, off by default, branch `framegen-lsfg` only): whole pictures between the game's own from lsfg-vk 1.0 and the user's own `Lossless.dll` imported over adb; `frame_generation_multiplier` 4 runs the panel at 120 Hz, 2 at 60 Hz; `frame_generation_flow` sizes the motion search.
 - **Frame interpolation** (`interpolate`, Performance, off by default): for games that
   draw every other refresh, such as Ultra Moon, it draws a picture in between from the
   game's own draws with positions halfway, so game speed does not change. Use it with a

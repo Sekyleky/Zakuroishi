@@ -133,6 +133,12 @@ pub struct Advanced {
     pub stereo: StereoMode,
     pub stereo_swap: bool,
     pub interpolate: bool,
+    /// Pictures generated between the game's own by lsfg-vk from the user's Lossless.dll.
+    pub frame_generation: bool,
+    /// Pictures shown per game picture: 4 needs 120 Hz, 2 stays at 60 Hz.
+    pub frame_generation_multiplier: i32,
+    /// The motion search's share of the picture size, percent.
+    pub frame_generation_flow: i32,
     /// FIFO at normal speed and the 60 FPS cap, mailbox otherwise; off keeps mailbox (0.1.8).
     pub vsync_pacing: bool,
     /// Stock Qualcomm drivers abort on GPU vertex shaders; fall back to Auto there.
@@ -218,6 +224,9 @@ impl Default for Advanced {
             stereo: StereoMode::Off,
             stereo_swap: false,
             interpolate: false,
+            frame_generation: false,
+            frame_generation_multiplier: 4,
+            frame_generation_flow: 100,
             vsync_pacing: true,
             safe_gpu_shaders: true,
             turnip_sysmem: false,
@@ -263,10 +272,12 @@ impl Advanced {
             warm_pipelines: self.warm_pipelines,
             // upstream 0.2.31's default; no Android setting for it yet
             shade_ahead: self.shade_ahead,
+            frame_generation: self.frame_generation,
         }
     }
     pub fn interpolate_on_main(&self, split: bool) -> bool {
         self.interpolate
+            && !self.frame_generation
             && self.hardware_renderer
             && !self.gpu_readback
             && !(self.dual_display && split && self.swap_screens)
@@ -422,6 +433,8 @@ mod tests {
         assert!(Advanced::parse(r#"{"low_latency_audio":true}"#).unwrap().low_latency_audio);
         assert!(settings.latch_short_presses);
         assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
+        assert!(!settings.frame_generation && settings.frame_generation_multiplier == 4 && settings.frame_generation_flow == 100);
+        assert!(Advanced::parse(r#"{"frame_generation":true}"#).unwrap().renderer_options().frame_generation);
         assert!(!settings.short_vsync_queue);
         assert!(Advanced::parse(r#"{"short_vsync_queue":true}"#).unwrap().short_vsync_queue);
         assert!(!Advanced::parse(r#"{"audio_queue_managed":false}"#).unwrap().audio_queue_managed);

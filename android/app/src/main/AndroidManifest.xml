@@ -27,6 +27,7 @@
         <provider android:name=".SavesProvider" android:authorities="io.github.zakuro.android.saves" android:exported="true" android:grantUriPermissions="true" android:permission="android.permission.MANAGE_DOCUMENTS">
             <intent-filter><action android:name="android.content.action.DOCUMENTS_PROVIDER" /></intent-filter>
         </provider>
+        <provider android:name=".LosslessImport" android:authorities="io.github.zakuro.android.lossless" android:exported="true" android:permission="android.permission.DUMP" />
         <receiver android:name=".DebugSettings" android:exported="true" android:permission="android.permission.DUMP" />
         <activity android:name=".Game" android:exported="false" android:launchMode="singleTask" android:process=":game" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density" >
             <meta-data android:name="android.app.lib_name" android:value="zakuro_android" />

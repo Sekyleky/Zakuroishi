@@ -5127,7 +5127,10 @@ impl Hardware {
             false => self.surfaces[index].upright.is_some(),
         };
         if !made {
-            let usage = vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED;
+            let mut usage = vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED;
+            if crate::backend::renderer_options().is_some_and(|options| options.frame_generation) {
+                usage |= vk::ImageUsageFlags::TRANSFER_SRC;
+            }
             self.end_rendering();
             let image = self.image(width, height, COLOR_FORMAT, usage, vk::ImageAspectFlags::COLOR)?;
             let upright = Some(Upright { image, batch: 0, current: false });
@@ -5264,7 +5267,7 @@ impl Hardware {
         let Some(upright) = upright.filter(|upright| upright.batch == screen.batch) else {
             return Ok(None);
         };
-        let view = upright.image.view;
+        let (view, image) = (upright.image.view, upright.image.image);
         if screen.batch >= self.batch {
             self.submit()?;
         }
@@ -5277,6 +5280,9 @@ impl Hardware {
         let (top, bottom) = (((row_pixels - screen.columns) * scale) as f32, (row_pixels * scale) as f32);
         Ok(Some(crate::GpuScreen {
             view,
+            image,
+            rect: [first * scale, (row_pixels - screen.columns) * scale, count * scale, screen.columns * scale],
+            batch: screen.batch,
             area: [left / width, top / height, (right - left) / width, (bottom - top) / height],
             bounds: [(left + 0.5) / width, (top + 0.5) / height, (right - 0.5) / width, (bottom - 0.5) / height],
         }))
@@ -6224,10 +6230,14 @@ pub(crate) fn render_device(
     let mut logic_op_state = vk::PhysicalDeviceExtendedDynamicState2FeaturesEXT::default().extended_dynamic_state2_logic_op(true);
     // what the GPU shades counted along with its times
     let statistics = std::env::var_os("ZAKURO_GPU_TIMES").is_some() && supported.pipeline_statistics_query == vk::TRUE;
+    let frame_generation = crate::backend::renderer_options().is_some_and(|options| options.frame_generation);
     let features = vk::PhysicalDeviceFeatures::default()
         .depth_clamp(true)
         .logic_op(logic_ops)
-        .pipeline_statistics_query(statistics);
+        .pipeline_statistics_query(statistics)
+        .shader_storage_image_extended_formats(frame_generation && supported.shader_storage_image_extended_formats == vk::TRUE)
+        .shader_storage_image_write_without_format(frame_generation && supported.shader_storage_image_write_without_format == vk::TRUE);
+    let mut features12 = vk::PhysicalDeviceVulkan12Features::default().vulkan_memory_model(true);
     // the cache control, to make a pipeline only when the cache on disk
     // has it, every Vulkan 1.3 device does
     let mut features13 = vk::PhysicalDeviceVulkan13Features::default()
@@ -6241,6 +6251,9 @@ pub(crate) fn render_device(
         .push_next(&mut features13);
     if dynamic.blend {
         info = info.push_next(&mut blend_state);
+    }
+    if frame_generation {
+        info = info.push_next(&mut features12);
     }
     if dynamic.logic_op {
         info = info.push_next(&mut logic_op_state);

@@ -22,21 +22,21 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use zakuro_common::Screen;
 use zakuro_core::{Config, FrameOutcome, System};
 use zakuro_gpu::{
-    backend::vulkan::VulkanPresenter, GpuScreen, Overlay, OverlayMesh, OverlayTexture,
+    backend::{framegen, vulkan::VulkanPresenter}, GpuScreen, Overlay, OverlayMesh, OverlayTexture,
     OverlayVertex, PresentError, Presenter, ScreenImage,
 };
 
 // Keep a NativeWindow reference until its Vulkan surface has been destroyed.
 struct Window(NativeWindow);
 /// A fixed 60 Hz source lets a 120 Hz panel hold an even 2-vsync cadence.
-fn request_frame_rate(window: &Window) {
+fn request_frame_rate(window: &Window, rate: f32) {
     // Exported by libnativewindow, not libandroid; ndk-sys alone leaves it unresolved at dlopen.
     #[link(name = "nativewindow")]
     extern "C" {
         fn ANativeWindow_setFrameRate(window: *mut ndk_sys::ANativeWindow, rate: f32, compatibility: i8) -> i32;
     }
-    let rate = unsafe { ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), 60.0, 1) };
-    log::info!("ANativeWindow_setFrameRate(60, fixed_source) = {rate}");
+    let result = unsafe { ANativeWindow_setFrameRate(window.0.ptr().as_ptr(), rate, 1) };
+    log::info!("ANativeWindow_setFrameRate({rate}, fixed_source) = {result}");
 }
 impl HasWindowHandle for Window {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
@@ -51,6 +51,8 @@ impl HasDisplayHandle for Window {
 struct Surface {
     presenter: VulkanPresenter,
     window: Window,
+    /// the frame rate asked of the window.
+    rate: f32,
     shared: bool,
     settings: Advanced,
     cursor_texture: bool,
@@ -59,7 +61,7 @@ struct Surface {
 impl Surface {
     fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry) -> Result<Self, String> {
         let window = Window(window);
-        request_frame_rate(&window);
+        request_frame_rate(&window, 60.0);
         let size = (
             window.0.width().max(1) as u32,
             window.0.height().max(1) as u32,
@@ -70,6 +72,7 @@ impl Surface {
         let mut surface = Self {
             presenter,
             window,
+            rate: 60.0,
             shared: false,
             settings: settings.clone(),
             cursor_texture: false,
@@ -82,11 +85,17 @@ impl Surface {
     /// images stay shared at full resolution after an app switch.
     fn reattach(&mut self, window: NativeWindow) -> Result<(), String> {
         let window = Window(window);
-        request_frame_rate(&window);
+        request_frame_rate(&window, self.rate);
         let size = (window.0.width().max(1) as u32, window.0.height().max(1) as u32);
         self.presenter.attach_surface(&window, size).map_err(|e| e.to_string())?;
         self.window = window;
         Ok(())
+    }
+    fn set_rate(&mut self, rate: f32) {
+        if self.rate != rate {
+            self.rate = rate;
+            request_frame_rate(&self.window, rate);
+        }
     }
     fn configure(&mut self, settings: &Advanced) {
         self.settings = settings.clone();
@@ -385,6 +394,12 @@ impl Input {
 /// the longest the first frame waits for shader warm-up.
 const WARM_HOLD_CAP: Duration = Duration::from_secs(30);
 
+/// pictures that went up on the top screen: the game's own that were not replaced first, and generated ones.
+fn pictures_shown() -> u64 {
+    use std::sync::atomic::Ordering::Relaxed;
+    (zakuro_core::DISTINCT_PICTURES.load(Relaxed) + framegen::GENERATED_SHOWN.load(Relaxed)).saturating_sub(framegen::REAL_DROPPED.load(Relaxed))
+}
+
 pub fn run(app: &AndroidApp) -> Result<(), String> {
     // Rayon defaults to one worker per core (8 on Snapdragon 8 Gen 2); idle workers spin in the
     // kernel on the cores the emulation thread needs. Three cover the big cores beside it.
@@ -474,7 +489,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     };
     let (mut hitch_compiles, mut hud_compiles) = (compiles(), compiles());
     let mut hud_game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
-    let mut hud_distinct = zakuro_core::DISTINCT_PICTURES.load(std::sync::atomic::Ordering::Relaxed);
+    let mut hud_distinct = pictures_shown();
+    let frame_generation = app.internal_data_path().map(|files| framegen::FrameGenOptions {
+        multiplier: if settings.frame_generation_multiplier >= 4 { 4 } else { 2 },
+        flow_percent: settings.frame_generation_flow.clamp(25, 100) as u32,
+        dir: files.join("lsfg"),
+    });
     // Benchmark window baselines: game pictures, distinct pictures, interpolation counts (between, rough, off beat).
     let (mut bench_game, mut bench_distinct, mut bench_counts) = (hud_game, hud_distinct, (0u64, 0u64, 0u64));
     let hint_target = if emulation_interval.is_zero() { frame_time / 4 } else { emulation_interval };
@@ -901,7 +921,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         }
         let present_start = Instant::now();
         // Under FIFO the display is the cap; a timer gate would drop frames that arrive a hair early.
-        s.presenter.set_vsync(settings.vsync_pacing && display_paced);
+        // fast-forward and other frame caps go without: the panel paces the generated pictures
+        let generating = settings.frame_generation && display_paced && s.shared && settings.frame_cap == 60;
+        let generation = frame_generation.as_ref().filter(|_| generating);
+        s.presenter.set_frame_generation(generation);
+        s.set_rate(generation.map_or(60.0, |options| options.per_tick() as f32 * 60.0));
+        s.presenter.set_vsync((settings.vsync_pacing || generating) && display_paced);
         s.presenter.set_short_queue(settings.short_vsync_queue);
         let vsync = s.presenter.waits_for_display() && display_paced;
         if vsync || present_start >= next_present {
@@ -909,7 +934,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 system,
                 (settings.right_stick == RightStick::Cursor).then_some(input.cursor),
             ) {
-                Ok(()) => { stats_frames += 1; benchmark_presented += 1; },
+                Ok(()) => {
+                    let extra = framegen::EXTRA_PRESENTS.swap(0, std::sync::atomic::Ordering::Relaxed) as u32;
+                    stats_frames += 1 + extra;
+                    benchmark_presented += 1 + extra;
+                },
                 Err(PresentError::OutOfDate) => {}
                 Err(e) => return Err(e.to_string()),
             }
@@ -963,7 +992,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let game = zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed);
             let game_fps = game.wrapping_sub(hud_game) as f64 / elapsed.as_secs_f64();
             hud_game = game;
-            let distinct = zakuro_core::DISTINCT_PICTURES.load(std::sync::atomic::Ordering::Relaxed);
+            let distinct = pictures_shown();
             let distinct_fps = distinct.wrapping_sub(hud_distinct) as f64 / elapsed.as_secs_f64();
             hud_distinct = distinct;
             if settings.show_fps {
@@ -994,12 +1023,13 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let (fps, speed) = emulation_rates(benchmark_cycles, benchmark_start.elapsed());
             let (game_now, distinct_now) = (
                 zakuro_core::GAME_FRAMES.load(std::sync::atomic::Ordering::Relaxed),
-                zakuro_core::DISTINCT_PICTURES.load(std::sync::atomic::Ordering::Relaxed),
+                pictures_shown(),
             );
             let bench_game_fps = game_now.wrapping_sub(bench_game) as f64 / elapsed;
             let bench_distinct_fps = distinct_now.wrapping_sub(bench_distinct) as f64 / elapsed;
             let counts = system.interpolation_counts();
-            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={} short_presses={} game_fps={:.2} distinct_fps={:.2} between={} rough={} off_beat={}",
+            let fg = framegen::take_stats();
+            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={} short_presses={} game_fps={:.2} distinct_fps={:.2} between={} rough={} off_beat={} fg_gpu_ms={:.2} fg_cpu_ms={:.2} fg_passes={}",
                 fps, speed,
                 f64::from(benchmark_presented) / elapsed, effective_speed,
                 core_time.as_secs_f64() * 1000.0 / 300.0,
@@ -1007,7 +1037,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared,
                 waits.0 as f64 / 300.0, waits.1.as_secs_f64() * 1000.0 / 300.0, waits.2 as f64 / 300.0, waits.3.as_secs_f64() * 1000.0 / 300.0,
                 ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6), audio_ms, underruns, short_presses,
-                bench_game_fps, bench_distinct_fps, counts.0.saturating_sub(bench_counts.0), counts.1.saturating_sub(bench_counts.1), counts.2.saturating_sub(bench_counts.2));
+                bench_game_fps, bench_distinct_fps, counts.0.saturating_sub(bench_counts.0), counts.1.saturating_sub(bench_counts.1), counts.2.saturating_sub(bench_counts.2), fg.0, fg.1, fg.2);
             (bench_game, bench_distinct, bench_counts) = (game_now, distinct_now, counts);
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;
