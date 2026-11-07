@@ -26,8 +26,8 @@ final class Diagnostics {
         out.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         out.append("Free storage: ").append(StorageDialog.size(new StatFs(context.getFilesDir().getAbsolutePath()).getAvailableBytes())).append('\n');
         out.append("Imported title IDs: ").append(String.join(", ", GameImport.importedIds(context.getFilesDir()))).append('\n');
-        out.append("\nThe log below is this app's own (both the library and game processes). Folder addresses are removed,\n"
-                + "but file names can still appear: read it before you share it.\n\n");
+        out.append("\nThe log below is this app's own (both the library and game processes). Document picker addresses are removed.\n"
+                + "App file paths, game IDs and file names remain: read it before you share it.\n\n");
         return out.append(redact(log())).toString();
     }
 

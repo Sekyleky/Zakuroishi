@@ -141,7 +141,7 @@ public final class Launcher extends Activity {
     AlertDialog controllerDialog(AlertDialog dialog, boolean cancelFocused) {
         dialog.setOnShowListener(window -> {
             p.dialog(dialog, false);
-            Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (cancelFocused && cancel != null) cancel.requestFocus();
+            Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (cancelFocused && cancel != null) cancel.requestFocusFromTouch(); // plain requestFocus() fails in touch mode, which a controller on the Thor stays in
         });
         dialog.setOnKeyListener((window, code, event) -> {
             if (code == KeyEvent.KEYCODE_BUTTON_A) {
@@ -248,6 +248,13 @@ public final class Launcher extends Activity {
         // ponytail: a DLL has no MIME type pickers agree on, so any file; the import checks it
         startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), IMPORT_LOSSLESS);
     }
+    /** Focus the first list row (tagged button) of a shown dialog, or its Close button when there are none, leaving touch mode so the ring shows. */
+    void focusFirst(AlertDialog dialog) {
+        ArrayList<View> found = new ArrayList<>();
+        dialog.getWindow().getDecorView().addFocusables(found, View.FOCUS_DOWN, View.FOCUSABLES_ALL);
+        for (View view : found) if (view instanceof Button && view.getTag() != null) { view.requestFocusFromTouch(); return; }
+        Button close = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (close != null) close.requestFocusFromTouch();
+    }
     boolean busy() { return task != null && task.busy; }
     private void tools() {
         LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
@@ -266,7 +273,7 @@ public final class Launcher extends Activity {
         }
         ScrollView scroll = new ScrollView(this); scroll.addView(content);
         dialog[0] = controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Tools").setView(scroll).setNegativeButton("Close", null).create());
-        dialog[0].show();
+        dialog[0].show(); focusFirst(dialog[0]);
     }
     private void pickDocument(boolean create, String type, String title, int request) {
         if (task.busy) return;
