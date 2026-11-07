@@ -518,7 +518,7 @@ public final class Launcher extends Activity {
         }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
-            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing romfs mod" : operation == 7 ? "Importing Lossless.dll" : "Restoring saves";
+            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing mod" : operation == 7 ? "Importing Lossless.dll" : "Restoring saves";
             errorTitle = action + " failed";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {

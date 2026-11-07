@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args.len() != 3 {
-        return Err("usage: zakuro-build-title <decrypted-rom> <new-output-directory> <ndk-directory>".into());
+    if args.len() != 3 && args.len() != 4 {
+        return Err("usage: zakuro-build-title <decrypted-rom> <new-output-directory> <ndk-directory> [data-directory holding mods/<title id>]".into());
     }
     let rom = PathBuf::from(&args[0]).canonicalize().map_err(|error| format!("Cannot read ROM: {error}"))?;
     let out = PathBuf::from(&args[1]);
@@ -25,7 +25,21 @@ fn run() -> Result<(), String> {
         "--target=aarch64-linux-android30", "-fPIC", "-fvisibility=hidden", "-Wl,-z,max-page-size=16384",
         "-Wl,--no-undefined", "-Wl,--no-as-needed", "-lm",
     ]);
-    let options = recomp3ds::build::Options { dir: Some(&work), compiler: Some(compiler), ..Default::default() };
+    // a code mod, its patched code and exheader, the same way the game will load them.
+    let (mod_code, mod_exheader) = match args.get(3) {
+        Some(data) => {
+            let data = PathBuf::from(data);
+            let mut title = zakuro_fs::Title::load(&rom).map_err(|error| error.to_string())?;
+            let exheader = zakuro_core::mods::exheader(&title, &data).map(|(bytes, _)| bytes);
+            zakuro_core::mods::lay(&mut title, Some(&data));
+            let (code, modded) = zakuro_core::mods::code(&title, Some(&data)).map_err(|error| error.to_string())?;
+            if !modded { return Err(format!("No code mod for this game in {}", data.display())); }
+            (Some(code), exheader)
+        }
+        None => (None, None),
+    };
+    let mods = recomp3ds::Mods { code: mod_code.as_deref(), exheader: mod_exheader.as_deref(), romfs: None };
+    let options = recomp3ds::build::Options { dir: Some(&work), compiler: Some(compiler), mods, ..Default::default() };
     println!("Building Android ARM64 code for Zakuro ABI {}. ROM, textures and saves are not copied or changed.", recomp_abi::ABI);
     let library = recomp3ds::build::build(&rom, &options, &|event| match event {
         recomp3ds::build::Event::Compiled { done, total } => {

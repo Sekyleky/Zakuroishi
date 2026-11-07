@@ -90,6 +90,7 @@ pub fn dispatch(system: &mut System, number: u32) {
         0x2B => get_process_info(system),
         0x2D => connect_to_port(system),
         0x32 => send_sync_request(system),
+        0x33 => open_process(system),
         0x35 => get_process_id(system),
         0x37 => get_thread_id(system),
         0x38 => get_resource_limit(system),
@@ -101,6 +102,7 @@ pub fn dispatch(system: &mut System, number: u32) {
         0x54..=0x56 => {
             system.cpu.regs[0] = 0;
         }
+        0x70 => control_process_memory(system),
         _ => {
             log::warn!(
                 "unimplemented svc 0x{number:02X} at 0x{:08X} (r0={:08X} r1={:08X} r2={:08X} r3={:08X})",
@@ -1058,6 +1060,36 @@ fn get_process_info(system: &mut System) {
     system.cpu.regs[2] = (value >> 32) as u32;
 }
 
+/// svcOpenProcess, r1 = process id. only the game's own process exists here;
+/// mods made with Magikoopa open it to make their code executable.
+fn open_process(system: &mut System) {
+    if system.cpu.regs[1] != system.kernel.process_id {
+        system.cpu.regs[0] = errors::INVALID_HANDLE.0;
+        return;
+    }
+    let object = system.kernel.process_object();
+    system.cpu.regs[0] = 0;
+    system.cpu.regs[1] = system.kernel.handles.duplicate_object(&mut system.kernel.objects, object, "Process");
+}
+
+/// svcControlProcessMemory, r0 = process, r1 = addr0, r3 = size, r4 = type,
+/// r5 = permission. only protecting is supported, which is all a mod's loader
+/// asks; nothing enforces permissions, as in svcControlMemory.
+fn control_process_memory(system: &mut System) {
+    const PROTECT: u32 = 6;
+    let [process, addr0, _, size, kind, permission] = system.cpu.regs[..6].try_into().unwrap();
+    let object = system.kernel.resolve(process);
+    system.cpu.regs[0] = if !object.is_some_and(|id| matches!(system.kernel.objects.get(id), Some(KObject::Process))) {
+        errors::INVALID_HANDLE.0
+    } else if kind == PROTECT {
+        log::info!("svcControlProcessMemory: 0x{addr0:08X}, 0x{size:X} bytes, permission {permission}");
+        0
+    } else {
+        log::warn!("svcControlProcessMemory with unsupported type {kind}");
+        errors::UNIMPLEMENTED.0
+    };
+}
+
 fn get_process_id(system: &mut System) {
     let handle = system.cpu.regs[1];
     let _ = handle;
@@ -1203,6 +1235,30 @@ mod tests {
         };
         let first = read();
         assert_eq!(read() - first, SYSTEM_TICK_COST);
+    }
+
+    /// a mod's loader opens its own process and protects its code, and is
+    /// told no for another process and for what isn't supported.
+    #[test]
+    fn a_mods_loader_can_protect_its_code() {
+        let mut system = System::new(crate::Config::default());
+        let pid = system.kernel.process_id;
+        system.cpu.regs[1] = pid;
+        dispatch(&mut system, 0x33);
+        assert_eq!(system.cpu.regs[0], 0);
+        let handle = system.cpu.regs[1];
+        let mut control = |process: u32, kind: u32| {
+            system.cpu.regs[..6].copy_from_slice(&[process, 0x5C_7000, 0x5C_7000, 0x2E000, kind, 7]);
+            dispatch(&mut system, 0x70);
+            system.cpu.regs[0]
+        };
+        assert_eq!(control(handle, 6), 0);
+        assert_eq!(control(CURRENT_PROCESS, 6), 0);
+        assert_eq!(control(handle, 4), errors::UNIMPLEMENTED.0);
+        assert_eq!(control(0, 6), errors::INVALID_HANDLE.0);
+        system.cpu.regs[1] = pid + 1;
+        dispatch(&mut system, 0x33);
+        assert_eq!(system.cpu.regs[0], errors::INVALID_HANDLE.0);
     }
 
     /// svcControlMemory with an operation, giving back r0 and r1.

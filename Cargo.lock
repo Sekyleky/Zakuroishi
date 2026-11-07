@@ -4684,6 +4684,8 @@ version = "0.2.30"
 dependencies = [
  "recomp-abi",
  "recomp3ds",
+ "zakuro-core",
+ "zakuro-fs",
 ]
 
 [[package]]

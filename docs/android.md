@@ -53,16 +53,20 @@ Optional `textures/` PNGs and `pack.json` are imported only when selected;
 `sysdata/shared_font.bin` and `sysdata/CFL_Res.dat` are recognized when supplied.
 Other build outputs, source files and unrelated files are not copied.
 
-## Romfs mods
+## Mods
 
-Open a game's **Settings** and choose **Import romfs mod…**, then select the mod's
+Open a game's **Settings** and choose **Import mod…**, then select the mod's
 folder as Luma3DS (`luma/titles/TITLE_ID/`) or Citra/Azahar (`load/mods/TITLE_ID/`)
-lay it out: its `romfs/` and `romfs_ext/` are copied to the game's mods folder and
-laid over the game's own files the next time it starts. Importing again replaces
+lay it out: its `romfs/`, `romfs_ext/` and code patches are copied to the game's mods
+folder and laid over the game the next time it starts. Importing again replaces
 the previous mod; adding the game again removes it. A folder named for a different
-title id is refused. Mods that change game code (`exefs/`, `code.bin`, `code.ips`,
-`code.bps`, `exheader.bin`) are refused: the game runs its prebuilt `title.so`, so
-a code patch would have to be applied before building it.
+title id is refused.
+
+Mods that change game code (`code.bin`, `code.ips`, `code.bps`, in the folder or its
+`exefs/`, and `exheader.bin`) run best with a `title.so` built with them: pass a data
+folder holding `mods/TITLE_ID/` as `zakuro-build-title`'s fourth argument and import
+the result with **Replace native game code**. With a `title.so` built without them,
+the functions they change run in the interpreter, and an ABI 4 library is refused.
 
 ## Fix an existing native-library error
 
@@ -277,7 +281,7 @@ The app stores files privately beneath Android's app files directory:
 | `imports/UUID/game/game.3ds` | Imported original ROM |
 | `imports/UUID/code/title.so` | Read-only native game library |
 | `imports/UUID/data/mods/TITLE_ID/textures/` | Optional replacement pack |
-| `imports/UUID/data/mods/TITLE_ID/romfs/`, `romfs_ext/` | Optional romfs mod |
+| `imports/UUID/data/mods/TITLE_ID/romfs/`, `romfs_ext/` | Optional mod (also `code.ips`, `code.bps`, `code.bin`, `exheader.bin`) |
 | `imports/UUID/data/states/TITLE_ID/0.state` | Quick-save slot for this import |
 
 Reimport keeps in-game saves; quick states are version-specific and are not a

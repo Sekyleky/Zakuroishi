@@ -394,13 +394,12 @@ public final class ImportPlanCheck {
         check(plan.rom == null && plan.code == null && plan.files.size() == 3 && plan.bytes == 4, "Wrong romfs mod plan");
         check(item(plan, "garc").destination.equals(base + "romfs/a/0") && item(plan, "empty").destination.equals(base + "romfs/empty.bin")
                 && item(plan, "extra").destination.equals(base + "romfs_ext/x.bin"), "Wrong romfs mod destinations");
-        for (String code : new String[]{"code.ips", "code.bin", "exheader.bin"}) {
-            Tree patched = new Tree(); patched.directory("root", "romfs", "romfs"); patched.file("romfs", "f", "f", new byte[]{1});
-            patched.file("root", "code", code, new byte[]{1});
-            rejects(() -> ImportPlan.romfsMod(patched, "root", TITLE), "code mod " + code);
+        for (String code : new String[]{"code.ips", "code.bps", "code.bin", "exheader.bin"}) {
+            Tree patched = new Tree(); patched.file("root", "code", code.toUpperCase(java.util.Locale.ROOT), new byte[]{1});
+            check(item(ImportPlan.romfsMod(patched, "root", TITLE), "code").destination.equals(base + code), "Wrong destination for " + code);
         }
-        Tree exefs = new Tree(); exefs.directory("root", "romfs", "romfs"); exefs.file("romfs", "f", "f", new byte[]{1}); exefs.directory("root", "exefs", "exefs");
-        rejects(() -> ImportPlan.romfsMod(exefs, "root", TITLE), "exefs mod");
+        Tree exefs = new Tree(); exefs.directory("root", "exefs", "exefs"); exefs.file("exefs", "code", "code.ips", new byte[]{1});
+        check(item(ImportPlan.romfsMod(exefs, "root", TITLE), "code").destination.equals(base + "code.ips"), "Wrong destination for exefs patch");
         Tree none = new Tree(); none.file("root", "f", "f", new byte[]{1});
         rejects(() -> ImportPlan.romfsMod(none, "root", TITLE), "mod without romfs");
     }

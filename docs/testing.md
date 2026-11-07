@@ -578,3 +578,16 @@ The last older 0.1.2 artifact was
 `zakuro-android-test-20261030-180612-eb156189.apk`, SHA256
 `67cb01d2a4d1da88dcfa40e93edbcd0e8d4a10375980401d897181e27d7d7e18`.
 It predates the repair/settings integration and is superseded by the APK above.
+
+## Code mod: Ocarina of Time 3D free camera (2026-11-07)
+
+AYN Thor, Turnip, ABI-5 `title.so` built with the mod. USA Citra patch from Roberto-Nessy/OoT3D_Standalone_Free_Cam.
+
+| Check | Result |
+| --- | --- |
+| Before the fix, desktop, interpreter | Stops on frame 1: unimplemented svc 0x33 and 0x70, then the mod's `svcBreak` |
+| After the fix, desktop, interpreter | 1200 frames, no fault |
+| Thor, title screen | About 60 fps, 100% speed, no functions reported stale |
+| Thor, right stick moves the camera in play | Confirmed by David by hand |
+
+Not checked: the L + R settings overlay, frame times in play compared with the unmodded game.

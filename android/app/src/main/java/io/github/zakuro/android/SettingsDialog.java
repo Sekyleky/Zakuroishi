@@ -141,8 +141,8 @@ final class SettingsDialog {
                 content.addView(text("Optional. Attach a pack without copying your game again.", true));
             }
             if (mods != null) {
-                Button mod = button("Import romfs mod…"); mod.setOnClickListener(v -> mods.run()); addButton(content, mod);
-                content.addView(text("Optional. Choose a Luma3DS or Citra mod folder with romfs. Replaces the previous mod; mods that change game code are refused. Add the game again to remove it.", true));
+                Button mod = button("Import mod…"); mod.setOnClickListener(v -> mods.run()); addButton(content, mod);
+                content.addView(text("Optional. Choose a Luma3DS or Citra mod folder. Replaces the previous mod. A mod that changes game code runs best with a title.so built with it. Add the game again to remove it.", true));
             }
             if (repair != null) {
                 Button replace = button("Replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);

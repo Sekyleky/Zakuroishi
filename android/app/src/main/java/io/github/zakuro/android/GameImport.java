@@ -239,7 +239,7 @@ final class GameImport {
         DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
         ImportPlan plan = ImportPlan.romfsMod(source, DocumentsContract.getTreeDocumentId(tree), id);
         // The old copy goes once replaced: mods can be large and the source folder still has it.
-        return swapIn(context, id, version, source, plan, progress, true, "romfs", "romfs_ext");
+        return swapIn(context, id, version, source, plan, progress, true, "romfs", "romfs_ext", "code.ips", "code.bps", "code.bin", "exheader.bin");
     }
     /** Stage the plan, then swap each part folder of the game's mods for its staged copy (or none). */
     private static String swapIn(android.content.Context context, String id, File version, DocumentsSource source,
