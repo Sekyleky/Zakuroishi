@@ -1,0 +1,85 @@
+# Builds the Zakuroishi APK on an android-v* tag, signs it with the release key from repository secrets and
+# creates a DRAFT GitHub release. A human reviews the draft and publishes it.
+#
+# Maintainer setup (Settings > Secrets and variables > Actions):
+#   secret   ANDROID_KEYSTORE_BASE64    the release PKCS12 keystore, base64 (base64 -w0 release.p12)
+#   secret   ANDROID_KEYSTORE_PASSWORD  its password (also used as the key password)
+#   variable ANDROID_CERT_SHA256        SHA-256 of the release certificate, hex, colons optional; the build fails on any other signer
+#   variable ANDROID_KEY_ALIAS          optional; leave unset if the keystore holds a single key
+#
+# Never falls back to the throwaway test key: missing secrets fail the run.
+name: Android release
+
+on:
+  push:
+    tags: ["android-v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # draft release only
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Tag must be android-vX.Y.Z and match the manifest
+        run: |
+          [[ $TAG =~ ^android-v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { echo "::error::tag $TAG is not android-vX.Y.Z"; exit 1; }
+          grep -q "android:versionName=\"${BASH_REMATCH[1]}\"" android/app/src/main/AndroidManifest.xml \
+            || { echo "::error::AndroidManifest.xml versionName is not ${BASH_REMATCH[1]}"; exit 1; }
+          echo "VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+
+      - name: Release signing configuration present
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          missing=""
+          [ -n "$KS_B64" ] || missing+=" secret:ANDROID_KEYSTORE_BASE64"
+          [ -n "$KS_PASS" ] || missing+=" secret:ANDROID_KEYSTORE_PASSWORD"
+          [ -n "$CERT_SHA256" ] || missing+=" variable:ANDROID_CERT_SHA256"
+          if [ -n "$missing" ]; then
+            echo "::error::Refusing to build a release without:$missing. Add them in Settings > Secrets and variables > Actions. No test key is used as a fallback."
+            exit 1
+          fi
+
+      - name: Build and sign
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ZAKURO_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ZAKURO_KEY_ALIAS: ${{ vars.ANDROID_KEY_ALIAS }}
+        run: |
+          umask 077
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          [ -s "$RUNNER_TEMP/release.p12" ] || { echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64"; exit 1; }
+          pwsh -NoProfile -File android/scripts/build.ps1 -Keystore "$RUNNER_TEMP/release.p12"
+
+      - name: Certificate must be the release certificate
+        env:
+          CERT_SHA256: ${{ vars.ANDROID_CERT_SHA256 }}
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
+          apks=(build/android/zakuro-android-test-*.apk)
+          [ ${#apks[@]} -eq 1 ] || { echo "::error::expected exactly one APK, found ${#apks[@]}"; exit 1; }
+          out=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "${apks[0]}")
+          echo "$out"
+          mapfile -t got < <(sed -n 's/^Signer #[0-9]* certificate SHA-256 digest: //p' <<<"$out")
+          want=$(tr -d ':[:space:]' <<<"$CERT_SHA256" | tr 'A-F' 'a-f')
+          [ ${#got[@]} -eq 1 ] && [ "${got[0]}" = "$want" ] \
+            || { echo "::error::signer certificate ${got[*]:-none} is not the expected $want"; exit 1; }
+          mkdir dist
+          cp "${apks[0]}" "dist/Zakuroishi-$VERSION.apk"
+          (cd dist && sha256sum "Zakuroishi-$VERSION.apk" > SHA256SUMS.txt)
+          cat dist/SHA256SUMS.txt
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$TAG" dist/* --draft --verify-tag --title "Zakuroishi $VERSION" --generate-notes

@@ -1,0 +1,85 @@
+# Android checks for the Zakuroishi fork. Separate from upstream's ci.yml on purpose, so upstream merges stay clean.
+# ponytail: no rustfmt --check job. Reformatting ~76k lines would make every upstream merge worse; add it only if the fork stops merging upstream.
+# ponytail: no cargo deny / cargo vet. The weekly cargo audit in audit.yml is the whole supply-chain gate; add them if the dependency set starts to churn.
+name: Android CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUSTUP_TOOLCHAIN: 1.95.0
+  NDK_VERSION: 27.2.12479018 # NDK r27c, same as build-windows.ps1 and the Containerfile
+
+jobs:
+  # Compiles runtime.rs, platform.rs, sensors.rs and the rest of the android-only code that ci.yml never builds.
+  android-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust 1.95.0 with the Android target
+        run: rustup toolchain install 1.95.0 --profile minimal --target aarch64-linux-android
+      # sdkmanager checks the checksum of everything it downloads
+      - name: NDK r27c
+        run: |
+          sdkmanager=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" "ndk;$NDK_VERSION"
+          bin=$ANDROID_HOME/ndk/$NDK_VERSION/toolchains/llvm/prebuilt/linux-x86_64/bin
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$bin/aarch64-linux-android30-clang" >> "$GITHUB_ENV"
+          echo "CC_aarch64_linux_android=$bin/aarch64-linux-android30-clang" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$bin/llvm-ar" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: android
+      - run: cargo check --locked --target aarch64-linux-android -p zakuro-android --features zakuro-gpu/vulkan
+
+  # Default lint levels: only deny-by-default lints fail, warnings are shown but do not.
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y libasound2-dev libudev-dev pkg-config
+      - run: rustup toolchain install 1.95.0 --profile minimal --component clippy
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: clippy
+      - run: cargo clippy --workspace --locked
+
+  # The Java host checks are PowerShell scripts that also run on Linux under pwsh (preinstalled on ubuntu-latest).
+  java-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0"
+      # JAVA_HOME of the runner is used when the Windows default JDK path does not exist
+      - run: pwsh -NoProfile -File android/app/settingshosttests/run.ps1
+      - run: pwsh -NoProfile -File android/app/tests/run-save-archive-tests.ps1
+
+  # The documented container build (build.ps1 -> Containerfile -> inside.sh -> make_apk.sh) with a throwaway key.
+  # ponytail: slow (NDK download plus a full release build), so only pushes to android-handheld and manual runs;
+  # widen the condition if it gets cached or the team wants it on every pull request.
+  apk:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/android-handheld')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: pwsh -NoProfile -File android/scripts/build.ps1
+      - name: Verify the signature independently of the build script
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
+          apks=(build/android/zakuro-android-test-*.apk)
+          [ ${#apks[@]} -eq 1 ] || { echo "::error::expected exactly one APK, found ${#apks[@]}"; exit 1; }
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "${apks[0]}"
+          (cd build/android && sha256sum -c ./*.sha256)

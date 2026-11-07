@@ -1,7 +1,10 @@
 param([string]$JdkHome = $env:JAVA_HOME)
 $ErrorActionPreference = 'Stop'
-$javac = if ($JdkHome) { Join-Path $JdkHome 'bin/javac.exe' } else { 'javac' }
-$java = if ($JdkHome) { Join-Path $JdkHome 'bin/java.exe' } else { 'java' }
+# Also runs on Linux under pwsh (CI).
+$sep = [IO.Path]::DirectorySeparatorChar
+$exe = if ($sep -eq [char]92) { '.exe' } else { '' }
+$javac = if ($JdkHome) { Join-Path $JdkHome "bin/javac$exe" } else { 'javac' }
+$java = if ($JdkHome) { Join-Path $JdkHome "bin/java$exe" } else { 'java' }
 $classes = Join-Path ([IO.Path]::GetTempPath()) ('save-archive-tests-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $classes | Out-Null
 try {
@@ -11,7 +14,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'SaveArchive tests failed' }
 } finally {
     $resolved = [IO.Path]::GetFullPath($classes)
-    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\'
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd($sep) + $sep
     if (!$resolved.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Unexpected test directory' }
     Remove-Item -LiteralPath $resolved -Recurse -Force
 }

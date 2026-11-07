@@ -1,0 +1,19 @@
+# Weekly RustSec check of Cargo.lock. Never runs on push or pull request, so it cannot block anything.
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # ponytail: compiled on every run (a few minutes) and pinned by version; cache it or move to a prebuilt binary if the minutes matter
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo audit
