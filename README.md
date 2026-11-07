@@ -77,16 +77,22 @@ win over Azahar remains a benchmark goal rather than a measured result.
 
 ## Verify the signing certificate
 
-Published APKs are signed with a **development certificate**, `CN=Zakuro Android Windows Test`,
-not a dedicated release key. Its SHA-256 fingerprint is:
+APKs published up to 0.3.1 are signed with a **development certificate**, `CN=Zakuro Android Windows Test`:
 
 ```text
 5821ce1e0d2c1aa009bc1d269ae3865d50ce1448854d067203ce406dea967228
 ```
 
-Check it with `apksigner verify --print-certs APK`. Updates only install over an APK with
-the same certificate. A release key is planned; the move is meant to keep updates working
-and has not been done (see [Development](docs/development.md#planned-move-to-a-release-key)).
+Releases after 0.3.1 are signed with the release certificate, `CN=Zakuroishi Release, O=Zakuroishi`:
+
+```text
+56d7615f627991436670380ccbb8b061b7bca717044d209607a98d44e4a82b0e
+```
+
+Check it with `apksigner verify --print-certs APK`. Android only updates an installed app from an
+APK whose certificate matches or descends from the installed one. New APKs carry a signed lineage
+from the old certificate to the new one (`android/signing/lineage.bin`), so they install over the
+old ones and keep your data. See [Development](docs/development.md#release-key).
 
 ## Build the APK
 

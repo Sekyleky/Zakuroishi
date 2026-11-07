@@ -126,7 +126,7 @@ equivalent Perfetto/SurfaceFlinger traces as a separately documented experiment
 on both apps; presentation timing still does not prove guest emulation speed.
 No benchmark has been run yet.
 
-Why not yet: Azahar is installed on the test device, but not in a state that matches. Its
+On hold for now, by choice. When it resumes: Azahar is installed on the test device, but not in a state that matches. Its
 last log shows 4x resolution against 3x for Zakuro. Its save is much older and at another
 place in the game. It has no launch intent, so a script cannot start the game. Matching
 settings and the scene needs a person at the device. Until then the only comparisons are

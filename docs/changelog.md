@@ -30,6 +30,8 @@ see [testing](testing.md#thor-re-test-of-the-audit-fixes-branch-2026-11-07-build
 - **Texture packs:** a failing reader no longer aborts or leaves an HD texture stuck; the original
   texture is used.
 - **Frontends:** `file://` launch URIs are no longer accepted. `zakuro://game/ID` still launches.
+- **Signing:** new builds use a release key, with a lineage from the old development key, so they
+  install over published APKs and keep your data. Fingerprints are in the README.
 - **Build:** CI compiles the Android code and builds the APK. Container downloads are verified. The
   3dsrecomp dependency is pinned.
 - Tried and dropped: a switch sharing the second display's picture with the main renderer. It

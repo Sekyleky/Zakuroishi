@@ -115,22 +115,22 @@ byte-identical builds: apt/base image archives, ZIP timestamps, host JDKs and
 first-use keys differ. Retain image digests, source/lock hashes, tool versions,
 APK hashes and certificate digests for comparisons.
 
-## Planned move to a release key
+## Release key
 
-Published APKs use the development key above. Moving to a dedicated release key must not
-break updates, and a plain key change would, because Android refuses an update signed by
-another key and uninstalling loses saves. The plan:
+Releases after 0.3.1 are signed with a dedicated release key, whose fingerprint is in the
+[README](../README.md#verify-the-signing-certificate). A plain key change would break updates, because
+Android refuses an update signed by another key and uninstalling loses saves. So
+`android/signing/lineage.bin`, made once with `apksigner rotate` from the old key to the new
+one, proves the new key descends from the old. It is public, and holds no private key. Signing
+uses `--lineage` with `--rotation-min-sdk-version 28`, and v3 only: v1 and v2 would need the old
+key on every build, and the app's `minSdk` of 30 reads v3. Once a device has installed a
+release-key APK, an old-key APK won't install over it.
 
-1. Create the release key and keep it offline with a backup.
-2. Make a signing lineage from the old key to the new one with `apksigner rotate`, which
-   needs the old key, and sign new releases with `apksigner sign --lineage` (signature
-   scheme v3, Android 9 and later; the app's `minSdk` is 30).
-3. Publish the new certificate's fingerprint in the README.
-
-**Not done.** Neither build script passes a lineage yet, and
-`.github/workflows/android-release.yml` signs with one key from repository secrets and
-fails on any signer other than `ANDROID_CERT_SHA256`; both need a lineage step first.
-The workflow has not run on GitHub yet.
+- `build-windows.ps1` uses `private-signing/release.p12` when it is there, with its password in
+  `release.password.dpapi`, encrypted for that Windows user; without it, the test key.
+- `build.ps1 -Keystore FILE.p12` applies the lineage too.
+- `android-release.yml` needs secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`
+  and variable `ANDROID_CERT_SHA256` set to the release fingerprint. It has not run on GitHub yet.
 
 ## Generator pin
 
@@ -154,7 +154,7 @@ libraries the app may reject or run slowly. The current pin and what each pin pr
    true; update what was newly tested.
 6. Build and test the APK on the device; keep the benchmark lines with the results.
 7. Tag `android-vX.Y.Z` and let `android-release.yml` build a draft (it needs the secrets
-   and variable named in the workflow header), or build locally with `build.ps1 -Keystore`.
+   and variable named in the workflow header), or build locally with `build.ps1 -Keystore` or `build-windows.ps1`.
 8. Review the draft, check the certificate fingerprint and `SHA256SUMS.txt`, then publish by hand.
 9. Keep the release notes in `docs/releases/` and the GitHub release body in step.
 10. Push the verified work; nothing is released unless asked.
