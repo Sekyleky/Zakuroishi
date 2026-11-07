@@ -1,14 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — Optional frame generation with your own Lossless Scaling, code mods, 120 Hz pacing fix (2026-11-07)
 
 - **Mods that change game code can be imported.** **Import mod…** now takes `code.ips`, `code.bps`,
   `code.bin` and `exheader.bin`, and `zakuro-build-title` takes a data folder to build a `title.so` with them.
   `svcOpenProcess` and `svcControlProcessMemory` exist now, which Magikoopa-style mod loaders call first;
   without them the Ocarina of Time 3D free camera mod stopped the game on its first frame.
-
-## 0.3.1 — Optional frame generation with your own Lossless Scaling, 120 Hz pacing fix (2026-11-04)
-
 - **Games no longer run fast on a panel that stays at 120 Hz.** With vsync pacing on such a
   panel, games ran at 102% with the sound lag sawing between 100 and 450 ms. The loop's 61 Hz
   ceiling set the pace; it now measures its pace and uses exactly 60 Hz once it runs faster

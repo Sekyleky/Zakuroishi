@@ -1,13 +1,19 @@
 # Zakuroishi 0.3.1
 
-A fix for panels that stay at 120 Hz, and optional, experimental frame generation that uses your
-own copy of Lossless Scaling. Installs over 0.3.0 and keeps games, settings and saves (same package
+A fix for panels that stay at 120 Hz, mods that change game code, and optional, experimental frame
+generation that uses your own copy of Lossless Scaling. Installs over 0.3.0 and keeps games, settings and saves (same package
 and signing key).
 
 ## What's new
 
 - **Games no longer run fast on a panel that stays at 120 Hz.** On such a panel games ran at 102%
   with the sound lag sawing between 100 and 450 ms. **0.3.0 was affected.** Nothing to set.
+- **Mods that change game code can be imported.** **Import mod…** (was Import romfs mod…) now also
+  takes `code.ips`, `code.bps`, `code.bin` and `exheader.bin`. Such a mod runs best with a `title.so`
+  built with it: `zakuro-build-title` takes a data folder holding `mods/TITLE_ID/` as a fourth
+  argument. Tested with the
+  [Ocarina of Time 3D free camera](https://github.com/Roberto-Nessy/OoT3D_Standalone_Free_Cam) mod
+  (USA, its Citra files): the right stick moves the camera. The mod is not included.
 - **Frame generation: experimental and off by default.** It shows pictures made between the game's
   own, so a 30 fps game looks much smoother. Turn it on per game in Performance settings.
 
@@ -29,6 +35,9 @@ and signing key).
 - Frame generation adds input delay: about 25 ms by design plus queue, not measured end to end.
 - Text and menus can smear, because they are guessed like everything else. Top screen only.
 - There has been no long thermal test.
+- Code mods: only that one mod was run, and its L + R settings overlay was not checked. With a
+  `title.so` built without the mod, the changed functions run in the interpreter; that was not run
+  on a device. ABI-4 libraries refuse code mods.
 - Title and intro screens run slow with x4, as in the table.
 - Everything was measured on one device, an AYN Thor, with one game and Lossless.dll 3.2.2.0. Other
   devices, drivers, games and DLL versions may differ.
@@ -41,7 +50,7 @@ and signing key).
 
 See the [verification record](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.3.1/docs/testing.md)
 and [changelog](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.3.1/docs/changelog.md).
-Host tests: zakuro-gpu 142 (plus 2 frame generation tests in the Vulkan build), zakuro-core 148,
+Host tests: zakuro-gpu 142 (plus 2 frame generation tests in the Vulkan build), zakuro-core 149,
 zakuro-android 45, Java settings/contract checks.
 
 ## Install

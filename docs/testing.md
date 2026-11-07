@@ -588,6 +588,6 @@ AYN Thor, Turnip, ABI-5 `title.so` built with the mod. USA Citra patch from Robe
 | Before the fix, desktop, interpreter | Stops on frame 1: unimplemented svc 0x33 and 0x70, then the mod's `svcBreak` |
 | After the fix, desktop, interpreter | 1200 frames, no fault |
 | Thor, title screen | About 60 fps, 100% speed, no functions reported stale |
-| Thor, right stick moves the camera in play | Confirmed by David by hand |
+| Thor, right stick moves the camera in play | Confirmed by hand |
 
 Not checked: the L + R settings overlay, frame times in play compared with the unmodded game.
