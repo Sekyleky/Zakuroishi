@@ -39,7 +39,8 @@ if [[ ! -f "$keystore" ]]; then
         -validity 10000 -dname 'CN=Zakuro Android Test'
 fi
 "$BUILD_TOOLS_BIN/apksigner" sign --ks "$keystore" --ks-pass env:ZAKURO_KEYSTORE_PASSWORD \
-    ${key_alias:+--ks-key-alias "$key_alias"} ${ZAKURO_LINEAGE:+--lineage "$ZAKURO_LINEAGE" --rotation-min-sdk-version 28 --v1-signing-enabled false --v2-signing-enabled false} \n    --out "$out" "$work/aligned.apk"
+    ${key_alias:+--ks-key-alias "$key_alias"} ${ZAKURO_LINEAGE:+--lineage "$ZAKURO_LINEAGE" --rotation-min-sdk-version 28 --v1-signing-enabled false --v2-signing-enabled false} \
+    --out "$out" "$work/aligned.apk"
 "$BUILD_TOOLS_BIN/apksigner" verify --verbose --print-certs "$out"
 "$BUILD_TOOLS_BIN/zipalign" -c -P 16 4 "$out"
 "$BUILD_TOOLS_BIN/aapt" dump badging "$out" > "$work/badging"
