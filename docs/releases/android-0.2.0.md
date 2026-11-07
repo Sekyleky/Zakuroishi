@@ -1,7 +1,10 @@
 # Zakuroishi 0.2.0
 
+> **Correction (added later):** the "60 FPS" here counts display refreshes. Pokémon Ultra Moon draws 30 new pictures per second, so each game picture is shown twice. The `distinct` counter added in 0.3.0 counts new pictures; see the [0.3.0 notes](android-0.3.0.md).
+
 Zakuroishi now runs the newer recompiled game code (3dsrecomp ABI 5) and brings in
-upstream Zakuro 0.2.31's renderer and CPU work. Installs over 0.1.9 and keeps games,
+ported changes from upstream Zakuro 0.2.31's renderer and CPU work (the fork is based on 0.2.30; see
+[the list](../upstream-desktop.md#ported-upstream-changes)). Installs over 0.1.9 and keeps games,
 settings and saves (same package and signing key).
 
 ## What's new
@@ -9,7 +12,7 @@ settings and saves (same package and signing key).
 - **ABI-5 game code.** `build-title` now makes ABI-5 libraries (3dsrecomp `73b8f9c`),
   which run svcs in place. ABI-4 libraries still load; rebuild them for the faster
   code and use **Settings → Replace native game code** (keeps ROM, textures, saves).
-- **Upstream 0.2.31 renderer and CPU work.** Draws are shaded on other threads ahead
+- **Ported upstream 0.2.31 renderer and CPU work.** Draws are shaded on other threads ahead
   of the walk that draws them (**Performance → Shade draws on other threads**, on by
   default), textures are decoded again only when their memory changed, mipmaps
   sample their smaller sizes, and the CPU vertex JIT compiles fast first and in full

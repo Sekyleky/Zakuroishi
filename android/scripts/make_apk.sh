@@ -15,7 +15,7 @@ mkdir -p "$work/classes" "$work/dex" "$work/lib/arm64-v8a"
 "$BUILD_TOOLS_BIN/aapt2" link -o "$work/unsigned.apk" --manifest "$manifest" -I "$ANDROID_JAR" -A "$app/src/main/assets" "$work/resources.zip"
 mapfile -t sources < <(find "$java" -name '*.java' | LC_ALL=C sort)
 ((${#sources[@]} > 0))
-javac -nowarn --release 11 -classpath "$ANDROID_JAR" -d "$work/classes" "${sources[@]}"
+javac -nowarn -encoding UTF-8 --release 11 -classpath "$ANDROID_JAR" -d "$work/classes" "${sources[@]}"
 mapfile -t classes < <(find "$work/classes" -name '*.class' | LC_ALL=C sort)
 "$BUILD_TOOLS_BIN/d8" --min-api 30 --lib "$ANDROID_JAR" --output "$work/dex" "${classes[@]}"
 cp "$engine" "$work/lib/arm64-v8a/libzakuro_android.so"
@@ -30,6 +30,7 @@ done
 umask 077
 # A release build passes its own password (and alias; empty = the keystore's only key) in the environment.
 # Passwords go through env: so they never show in a process list. Unset keeps the local test key.
+# ZAKURO_LINEAGE (release builds) proves the key descends from the old one, so installed apps update in place.
 export ZAKURO_KEYSTORE_PASSWORD=${ZAKURO_KEYSTORE_PASSWORD:-android}
 key_alias=${ZAKURO_KEY_ALIAS-zakuro-android-test}
 if [[ ! -f "$keystore" ]]; then
@@ -38,7 +39,7 @@ if [[ ! -f "$keystore" ]]; then
         -validity 10000 -dname 'CN=Zakuro Android Test'
 fi
 "$BUILD_TOOLS_BIN/apksigner" sign --ks "$keystore" --ks-pass env:ZAKURO_KEYSTORE_PASSWORD \
-    ${key_alias:+--ks-key-alias "$key_alias"} --out "$out" "$work/aligned.apk"
+    ${key_alias:+--ks-key-alias "$key_alias"} ${ZAKURO_LINEAGE:+--lineage "$ZAKURO_LINEAGE" --rotation-min-sdk-version 28 --v1-signing-enabled false --v2-signing-enabled false} \n    --out "$out" "$work/aligned.apk"
 "$BUILD_TOOLS_BIN/apksigner" verify --verbose --print-certs "$out"
 "$BUILD_TOOLS_BIN/zipalign" -c -P 16 4 "$out"
 "$BUILD_TOOLS_BIN/aapt" dump badging "$out" > "$work/badging"

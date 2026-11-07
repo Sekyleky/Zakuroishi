@@ -132,8 +132,19 @@ try {
             '-storepass','android','-keypass','android','-alias','zakuro-android-test','-keyalg','RSA',
             '-keysize','4096','-validity','10000','-dname','CN=Zakuro Android Windows Test')
     }
-    Invoke-Tool "$tools/apksigner.bat" @('sign','--ks',$key,'--ks-pass','pass:android',
-        '--ks-key-alias','zakuro-android-test','--out',$apk,"$work/aligned.apk")
+    $release = Join-Path $private 'release.p12'
+    if (Test-Path -LiteralPath $release) {
+        # The lineage proves this key descends from test.p12, so an installed app updates in place.
+        # The password file is encrypted for this Windows user (DPAPI) and the value only travels through the environment.
+        $env:ZAKURO_KEYSTORE_PASSWORD = [Net.NetworkCredential]::new('', (Get-Content -LiteralPath (Join-Path $private 'release.password.dpapi') | ConvertTo-SecureString)).Password
+        try {
+            Invoke-Tool "$tools/apksigner.bat" @('sign','--ks',$release,'--ks-pass','env:ZAKURO_KEYSTORE_PASSWORD','--ks-key-alias','zakuroishi-release',
+                '--lineage',(Join-Path $PSScriptRoot '../signing/lineage.bin'),'--rotation-min-sdk-version','28','--v1-signing-enabled','false','--v2-signing-enabled','false','--out',$apk,"$work/aligned.apk")
+        } finally { Remove-Item Env:ZAKURO_KEYSTORE_PASSWORD }
+    } else {
+        Invoke-Tool "$tools/apksigner.bat" @('sign','--ks',$key,'--ks-pass','pass:android',
+            '--ks-key-alias','zakuro-android-test','--out',$apk,"$work/aligned.apk")
+    }
     Invoke-Tool "$tools/apksigner.bat" @('verify','--verbose','--print-certs',$apk)
     Invoke-Tool "$tools/zipalign.exe" @('-c','-P','16','4',$apk)
     $badging = & "$tools/aapt.exe" dump badging $apk

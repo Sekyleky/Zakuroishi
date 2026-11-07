@@ -27,6 +27,7 @@ Invoke-Docker @('run','--rm','--platform','linux/amd64',
     '--mount','type=volume,source=zakuro-android-work,target=/work',
     '--mount',$keyMount,
     '-e','ZAKURO_KEYSTORE_PASSWORD','-e','ZAKURO_KEY_ALIAS',
+    '-e',$(if ($Keystore) { 'ZAKURO_LINEAGE=/src/android/signing/lineage.bin' } else { 'ZAKURO_LINEAGE=' }),
     '-e','HOME=/work','-e','CARGO_HOME=/work/cargo','-e','CARGO_TARGET_DIR=/work/target',
     $Image,'bash','/src/android/scripts/inside.sh',$apk)
 Write-Host "APK: $(Join-Path $out $apk)"

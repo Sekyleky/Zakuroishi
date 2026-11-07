@@ -2,7 +2,14 @@
 
 A fix for panels that stay at 120 Hz, mods that change game code, and optional, experimental frame
 generation that uses your own copy of Lossless Scaling. Installs over 0.3.0 and keeps games, settings and saves (same package
-and signing key).
+and signing certificate as the published APKs; an APK you build yourself is signed with a different key and does not update over it).
+
+## Before you try frame generation
+
+- It is **experimental**, off by default, and meant for testers.
+- It needs a **Turnip driver** and **your own paid copy of Lossless Scaling's `Lossless.dll`**. Zakuroishi is not affiliated with Lossless Scaling or its developer, and nothing from it is included.
+- Screens that draw at 60, such as the title and intro, reach only **about 80% speed** at x4.
+- It adds input delay of about 25 ms by design plus queue, not measured end to end, and text and menus can smear.
 
 ## What's new
 
@@ -42,7 +49,10 @@ and signing key).
 - Everything was measured on one device, an AYN Thor, with one game and Lossless.dll 3.2.2.0. Other
   devices, drivers, games and DLL versions may differ.
 - With 4× and Android holding the screen at 60 Hz, the game ran at half speed in testing. It now
-  switches itself to 2× and says so, but that switch has not been run on a 60 Hz screen. Use 2× there.
+  switches itself to 2× and says so. At release that switch had not been run on a 60 Hz screen.
+  **After release (2026-11-07, build `2fc37e4`):** it ran on the Thor with a 60 Hz panel. It switched
+  to x2 with about 60 presents/s, the game at 30 fps and 58-60 distinct, 100.4% speed and 0 underruns.
+  Before the fallback that setup ran at 15 game fps, 50.1% speed and 67-78 underruns.
 - Starting with nothing imported, meant to run the game without frame generation and say so, has
   not been run on a device either.
 - With a second display, the bottom screen still shows the game's native 320×240 picture, not

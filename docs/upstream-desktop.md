@@ -82,3 +82,38 @@ Keys and controller buttons can be changed in the settings. Xbox, PlayStation, S
 Contributions are welcome. Using AI is fine sometimes, but the code must always be reviewed by a human. Code that is entirely vibecoded will be discarded.
 
 MIT license.
+
+## Ported upstream changes
+
+The Android fork is based on upstream v0.2.30 (`e174910`). It never merged v0.2.31 (`781b4a8` is not an
+ancestor of this branch): these upstream commits were re-applied as local commits with the same subject
+lines. Matched by subject, so check the local commit before relying on a row. An upstream 0.2.32 merge is
+in progress on a separate branch and is not part of this list.
+
+| Upstream (0.2.31) | Local | Change |
+| --- | --- | --- |
+| `2d87487` | `d494ef4` | Shade a command list's draws on other threads, ahead of the walk that draws them |
+| `a662c2f` | `03540e9` | Decode a handed-out draw's vertices on the thread that shades them |
+| `74c9d8f` | `27008ad` | Watch decoded textures' memory for writes; read a texture again only after a write |
+| `75ca944` | `e92e69f` | Draw upside down into a framebuffer whose flip bit is clear |
+| `716815f` | `67e5eba` | Divide a projected texture's coordinates by set 0's w |
+| `235f8d9` | `c89514f` | Apply stencil operations with the stencil test's bit clear |
+| `c9c50ae` | `662d59d` | Sample the smaller sizes of mipmapped textures |
+| `73170f4` | `b56e822` | Textures of a buffer written back unchanged stay scaled |
+| `92715c5` | `7b4a896` | Read a written-back buffer from memory when its unit reads smaller sizes |
+| `d074c51` | `f640746` | Compile the multiply of zero by infinity instead of giving the batch back |
+| `189fd7b` | `91965f4` | Find a shader's states before compiling them |
+| `e52d612` | `fc063a0` | Run lanes that part at a jump ahead under masks |
+| `a7e1ba3` | `d6ae0ec` | Compile a shader quickly first, and in full once it has shaded enough |
+| `3dbbc98` | `a49837c` | Quiet two tests' warnings in a build without Vulkan |
+| `eb1d9d4` | `335ff2c` | Zero a NaN product with one and-not |
+| `bb56004` | `757d9a8` | Count a break as a way back |
+| `29b9691` | `ddc1a0a` | Compile at most so much under masks |
+| `80d78be` | `35b6f08` | Keep a program that gave up from coming back in full |
+| `c60488f` | `91814fe` | Run svcs from recompiled code in place (3dsrecomp ABI 5) |
+| `5deee91` | `afe1df0` | `ZAKURO_NATIVES=0` runs the title's own divisions |
+
+Not ported: `1c31ef2` (note about an older library), `014db89` (stop logging each fully compiled
+shader; local `5cd630d` also stops a JIT log flood, not compared line by line), `d49a868` and `cc00555` (overlay for programs
+built on Zakuro), and the version bump. Local follow-ups: `d5bb208` (renderer option `shade_ahead`) and `95a4898`
+(Android switch **Shade draws on other threads**) make the first row switchable.

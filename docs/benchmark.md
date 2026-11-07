@@ -7,6 +7,12 @@ comparing speed. Never redistribute game files with scripts or result bundles.
 
 ## Record and control
 
+Equal any per-app CPU profile first. A device tuner (for example one that applies a
+per-app underclock) can change the result: a ClusterTune "Medium Underclock" toast appeared
+during the 2026-11-07 Thor test, so a profile may have been active. Set the same profile, or
+none, for both apps and record it. Keep the raw benchmark lines (the `benchmark ...` log
+line every 300 frames, a small text or JSONL file) with each release, not only averages.
+
 Record device model, SoC/GPU, RAM, Android build, Vulkan driver/version, refresh
 rate, power/performance mode, brightness, battery/charging state, ambient
 temperature and thermal state. Keep them fixed, close background workloads,
@@ -119,3 +125,9 @@ computes FPS, percentiles or speedup. If guest timing is unavailable, collect
 equivalent Perfetto/SurfaceFlinger traces as a separately documented experiment
 on both apps; presentation timing still does not prove guest emulation speed.
 No benchmark has been run yet.
+
+On hold for now, by choice. When it resumes: Azahar is installed on the test device, but not in a state that matches. Its
+last log shows 4x resolution against 3x for Zakuro. Its save is much older and at another
+place in the game. It has no launch intent, so a script cannot start the game. Matching
+settings and the scene needs a person at the device. Until then the only comparisons are
+Zakuro against itself (stock driver against Turnip, switch on against off).

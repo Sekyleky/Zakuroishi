@@ -182,7 +182,7 @@ final class StorageDialog {
         }
         ScrollView scroll = new ScrollView(launcher); scroll.addView(content);
         dialog[0] = launcher.controllerDialog(new AlertDialog.Builder(launcher, launcher.p.dialogTheme()).setTitle("Storage").setView(scroll).setNegativeButton("Close", null).create(), false);
-        dialog[0].show();
+        dialog[0].show(); launcher.focusFirst(dialog[0]);
     }
 
     private static void confirm(Launcher launcher, Item item) {

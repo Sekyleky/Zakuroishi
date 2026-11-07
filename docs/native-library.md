@@ -37,6 +37,20 @@ code is safe. The ELF/header/ABI checks can reject known incompatibilities befor
 copying gigabytes; only the actual Android loader and a controlled execution test
 can establish that a particular library loads and runs on that architecture.
 
+## App, ABI and generator
+
+From the `Cargo.lock` of each release tag. The generator is `recomp-abi` and `recomp3ds`
+from 3dsrecomp. From the unreleased changes on, the commit is also pinned in `Cargo.toml`.
+
+| App versions | Generator commit | Libraries the app runs | `build-title` makes |
+| --- | --- | --- | --- |
+| 0.1.4 to 0.1.9 | `cec1270` | ABI 4 | ABI 4 |
+| 0.2.0, 0.3.0, 0.3.1 | `73b8f9c` | ABI 5 and ABI 4 | ABI 5 (generation 5) |
+
+An ABI-4 library runs on 0.2.0 and later without svcs in place; rebuild it to get ABI 5.
+Releases before 0.1.4 are not covered here. Pocket Native's own ABI-5 libraries are
+rejected by every version.
+
 ## Build matching code safely
 
 Use the exact generator revision pinned by this APK, not the current default

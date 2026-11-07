@@ -8,6 +8,7 @@
 #   variable ANDROID_KEY_ALIAS          optional; leave unset if the keystore holds a single key
 #
 # Never falls back to the throwaway test key: missing secrets fail the run.
+# build.ps1 -Keystore applies android/signing/lineage.bin, so installed apps update in place.
 name: Android release
 
 on:

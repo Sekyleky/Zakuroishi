@@ -1,5 +1,7 @@
 # Zakuro Android 0.1.7
 
+> **Correction (added later):** the "60 FPS" here counts display refreshes. Pokémon Ultra Moon draws 30 new pictures per second, so each game picture is shown twice. The `distinct` counter added in 0.3.0 counts new pictures; see the [0.3.0 notes](android-0.3.0.md).
+
 Smoother play and three fixes. Install over any earlier version — games and saves
 are kept.
 

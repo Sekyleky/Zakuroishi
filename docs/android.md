@@ -5,7 +5,9 @@ the existing Zakuro Android installation in place; do not uninstall to rename it
 The package, game imports and save paths are unchanged.
 
 Zakuro Android is an experimental ARM64 frontend for upstream Zakuro v0.2.30
-(`e174910`). It requires Android 11 or newer and a Vulkan 1.3 driver with the
+(`e174910`) plus ported 0.2.31 changes
+([listed](upstream-desktop.md#ported-upstream-changes)). It is a developer preview: each
+game needs a native build made on a PC. It requires Android 11 or newer and a Vulkan 1.3 driver with the
 renderer features described in [Development](development.md). The app includes
 no ROMs, native game code, firmware, keys, or texture packs.
 
@@ -22,7 +24,9 @@ and open it on the handheld. Allow installation from that browser or file manage
 when Android asks. `SHA256SUMS.txt` is provided to verify the download. GitHub's
 automatic source archives are for developers, not installable apps.
 See the [verification record](testing.md) for test details.
-Update the existing app with the same signer; do not uninstall to repair a game,
+Update the existing app with the same signer (all published APKs share one certificate,
+see the [README](../README.md#verify-the-signing-certificate); an APK you build yourself is
+signed differently and will not update over them); do not uninstall to repair a game,
 as uninstalling can delete saves. This app has its own package
 `io.github.zakuro.android` and does not replace Pocket Native.
 
@@ -47,7 +51,7 @@ adb -s DEVICE_SERIAL shell am start -n io.github.zakuro.android/.Launcher
 The importer accepts a nested build folder but rejects multiple games or multiple
 compatible native libraries. Keep desktop, Linux and old Pocket Native builds out
 of the selected folder. It does not compile a ROM on the handheld. Native code
-executes inside the app: use only builds you trust.
+executes inside the app: use only builds you trust (see [Security](../SECURITY.md)).
 
 Optional `textures/` PNGs and `pack.json` are imported only when selected;
 `sysdata/shared_font.bin` and `sysdata/CFL_Res.dat` are recognized when supplied.
@@ -156,7 +160,9 @@ sound/tap latching (Audio/Controls):
   `Lossless.dll`. You need a copy of Lossless Scaling, a paid app; nothing from it comes with
   Zakuroishi, which is not affiliated with it or its developer. Use a Turnip driver: the stock
   driver has not been measured. It adds input delay (about 25 ms by design plus queue, not
-  measured end to end), and text and menus can smear. Top screen only.
+  measured end to end), and text and menus can smear. Top screen only. Screens that draw
+  at 60, such as the title and intro, reach about 80% speed at 4×. Measured on one device
+  (AYN Thor) and one game.
   - **Import once:** copy `Lossless.dll` from your Lossless Scaling folder to the device, then
     Game settings → Performance → **Import your Lossless.dll…** and choose it. It is checked,
     translated in the app's private storage and the app's copy deleted; you can delete yours from
@@ -168,6 +174,9 @@ sound/tap latching (Audio/Controls):
     If it is on with nothing imported, the game starts normally without it and says so.
   - **Pictures per game picture** (`frame_generation_multiplier`): 4× runs the panel at 120 Hz,
     2× stays at 60 Hz. If Android holds the screen at 60 Hz, 4× switches itself to 2× and says so.
+    On a 60 Hz panel on the Thor (Ultra Moon, 3× + HD, Turnip) the switch ran: about
+    60 presents/s, game 30 fps, 100.4% speed, no audio underruns. Without it that
+    setup ran at 15 game fps and 50.1% speed.
     **Motion search size**
     (`frame_generation_flow`): smaller costs the GPU less and follows motion less closely.
 - **Frame interpolation** (`interpolate`, Performance, off by default): for games that
@@ -192,8 +201,8 @@ sound/tap latching (Audio/Controls):
   the first emulated frame until both warm-ups above are done (vertex programs and
   GPU pipelines, 30 s at most; "Preparing shaders..." shows meanwhile). Not measured
   on a device yet.
-- **Shade draws on other threads**, on: upstream 0.2.31's shade-ahead for the CPU
-  vertex path; off only to compare.
+- **Shade draws on other threads**, on: the shade-ahead for the CPU vertex path,
+  ported from upstream 0.2.31; off only to compare.
 - **Keep sound in step with the picture** (`audio_queue_managed`), on: the desktop
   queue (~125 ms, drift trim, time stretch, fades); off is 0.2.0's, ~230 ms behind.
 - **Low-latency sound output** (`low_latency_audio`), off: asks AAudio for a FAST track
@@ -259,9 +268,11 @@ Android's file picker (Open from → scroll the side drawer), with one folder pe
 holding its in-game saves, e.g. `savedata/<TITLE_ID>/main` for the Pokémon games. An
 editor that opens files through the picker (PKForge, PKHeX ports) can open and save
 them in place; no extra permission is needed and other apps only get the file you
-pick. Writes are refused while that game is running, each write first copies the
-saves to `user.previous`, and files can't be created, renamed or deleted from the
-picker. Quick save states are not listed.
+pick. Writes are refused while that game is running, and files can't be created,
+renamed or deleted from the picker. Quick save states are not listed. Before a write,
+0.3.1 and earlier copy the saves to `user.previous`. The unreleased changes instead keep
+the 3 newest backups of the in-game saves as `user.backup-<ms>`, skipping a copy when
+nothing changed; browse them read-only under `:backups` in the game's folder in the picker.
 
 Save transfers are blocked while the game's runtime holds its saves open, including
 when it is paused in the background. Exit the game rather than just pressing Home.
@@ -276,7 +287,8 @@ The app stores files privately beneath Android's app files directory:
 | Path relative to `files/` | Purpose |
 | --- | --- |
 | `savedata/TITLE_ID/user/` | Stable in-game saves, linked into each import |
-| `savedata/TITLE_ID/user.previous/` | Recovery copy retained by save restoration |
+| `savedata/TITLE_ID/user.previous/` | Recovery copy retained by Restore ZIP (0.3.1 and earlier: also the save-editor backup) |
+| `savedata/TITLE_ID/user.backup-<ms>/` | Save-editor backups, 3 newest kept (unreleased) |
 | `imports/TITLE_ID.active` | Atomically activated version UUID |
 | `imports/UUID/game/game.3ds` | Imported original ROM |
 | `imports/UUID/code/title.so` | Read-only native game library |
@@ -286,10 +298,24 @@ The app stores files privately beneath Android's app files directory:
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's
-state files. Old imports and component backups are retained deliberately; this
-version does not automatically delete them. Large imports need space for both
-old and new copies. App-private data is not ordinarily browsable in Android's
+state files. Old imports and component backups are retained deliberately and are never
+deleted automatically; **Tools → Storage** (unreleased) lists them and deletes one at a
+time after a confirm. Large imports need space for both old and new copies. App-private data is not ordinarily browsable in Android's
 Files app. Back up saves before uninstalling or clearing app data.
+
+## Tools menu (unreleased)
+
+The library header has a **Tools** menu:
+
+- **Storage** lists old imports, previous native code, texture and mod backups and
+  unfinished imports with their sizes, and deletes one at a time after a confirm. It never
+  lists an active import or anything in `savedata`. Deleting an old import also deletes
+  its quick states. It refuses while a game or an import runs.
+- **Export diagnostics** writes app, device and log details to a text file. Picker
+  addresses are removed; file paths remain, so read it before sharing.
+- **Export settings** / **Import settings** use a JSON file of per-game settings,
+  controller mappings and enhancements. No drivers, saves or ROMs. Import refuses the
+  whole file if any value is invalid.
 
 ## Verification limits
 

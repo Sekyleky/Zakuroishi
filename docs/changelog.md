@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+Not released; the version stays 0.3.1. Checked on the Thor on 2026-11-07 (build `2fc37e4`),
+see [testing](testing.md#thor-re-test-of-the-audit-fixes-branch-2026-11-07-build-2fc37e4).
+
+- **Tools menu** in the library header.
+  - **Storage** lists old imports, previous native code, texture and mod backups and unfinished
+    imports with sizes, and deletes one at a time after a confirm. It never lists an active
+    import or anything in `savedata`. Deleting an old import also deletes its quick states. It
+    refuses while a game or import runs (that refusal has not been tried on a device).
+  - **Export diagnostics** writes app, device and log details to a text file. Picker addresses
+    are removed; file paths remain.
+  - **Export settings** and **Import settings** use a JSON file of per-game settings, controller
+    mappings and enhancements. No drivers, saves or ROMs. Import refuses the whole file on any
+    invalid value.
+- **Imports** keep the larger of 256 MiB and 5% free and report running out of space plainly.
+  Replacing mod parts is all-or-nothing.
+- New games, replaced native code and drivers show a SHA-256. Libraries from an older generator get
+  a rebuild hint. Damaged table counts are rejected at import. A library built for Pocket Native is
+  named as such.
+- **Save editors:** the 3 newest backups of the in-game saves are kept before an editor writes,
+  skipping unchanged ones, as `savedata/TITLE_ID/user.backup-<ms>`, browsable read-only under
+  `:backups` in each game's folder in the file picker. `user.previous` is now only the recovery
+  copy from Restore ZIP.
+- **HUD:** battery watts appear only once the unit is certain (a reading of 20000 or more means
+  microamps for that session); a device reporting milliamps never shows watts. One message appears
+  if the HUD can't be shown.
+- **Texture packs:** a failing reader no longer aborts or leaves an HD texture stuck; the original
+  texture is used.
+- **Frontends:** `file://` launch URIs are no longer accepted. `zakuro://game/ID` still launches.
+- **Signing:** new builds use a release key, with a lineage from the old development key, so they
+  install over published APKs and keep your data. Fingerprints are in the README.
+- **Build:** CI compiles the Android code and builds the APK. Container downloads are verified. The
+  3dsrecomp dependency is pinned.
+- Tried and dropped: a switch sharing the second display's picture with the main renderer. It
+  removed the CPU copy (`cpu_bottom` 300 to 0 per window) but changed no speed, present, latency or
+  gap figure within noise, so it is not in the code (it stays on the `framegen-lsfg` branch).
+- Docs: `SECURITY.md`, [known issues](known-issues.md), the signing fingerprint in the README, a list of
+  [ported upstream changes](upstream-desktop.md#ported-upstream-changes), and corrections to the
+  "60 FPS" wording in the 0.1.7 and 0.2.0 notes (display refreshes, not new game pictures).
+
 ## 0.3.1 — Optional frame generation with your own Lossless Scaling, code mods, 120 Hz pacing fix (2026-11-07)
 
 - **Mods that change game code can be imported.** **Import mod…** now takes `code.ips`, `code.bps`,
