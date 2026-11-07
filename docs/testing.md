@@ -38,6 +38,12 @@ Host tests at commit `acd3a74`, after the switch above was reverted: `zakuro-gpu
 2 ignored, `zakuro-core --lib` 149, `zakuro-android` 45, save archive 114 on Windows. Its symlink cases, 122
 checks under Docker, ran earlier on this branch and that code has not changed since.
 
+Smoke test at `acd3a74`, same setup: an upgrade over the previous test build kept all 11 games' settings and
+`second_display_shared` is no longer listed. One fight: speed 100.3-100.4%, worst core 33.0 ms, audio queue 120-140 ms,
+0 underruns, no E or FATAL log lines, HD textures and the second screen normal by screenshot. First tap on Tools and Close
+acted at once. On the next build, with focus deferred until the window is attached, Tools and the Storage list open with
+their first row focused and the delete confirm opens on Cancel; Cancel returned to the list with the same 14.1 GB.
+
 Not tested: the "A game is open" refusal in Storage, actually deleting from Storage, save editor
 backups in a real editor, the SHA-256 dialogs, a real out-of-space failure, watts while discharging, the
 Azahar benchmark, a long thermal run, the stock driver. A ClusterTune "Medium Underclock" toast appeared

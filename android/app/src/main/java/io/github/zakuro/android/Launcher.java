@@ -250,10 +250,14 @@ public final class Launcher extends Activity {
     }
     /** Focus the first list row (tagged button) of a shown dialog, or its Close button when there are none, leaving touch mode so the ring shows. */
     void focusFirst(AlertDialog dialog) {
-        ArrayList<View> found = new ArrayList<>();
-        dialog.getWindow().getDecorView().addFocusables(found, View.FOCUS_DOWN, View.FOCUSABLES_ALL);
-        for (View view : found) if (view instanceof Button && view.getTag() != null) { view.requestFocusFromTouch(); return; }
-        Button close = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (close != null) close.requestFocusFromTouch();
+        View decor = dialog.getWindow().getDecorView();
+        // Right after show() the window isn't attached, and requestFocusFromTouch can't leave touch mode until it is.
+        decor.post(() -> {
+            ArrayList<View> found = new ArrayList<>();
+            decor.addFocusables(found, View.FOCUS_DOWN, View.FOCUSABLES_ALL);
+            for (View view : found) if (view instanceof Button && view.getTag() != null) { view.requestFocusFromTouch(); return; }
+            Button close = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (close != null) close.requestFocusFromTouch();
+        });
     }
     boolean busy() { return task != null && task.busy; }
     private void tools() {
