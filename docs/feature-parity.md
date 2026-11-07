@@ -398,19 +398,23 @@ key rows: `Layout`, `Aspect`, `Resolution`, `Vulkan`, `Smooth`, `Stretch`,
 `TiltSensitivity`, `ReverseTiltX/Y`, `TouchControls`. Thus menu visibility and
 settings persistence are audited separately from engine support.
 
-## Actual verification and limits
+## Actual verification and limits (history, as of 0.1.3)
 
-The canonical [verification record](testing.md) identifies the final APK,
-checksums, source-freeze records and evidence. Current results:
+This section records the state at 0.1.3, when the matrix was last audited.
+Current host counts (unreleased changes, 2026-11-07, commit `acd3a74`): `zakuro-gpu --lib` 143
+passed and 2 ignored, `zakuro-core --lib` 149, `zakuro-android` 45. It is not the
+current state: counts belong to the release they were taken on, and the current results
+and gaps are in the [verification record](testing.md) and [known issues](known-issues.md).
+At that time (the evidence is a local record, see the note at the top of the verification record):
 
 - 145 core and 24 filesystem tests passed, including executable-bounds errors.
-- 23 native frontend helper tests passed; GPU/Vulkan suite: 174 passed, 2 ignored.
+- 23 native frontend helper tests passed; GPU/Vulkan suite: 174 passed, 2 ignored (at 0.1.3).
 - ARM64 NDK check/release link, all six Java host suites, and scoped Android UI
   checks passed. The eight renderer controls have real native consumers.
 - Real API35 x86_64 SAF checks: **27/27 passed**, including header-only ROM,
   IHDR-only PNG and hidden-export repros. The report and source hashes are in
   `build/import-check/REPORT.md`; no native fixture code was executed.
-- The production APK is `build/releases/0.1.3/Zakuro-Android-0.1.3.apk`, SHA256
+- The 0.1.3 APK was `build/releases/0.1.3/Zakuro-Android-0.1.3.apk`, SHA256
   `40ec9de249f9e1a1095a445c1c6706096b9f62be6463fecb3a6ab49317f4a25a`.
   Its six ARM64 libraries have 16 KB LOAD alignment; ZIP alignment/signature
   passed. The only assets are three license notices.

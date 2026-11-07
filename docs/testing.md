@@ -1,5 +1,48 @@
 # Verification record
 
+Paths starting with `build/` below are on the maintainer's machine and are not in the
+repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
+belong to the release or build they were taken on; the newest section is first.
+
+## Thor re-test of the audit-fixes branch (2026-11-07, build `2fc37e4`)
+
+AYN Thor, Turnip (Balemuni), panel 60 Hz (`peak_refresh_rate=60`), Ultra Moon 3x + HD,
+`frame_generation` x4 (which falls back to x2), battle scene. This build is unreleased; the
+changes are under Unreleased in the [changelog](changelog.md).
+
+| Check | Result |
+| --- | --- |
+| Upgrade over 0.3.1 with `install -r` | Version 0.3.1 (13), 11 games, settings unchanged |
+| Regression: save loads, field and battle reached | HD textures seen by screenshot |
+| Speed, emulation, worst battle core | 100.1-100.4%, emu 4.7 ms, worst battle core 37-51 ms |
+| Audio | queue 114-126 ms, 0 underruns |
+| Presents and latency | 60.05/s, latency median 39-40 ms, 2-3 gaps over 20 ms per 630 frames |
+| Frame generation fallback on a 60 Hz panel (first real run) | Switches to x2, about 60 presents/s, game 30 fps, 58-60 distinct, speed 100.4%, 0 underruns |
+| `dual_display` off | No presentation on the second display, no crash |
+| `file://` launch URI | "Couldn't launch this game"; `zakuro://game/ID` launches |
+| Tools > Storage | Listed 7 items totalling 14.1 GB; the confirm was cancelled and nothing was deleted |
+| Tools > Export diagnostics | File held both processes and no `content://` |
+| Tools > Export then Import settings | All 11 games unchanged |
+| Battery HUD | Showed 0.1 W on AC at 80% |
+
+The "before the fallback" row in the table below (15 game fps, 50.1%, 67-78 underruns) is what this
+fallback replaced.
+
+**Second-display sharing switch: negative result, dropped.** `second_display_shared`, two alternating
+runs per side. `cpu_bottom` fell from 300 to 0 per window and `wb[sync]` from about 306 to 8-9 (about 105 ms
+per 300 frames), but speed, core, present, worst frame, latency and gaps were unchanged within noise.
+The second screen shows the same upscaled native picture either way, and the Town Map lines appear with
+the switch on or off. The switch is not in the code; it stays on the `framegen-lsfg` branch.
+
+Host tests at commit `acd3a74`, after the switch above was reverted: `zakuro-gpu --lib` 143 passed and
+2 ignored, `zakuro-core --lib` 149, `zakuro-android` 45, save archive 114 on Windows. Its symlink cases, 122
+checks under Docker, ran earlier on this branch and that code has not changed since.
+
+Not tested: the "A game is open" refusal in Storage, actually deleting from Storage, save editor
+backups in a real editor, the SHA-256 dialogs, a real out-of-space failure, watts while discharging, the
+Azahar benchmark, a long thermal run, the stock driver. A ClusterTune "Medium Underclock" toast appeared
+during testing, so a per-app CPU profile may have been active. See [known issues](known-issues.md).
+
 ## Frame generation and the 120 Hz pacing fix (0.3.1, 2026-11-04)
 
 AYN Thor, Turnip, Ultra Moon 3x + HD, field scene. Presents per second by SurfaceFlinger
@@ -24,7 +67,7 @@ AYN Thor, Turnip, Ultra Moon 3x + HD, field scene. Presents per second by Surfac
 - The Thor's display setting moved between 60 Hz (`peak_refresh_rate=60`) and 120 Hz during this
   test; nothing in the test changed it and the cause is unknown. That gave both rows above.
 - The x4 row at 60 Hz led to the fallback: with a steady 30 ticks/s the game rebuilds the graph at x2
-  and says so. **That switch has not run on a 60 Hz panel**, only its check as a unit test.
+  and says so. At release it had not run on a 60 Hz panel, only as a unit test; it ran on 2026-11-07, see the first section.
 - With nothing imported the game is meant to start without frame generation and say so. **Not run on
   the device**: the app's private folder can't be emptied from adb. Unit test of the check only.
 - Added input delay is about 25 ms by design plus queue. It was not measured end to end.
@@ -529,7 +572,7 @@ there are no bundled games, firmware, keys, saves or custom driver packs.
 
 Final core/FS log: `build/final-core-fs-tests.log`. UI details and source freeze:
 `android/app/settingshosttests/RESULTS.md` and `source-freeze.json`. Real SAF
-report, provider traces and exact source hashes: `build/import-check/REPORT.md`,
+report (copy: [evidence/import-check-REPORT.md](evidence/import-check-REPORT.md)), provider traces and exact source hashes: `build/import-check/REPORT.md`,
 `results.json`, `importer-source-hashes.json` and its APK directory. The final SAF
 APK is `apk-20261031-103507/import-check.apk`, hash
 `3e1431973e9ef03a51a32b5fccf12ccf6c5bb0b38c8d0d6a1dcc9f341d78b73d`.
@@ -564,7 +607,10 @@ The existing Pocket Native HD kit's ROM and original dump have identical SHA256
 `e08a903921bb87bdfb6e46c2a9c5e41a685e91cc371d38ffcbdcc4884bc84054`.
 Only native code needs replacing in the existing Zakuro import.
 
-## Limits
+## Limits (history, as of 0.1.2 and 0.1.3)
+
+This section describes the state at 0.1.2 and 0.1.3 and is kept as a record. Later device
+results are in the sections above; current gaps are in [known issues](known-issues.md).
 
 The disposable UI/SAF APKs are test-only Java packages on a workspace-local API35
 x86_64 emulator. They do not contain or execute the production ARM64 game code.
