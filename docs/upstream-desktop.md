@@ -85,10 +85,10 @@ MIT license.
 
 ## Ported upstream changes
 
-The Android fork is based on upstream v0.2.30 (`e174910`). It never merged v0.2.31 (`781b4a8` is not an
-ancestor of this branch): these upstream commits were re-applied as local commits with the same subject
-lines. Matched by subject, so check the local commit before relying on a row. An upstream 0.2.32 merge is
-in progress on a separate branch and is not part of this list.
+The Android fork has merged upstream v0.2.32 (`c856685`), so upstream's history is now part of this
+branch. Before that merge these v0.2.31 commits were re-applied as local commits with the same subject
+lines. The table is kept as a record of that port. Matched by subject, so check the local commit before
+relying on a row.
 
 | Upstream (0.2.31) | Local | Change |
 | --- | --- | --- |

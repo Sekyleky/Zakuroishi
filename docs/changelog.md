@@ -5,6 +5,13 @@
 Not released; the version stays 0.3.1. Checked on the Thor on 2026-11-07 (build `2fc37e4`),
 see [testing](testing.md#thor-re-test-of-the-audit-fixes-branch-2026-11-07-build-2fc37e4).
 
+- **Merged upstream Zakuro 0.2.32** (`c856685`), so upstream's history is part of this branch instead
+  of ported commits. The fork's shader, texture and upload switches stay. Checked against the build
+  without it, see [testing](testing.md#upstream-0232-merge-on-the-thor-2026-11-07-build-3488a03).
+- **Quick states** made before this are refused with a message naming both versions, because the
+  emulator's version changed. Make new ones. In-game saves are not affected.
+- **CI:** the container APK build works again. It had failed on Java source encoding and on reading
+  the APK a root container wrote, and the checksum file now holds a bare file name.
 - **Tools menu** in the library header.
   - **Storage** lists old imports, previous native code, texture and mod backups and unfinished
     imports with sizes, and deletes one at a time after a confirm. It never lists an active

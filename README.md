@@ -10,9 +10,8 @@ Requires **64-bit ARM Android 11+ and Vulkan 1.3**. Games need a decrypted ROM a
 matching Android ABI-5 native code built on a computer (ABI-4 builds still run); the APK does not compile
 games on your handheld. **HD texture packs are optional.**
 
-Experimental Android frontend for [Zakuro](https://github.com/fearkov/zakuro), based on
-upstream v0.2.30 (`e174910`) plus ported 0.2.31 changes
-([listed](docs/upstream-desktop.md#ported-upstream-changes)). It runs legally obtained
+Experimental Android frontend for [Zakuro](https://github.com/fearkov/zakuro), merged with
+upstream v0.2.32 (`c856685`). It runs legally obtained
 decrypted 3DS games with separately built native game code. It includes no games,
 firmware, keys or texture packs.
 

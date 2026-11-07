@@ -4,6 +4,56 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Upstream 0.2.32 merge on the Thor (2026-11-07, build `3488a03`)
+
+AYN Thor, one device, against `813ad3e`, the same work without the merge. Ultra Moon 3x + HD,
+Turnip (Balemuni) unless stated, `frame_generation` x4 (falls back to x2 on this panel), second
+display on. Three runs per build, same save and scene: field, then a wild battle. The panel stayed
+at 60 Hz and no system setting was changed, so 120 Hz was not measured.
+
+| | `813ad3e` | `3488a03` (merge) |
+| --- | --- | --- |
+| Speed | 100.1-100.4% | 100.0-100.7% |
+| Core, mean per run | 4.77, 4.96, 5.06 ms | 4.93, 5.29, 5.73 ms |
+| Presented | 60.01-60.03/s | 60.02-60.03/s |
+| Latency median / p90 | 38.0-40.4 / 41.4-42.1 ms | 40.1-40.5 / 42.1-42.2 ms |
+| Gaps over 20 ms | 2 per about 505 frames | 2 per about 505 frames |
+| Worst core frame, per run | 45.1, 41.7, 36.3 ms | 31.9, 33.0, 24.8 ms |
+| Worst frame total, per run | 423, 431, 432 ms | 44, 430, 45 ms |
+| First field frame, total | 25-30 ms | 25-27 ms |
+| Audio queue | 93-147 ms | 93-144 ms |
+| Underruns | 0 | 0 |
+| Battery temperature | 22-23 C | 26 C |
+
+Core and worst-frame figures come from the runs' `frame hitch` lines. No win is claimed. The merge's
+mean core time is 0.2-0.7 ms higher and its worst core frame lower, but it ran 4 C warmer and each
+build has only three runs. Neither the 400 ms present stalls nor why two merge runs lacked one is
+explained.
+
+| Check on the merge | Result |
+| --- | --- |
+| Stock Qualcomm driver | Picture correct by screenshot, 100.4%, frame generation ran at x2 |
+| Screen filters smooth, sharp, pixels | Correct by screenshot |
+| App switch and back | Same process, still 3x |
+| Frame generation x2 flow 50, x4 flow 25 | Both ran; x2 on this panel |
+| Frame interpolation | 59.2 distinct, 100.3%, core 7.7 ms |
+| Second display off | No crash, nothing drawn for it |
+| Stereo side by side | Two eyes with parallax |
+| Stereo anaglyph | No red/cyan fringing in the scene tried, the same on `813ad3e`; cause unknown |
+| `swap_screens`, stretch off, integer scale, `top_width` 800, side by side layout | About 100.3%, no errors |
+| `orientation=portrait` | Stayed landscape. The merge doesn't change that code; not compared on `813ad3e` |
+| Touch | One tap on the bottom screen registered |
+| Quick state from before the merge | Refused with "it was saved by Zakuro 0.2.30, and this is 0.2.32"; no crash |
+| New quick state | Saved and loaded on Pokémon X, in an empty slot |
+| Other games | Ocarina of Time 3D (log shows its code mod applied), Super Mario 3D Land, Majora's Mask 3D, Pokémon X, Y, Alpha Sapphire, Ultra Sun and Rutile Ruby booted |
+| Upgrade | Ultra Moon settings byte-identical afterwards |
+
+Host checks on the same build: `zakuro-gpu` 147 passed and 2 ignored, `zakuro-core` 151,
+`zakuro-android` 45, save archive 114, Java host checks, aarch64 compile.
+
+Not run: A Link Between Worlds is not installed, so upstream's cecd change has not been exercised.
+Touch on wide layouts got no more than the one tap.
+
 ## Release key install over the old key (2026-11-07, build `813ad3e`)
 
 AYN Thor, one device. `adb install -r` of a build signed with the release key and its lineage,
