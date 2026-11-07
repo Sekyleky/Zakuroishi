@@ -153,10 +153,6 @@ pub struct VulkanPresenter {
     /// the transform differs from the panel's on purpose (see presentation_transform),
     /// which Android reports as suboptimal on every present: that alone is no reason to rebuild.
     rotated: bool,
-    /// on a queue shared with another panel: skips a frame rather than waiting
-    /// for this panel, whose rate has nothing to do with the other's.
-    skips_when_busy: bool,
-    skipped: u32,
 
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
@@ -251,6 +247,9 @@ impl VulkanPresenter {
         let properties = unsafe { instance.get_physical_device_properties(physical_device) };
         let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) };
 
+        let memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
         // the renderer draws on this device too when it can, so the screens
         // it draws are shown from its images rather than copied out and up
         // again, ZAKURO_COPY_SCREENS keeps the copies
@@ -281,60 +280,9 @@ impl VulkanPresenter {
                     .map_err(vk_fail("creating the device"))?
             }
         };
+        let queue = unsafe { device.get_device_queue(queue_family, 0) };
         let sharing = if shared.is_some() { ", the renderer's device too" } else { "" };
         log::info!("Vulkan on {}{sharing}", name.to_string_lossy());
-        Self::on_device(entry, instance, surface_instance, surface, physical_device, queue_family, shared, device, size)
-    }
-
-    /// presents to another window on main's device, so it can show the
-    /// renderer's images too. a frame goes unshown when this window is not
-    /// ready for it, see skips_when_busy. fails, leaving nothing behind, when
-    /// main's device is not shared or cannot present there.
-    pub fn beside(
-        main: &VulkanPresenter,
-        window: &(impl HasDisplayHandle + HasWindowHandle),
-        size: (u32, u32),
-    ) -> Result<VulkanPresenter, PresentError> {
-        let shared = main.shared.clone().ok_or_else(|| fail("the device is not shared with a renderer"))?;
-        let display = window.display_handle().map_err(|e| fail(format!("no display handle: {e}")))?;
-        let handle = window.window_handle().map_err(|e| fail(format!("no window handle: {e}")))?;
-        let surface = unsafe {
-            ash_window::create_surface(&main._entry, &main.instance, display.as_raw(), handle.as_raw(), None)
-        }
-        .map_err(vk_fail("creating the surface"))?;
-        let supported = unsafe {
-            main.surface_instance.get_physical_device_surface_support(main.physical_device, main.queue_family, surface)
-        }
-        .unwrap_or(false);
-        if !supported {
-            unsafe { main.surface_instance.destroy_surface(surface, None) };
-            return Err(fail("the device cannot present to this window"));
-        }
-        let surface_instance = ash::khr::surface::Instance::new(&main._entry, &main.instance);
-        let mut presenter = Self::on_device(
-            main._entry.clone(), main.instance.clone(), surface_instance, surface,
-            main.physical_device, main.queue_family, ManuallyDrop::new(Some(shared)), main.device.clone(), size,
-        )?;
-        presenter.skips_when_busy = true;
-        Ok(presenter)
-    }
-
-    /// everything else a presenter needs, on a device it has.
-    #[allow(clippy::too_many_arguments)]
-    fn on_device(
-        entry: ash::Entry,
-        instance: ash::Instance,
-        surface_instance: ash::khr::surface::Instance,
-        surface: vk::SurfaceKHR,
-        physical_device: vk::PhysicalDevice,
-        queue_family: u32,
-        shared: ManuallyDrop<Option<Arc<SharedDevice>>>,
-        device: ash::Device,
-        size: (u32, u32),
-    ) -> Result<VulkanPresenter, PresentError> {
-        let memory_properties =
-            unsafe { instance.get_physical_device_memory_properties(physical_device) };
-        let queue = unsafe { device.get_device_queue(queue_family, 0) };
 
         let swapchain_device = ash::khr::swapchain::Device::new(&instance, &device);
         let surface_format = choose_format(&surface_instance, physical_device, surface)?;
@@ -517,8 +465,6 @@ impl VulkanPresenter {
             vsync: false,
             short_queue: false,
             rotated: false,
-            skips_when_busy: false,
-            skipped: 0,
             command_pool,
             command_buffers,
             image_available,
@@ -734,16 +680,6 @@ impl VulkanPresenter {
     /// the device, for the renderer to draw on, when it can share it.
     pub fn shared_device(&self) -> Option<Arc<SharedDevice>> {
         self.shared.clone()
-    }
-
-    /// whether both draw on one device, so one can show what the other's renderer drew.
-    pub fn same_device(&self, other: &VulkanPresenter) -> bool {
-        self.shared.as_ref().zip(other.shared.as_ref()).is_some_and(|(a, b)| Arc::ptr_eq(a, b))
-    }
-
-    /// the frames skipped since last asked, see skips_when_busy.
-    pub fn take_skipped(&mut self) -> u32 {
-        std::mem::take(&mut self.skipped)
     }
 
     /// lets go of the window's surface and swapchain, keeping the device the
@@ -1108,31 +1044,22 @@ impl VulkanPresenter {
 
         let frame = self.frame;
         let fence = self.in_flight[frame];
-        let timeout = if self.skips_when_busy { 0 } else { u64::MAX };
-        match unsafe { self.device.wait_for_fences(&[fence], true, timeout) } {
-            Err(vk::Result::TIMEOUT) => {
-                self.skipped += 1;
-                self.defer(overlay);
-                return Ok(());
-            }
-            waited => waited.map_err(vk_fail("waiting for a fence"))?,
+        unsafe {
+            self.device
+                .wait_for_fences(&[fence], true, u64::MAX)
+                .map_err(vk_fail("waiting for a fence"))?;
         }
 
         let acquired = unsafe {
             self.swapchain_device.acquire_next_image(
                 self.swapchain,
-                timeout,
+                u64::MAX,
                 self.image_available[frame],
                 vk::Fence::null(),
             )
         };
         let (image_index, suboptimal) = match acquired {
             Ok(result) => result,
-            Err(vk::Result::NOT_READY | vk::Result::TIMEOUT) => {
-                self.skipped += 1;
-                self.defer(overlay);
-                return Ok(());
-            }
             Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
                 self.stale = true;
                 self.defer(overlay);

@@ -90,7 +90,6 @@ pub struct Advanced {
     pub custom_driver: bool,
     pub hardware_renderer: bool,
     pub gpu_readback: bool,
-    pub second_display_shared: bool,
     pub shader_mode: ShaderMode,
     pub shader_execution: ShaderExecution,
     pub cpu_shader_jit: bool,
@@ -185,7 +184,6 @@ impl Default for Advanced {
             custom_driver: false,
             hardware_renderer: true,
             gpu_readback: false,
-            second_display_shared: false,
             shader_mode: ShaderMode::Auto,
             shader_execution: ShaderExecution::Compiled,
             cpu_shader_jit: true,
@@ -437,8 +435,6 @@ mod tests {
         assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
         assert!(!settings.frame_generation && settings.frame_generation_multiplier == 4 && settings.frame_generation_flow == 100);
         assert!(Advanced::parse(r#"{"frame_generation":true}"#).unwrap().renderer_options().frame_generation);
-        assert!(!settings.second_display_shared);
-        assert!(Advanced::parse(r#"{"second_display_shared":true}"#).unwrap().second_display_shared);
         assert!(!settings.short_vsync_queue);
         assert!(Advanced::parse(r#"{"short_vsync_queue":true}"#).unwrap().short_vsync_queue);
         assert!(!Advanced::parse(r#"{"audio_queue_managed":false}"#).unwrap().audio_queue_managed);

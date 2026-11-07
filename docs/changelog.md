@@ -25,12 +25,6 @@
 
 ## 0.3.0 — Orange controller menus, romfs mods, sound in step, frame interpolation measured (2026-11-04)
 
-- **Optional: real render scale on the second display** (`second_display_shared`, off, not
-  measured on a device yet). With it on, the bottom screen on a second display comes from
-  the GPU at render scale instead of native pixels repeated; what the game draws on the CPU
-  still falls back and shows as `cpu_bottom`. The benchmark line adds `second_shared` and
-  `second_skips`.
-
 - **Frame generation measured on the Thor.** The existing Frame interpolation setting
   takes Ultra Moon from 30 to 58-60 distinct pictures per second on Turnip at unchanged
   game speed. It stays off by default: on the stock Qualcomm driver the game fell to

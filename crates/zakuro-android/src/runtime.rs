@@ -59,19 +59,14 @@ struct Surface {
     cpu_images: [Option<zakuro_core::Screen>; 3],
 }
 impl Surface {
-    /// beside: the presenter whose device to draw on, rather than a device of its own.
-    fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry, beside: Option<&VulkanPresenter>) -> Result<Self, String> {
+    fn new(window: NativeWindow, settings: &Advanced, entry: ash::Entry) -> Result<Self, String> {
         let window = Window(window);
         request_frame_rate(&window, 60.0);
         let size = (
             window.0.width().max(1) as u32,
             window.0.height().max(1) as u32,
         );
-        let presenter = match beside {
-            Some(main) => VulkanPresenter::beside(main, &window, size),
-            None => VulkanPresenter::with_entry(&window, size, entry),
-        }
-        .map_err(|e| {
+        let presenter = VulkanPresenter::with_entry(&window, size, entry).map_err(|e| {
             format!("Could not start Vulkan. Zakuro needs a Vulkan 1.3 capable driver. {e}")
         })?;
         let mut surface = Self {
@@ -543,7 +538,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                         _ => false,
                     };
                     if let (false, Some(window)) = (reattached, app.native_window()) {
-                        match Surface::new(window, &geometry::display(&settings, false, second.is_some()), driver.entry.clone(), None) {
+                        match Surface::new(window, &geometry::display(&settings, false, second.is_some()), driver.entry.clone()) {
                             Ok(s) => {
                                 // Keep the default mailbox path at every speed; the guest timer controls game speed.
                                 if system.is_some() {
@@ -718,25 +713,15 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 }
             }
         }
-        // A shared second window waits for the main presenter, whose device it draws on.
-        let second_waits = settings.dual_display && settings.second_display_shared && surface.is_none() && parked.is_none();
-        if let Some(window) = (!second_waits).then(bridge::second_surface).flatten() {
+        if let Some(window) = bridge::second_surface() {
             second = None;
             if settings.dual_display {
                 if let Some(window) = window {
-                    let display = geometry::display(&settings, true, true);
-                    let main = surface.as_ref().or(parked.as_ref()).filter(|_| settings.second_display_shared);
-                    // Without a shared device or present support, its own device still shows the screen, at native size.
-                    let beside = main.and_then(|main| {
-                        Surface::new(window.clone(), &display, driver.entry.clone(), Some(&main.presenter))
-                            .inspect_err(|e| log::warn!("second display keeps its own device: {e}"))
-                            .ok()
-                            .map(|mut external| {
-                                external.shared = main.shared;
-                                external
-                            })
-                    });
-                    match beside.map_or_else(|| Surface::new(window, &display, driver.entry.clone(), None), Ok) {
+                    match Surface::new(
+                        window,
+                        &geometry::display(&settings, true, true),
+                        driver.entry.clone(),
+                    ) {
                         Ok(external) => second = Some(external),
                         Err(error) => {
                             platform::message(app, &format!("Second display unavailable: {error}"));
@@ -773,9 +758,6 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 return Err("The selected custom driver cannot supply the Vulkan device required by this renderer. Choose Software 3D rendering or System driver.".into());
             }
             s.shared = device.is_some() && !settings.gpu_readback;
-            if let Some(external) = &mut second {
-                external.shared = s.shared && external.presenter.same_device(&s.presenter);
-            }
             let config = Config {
                 recompiled: settings.aot.then(|| launch.code.clone()),
                 require_recompiled: settings.aot,
@@ -973,7 +955,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 Err(e) => return Err(e.to_string()),
             }
             if let Some(external) = &mut second {
-                // A separate Vulkan device cannot consume the main renderer's image views (second_display_shared off).
+                // Separate Vulkan devices cannot consume the main renderer's image views.
                 if let Err(error) = external.present(
                     system,
                     (settings.right_stick == RightStick::Cursor).then_some(input.cursor),
@@ -1059,7 +1041,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             let bench_distinct_fps = distinct_now.wrapping_sub(bench_distinct) as f64 / elapsed;
             let counts = system.interpolation_counts();
             let fg = framegen::take_stats();
-            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={} short_presses={} game_fps={:.2} distinct_fps={:.2} between={} rough={} off_beat={} fg_gpu_ms={:.2} fg_cpu_ms={:.2} fg_passes={} second_shared={} second_skips={}",
+            log::info!("benchmark frames=300 fps={:.2} speed_percent={:.1} presented_fps={:.2} speed_limit={} core_ms={:.3} present_ms={:.3} worst_core_ms={:.1} worst_frame_ms={:.1} slow={} vsync={} cpu_top={} cpu_bottom={} resolution={} textures={} shared={} gpu_waits={:.2} gpu_wait_ms={:.3} readbacks={:.2} readback_ms={:.3} wb[sync={} fill={} rows={} read={} flush={} pic={} room={}] audio_queue_ms={:.0} audio_underruns={} short_presses={} game_fps={:.2} distinct_fps={:.2} between={} rough={} off_beat={} fg_gpu_ms={:.2} fg_cpu_ms={:.2} fg_passes={}",
                 fps, speed,
                 f64::from(benchmark_presented) / elapsed, effective_speed,
                 core_time.as_secs_f64() * 1000.0 / 300.0,
@@ -1067,8 +1049,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 slow_frames, vsync, CPU_SCREENS[0].swap(0, std::sync::atomic::Ordering::Relaxed), CPU_SCREENS[1].swap(0, std::sync::atomic::Ordering::Relaxed), launch.resolution, launch.texture_packs, s.shared,
                 waits.0 as f64 / 300.0, waits.1.as_secs_f64() * 1000.0 / 300.0, waits.2 as f64 / 300.0, waits.3.as_secs_f64() * 1000.0 / 300.0,
                 ms(0), ms(1), ms(2), ms(3), ms(4), ms(5), ms(6), audio_ms, underruns, short_presses,
-                bench_game_fps, bench_distinct_fps, counts.0.saturating_sub(bench_counts.0), counts.1.saturating_sub(bench_counts.1), counts.2.saturating_sub(bench_counts.2), fg.0, fg.1, fg.2,
-                second.as_ref().is_some_and(|external| external.shared), second.as_mut().map_or(0, |external| external.presenter.take_skipped()));
+                bench_game_fps, bench_distinct_fps, counts.0.saturating_sub(bench_counts.0), counts.1.saturating_sub(bench_counts.1), counts.2.saturating_sub(bench_counts.2), fg.0, fg.1, fg.2);
             (bench_game, bench_distinct, bench_counts) = (game_now, distinct_now, counts);
             (worst_core, worst_frame, slow_frames) = (Duration::ZERO, Duration::ZERO, 0);
             benchmark_frames = 0;

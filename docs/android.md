@@ -200,9 +200,6 @@ sound/tap latching (Audio/Controls):
   (allocated session, Game usage); on the Thor a global software equalizer denies FAST.
 - **Never miss a quick tap** (`latch_short_presses`), on: a button or touch pressed and
   released between two frames counts as pressed for one frame (on-screen buttons excepted).
-- **Bottom screen: full resolution on second display** (`second_display_shared`), off: the
-  second window draws on the main presenter's Vulkan device and shows the renderer's image at
-  render scale, skipping a frame rather than waiting for that panel. Not measured on a device yet.
 - **Vsync: fewer frames waiting** (`short_vsync_queue`), off: 3 swapchain images instead
   of 4 under FIFO; Turnip shows frames 57 → 40 ms after they are ready, the stock driver
   is unchanged (16 ms) with a few more late frames. Worth turning on with Turnip.
