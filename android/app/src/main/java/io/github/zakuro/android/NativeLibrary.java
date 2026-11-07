@@ -10,13 +10,22 @@ import java.util.*;
 final class NativeLibrary {
     /** recomp_abi::ABI of the pinned 3dsrecomp, and OLDEST_ABI, the oldest code it still runs. */
     static final int ABI = 5, OLDEST_ABI = 4;
+    /** recomp_abi::GENERATION of the pinned 3dsrecomp; older libraries run but are slower (recompiled.rs: outdated). */
+    static final int GENERATION = 5;
+    /** size_of::<Entry>() and size_of::<Module>() on AArch64 (abi/src/lib.rs at 73b8f9c, repr(C)). */
+    static final int ENTRY_SIZE = 16, MODULE_SIZE = 32;
+    private static final Set<String> DATA_EXPORTS = new HashSet<>(Arrays.asList("recomp_abi", "recomp_entry_count", "recomp_module_count", "recomp_generation"));
     static final class Info {
-        final int abi;
+        final int abi, generation;
         final boolean fastMemory;
-        Info(int abi, boolean fastMemory) { this.abi = abi; this.fastMemory = fastMemory; }
+        Info(int abi, boolean fastMemory, int generation) { this.abi = abi; this.fastMemory = fastMemory; this.generation = generation; }
         String describe() { return "ABI " + abi + (fastMemory ? " with Pocket Native fast memory" : ""); }
+        /** Libraries made before they said which generator built them report 0. */
+        boolean outdated() { return generation < GENERATION; }
         void requireCompatible() throws IOException {
-            if (abi < OLDEST_ABI || abi > ABI || fastMemory) throw new IOException("This title.so uses " + describe()
+            if (fastMemory) throw new IOException("This title.so was built for Pocket Native (it exports recomp_fastmem), not for Zakuroishi. "
+                    + "Rebuild this game with zakuro-build-title, then choose Replace native game code. The ROM and saves do not need replacing.");
+            if (abi < OLDEST_ABI || abi > ABI) throw new IOException("This title.so uses " + describe()
                     + ". Zakuroishi Android requires ABI " + ABI + " (or " + OLDEST_ABI + ") without fast memory. Rebuild this game's native code with Zakuroishi's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
         }
     }
@@ -25,6 +34,11 @@ final class NativeLibrary {
     }
     private static void bounds(long offset, long size, long limit) throws IOException {
         if (offset < 0 || size < 0 || offset > limit || size > limit - offset) throw new IOException("Invalid native-library table bounds");
+    }
+    private static void tableFits(SeekableByteChannel file, Long countAt, int entrySize) throws IOException {
+        if (countAt == null) throw new IOException("Cannot read the native-library table sizes");
+        if (Integer.toUnsignedLong(bytes(file, countAt, 4).getInt()) * entrySize > file.size())
+            throw new IOException("Native library is damaged: a table is larger than the file. Rebuild it with zakuro-build-title.");
     }
     static Info inspect(SeekableByteChannel file) throws IOException {
         if (!ImportPlan.arm64(file)) throw new IOException("Expected an Android ARM64 shared library");
@@ -60,7 +74,7 @@ final class NativeLibrary {
                 String name = new String(strings, nameAt, end - nameAt, java.nio.charset.StandardCharsets.UTF_8);
                 if (!name.startsWith("recomp_")) continue;
                 names.add(name);
-                if (name.equals("recomp_abi")) {
+                if (DATA_EXPORTS.contains(name)) {
                     long value = symbols.getLong(symbol + 8), address = sections.getLong(section * stride + 16);
                     long sectionOffset = sections.getLong(section * stride + 24), sectionSize = sections.getLong(section * stride + 32);
                     if (sections.getInt(section * stride + 4) == 8 || value < address) throw new IOException("Invalid ABI export");
@@ -73,6 +87,10 @@ final class NativeLibrary {
             if (!names.contains(required)) throw new IOException("Native library is missing " + required + ". Use title.so built by the matching Zakuroishi build-title tool.");
         Long abi = exported.get("recomp_abi");
         if (abi == null) throw new IOException("Cannot read the native-library ABI");
-        return new Info(bytes(file, abi, 4).getInt(), names.contains("recomp_fastmem"));
+        // The loader builds slices from these counts without checking them, so a count the file cannot hold is rejected here.
+        tableFits(file, exported.get("recomp_entry_count"), ENTRY_SIZE);
+        tableFits(file, exported.get("recomp_module_count"), MODULE_SIZE);
+        Long generation = exported.get("recomp_generation");
+        return new Info(bytes(file, abi, 4).getInt(), names.contains("recomp_fastmem"), generation == null ? 0 : bytes(file, generation, 4).getInt());
     }
 }

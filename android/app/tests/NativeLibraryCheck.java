@@ -112,6 +112,27 @@ public final class NativeLibraryCheck {
         malformed("ABI address before section", b -> b.putLong(NativeFixture.SYMBOLS + 24 + 8, NativeFixture.ADDRESS - 1));
         malformed("ABI section outside file", b -> b.putLong(NativeFixture.SECTIONS + 192 + 24, Long.MAX_VALUE));
         malformed("local ABI symbol", b -> b.put(NativeFixture.SYMBOLS + 24 + 4, (byte) 1));
-        System.out.println("Native library checks passed: ABI, exports, architecture, bounds, read-only sparse metadata");
+        // B2: counts the file cannot hold. The sparse source is 4 GiB, so 0x10000000 entries of 16 bytes fit exactly.
+        for (int count : new int[]{0, 1000, 0x10000000}) {
+            byte[] fits = NativeFixture.elf(4, false); NativeFixture.buffer(fits).putInt(NativeFixture.ENTRY_COUNT, count);
+            inspect(fits).requireCompatible();
+        }
+        for (int count : new int[]{0x10000001, 0x80000000, 0xFFFFFFF0}) {
+            malformed("entry count " + Integer.toUnsignedString(count), b -> b.putInt(NativeFixture.ENTRY_COUNT, count));
+        }
+        byte[] modulesFit = NativeFixture.elf(4, false); NativeFixture.buffer(modulesFit).putInt(NativeFixture.MODULE_COUNT, 0x08000000);
+        inspect(modulesFit);
+        for (int count : new int[]{0x08000001, 0xFFFFFFFF})
+            malformed("module count " + Integer.toUnsignedString(count), b -> b.putInt(NativeFixture.MODULE_COUNT, count));
+        // B3/K4: generation is read when exported, 0 when not, and an older one is only flagged.
+        check(inspect(NativeFixture.elf(4, false)).generation == 0 && inspect(NativeFixture.elf(4, false)).outdated(), "No generation must read as outdated");
+        check(inspect(NativeFixture.elf(5, false, 4)).generation == 4 && inspect(NativeFixture.elf(5, false, 4)).outdated(), "Generation 4 not outdated");
+        check(!inspect(NativeFixture.elf(5, false, NativeLibrary.GENERATION)).outdated(), "Current generation flagged outdated");
+        inspect(NativeFixture.elf(5, false, 0)).requireCompatible();
+        NativeLibrary.Info pocket = inspect(NativeFixture.elf(5, true, 5));
+        check(pocket.fastMemory && pocket.generation == 5, "Generation after fastmem not found");
+        try { pocket.requireCompatible(); throw new AssertionError("Accepted Pocket Native"); }
+        catch (IOException expected) { check(expected.getMessage().contains("Pocket Native") && expected.getMessage().contains("zakuro-build-title"), "Pocket Native message"); }
+        System.out.println("Native library checks passed: ABI, exports, architecture, bounds, table counts, generation, read-only sparse metadata");
     }
 }
