@@ -33,7 +33,10 @@ public final class Game extends NativeActivity {
         public void onDisplayChanged(int id) { failedSecondDisplay=-1; updateSecondDisplay(); }
     };
     private void updateSecondDisplay() {
-        if (displays == null || settings == null || !settings.flag("dual_display") || isFinishing()) return;
+        if (displays == null || settings == null || isFinishing()) return;
+        // Settings are read at launch and every change from the pause menu restarts the game, so this only matters
+        // if a setting ever turns live; the presentation must still go with the switch.
+        if (!settings.flag("dual_display")) { if (secondDisplay != null) { secondDisplay.dismiss(); secondDisplay = null; } return; }
         android.view.Display[] available = displays.getDisplays(android.hardware.display.DisplayManager.DISPLAY_CATEGORY_PRESENTATION);
         int own=getDisplay()==null ? android.view.Display.DEFAULT_DISPLAY : getDisplay().getDisplayId();
         android.view.Display target=null;
@@ -67,14 +70,18 @@ public final class Game extends NativeActivity {
     private android.hardware.input.InputManager inputManager;
     private String batteryText = "";
     private float batteryVolts;
+    private boolean currentInMicroamps, hudWarned;
     /** the power the battery gives or takes now, or "" where the device doesn't say. */
     private String batteryPower() {
         android.os.BatteryManager manager=(android.os.BatteryManager)getSystemService(BATTERY_SERVICE);
         int micro=manager==null ? Integer.MIN_VALUE : manager.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
         if(micro==Integer.MIN_VALUE || micro==0 || batteryVolts<=0) return "";
-        // some devices report mA instead of µA
-        float amps=Math.abs(micro)>=20000 ? Math.abs(micro)/1e6f : Math.abs(micro)/1e3f;
-        return String.format(java.util.Locale.ROOT," %.1f W",amps*batteryVolts);
+        // ponytail: the unit is learned from the first reading of 20000 or more (that is µA; no phone draws 20 A),
+        // and below that a reading could be µA or mA, so it shows no watts. A device that reports mA and never
+        // reaches 20000 never shows watts; ask the device for its unit if one turns up that matters.
+        if(Math.abs(micro)>=20000) currentInMicroamps=true;
+        if(!currentInMicroamps) return "";
+        return String.format(java.util.Locale.ROOT," %.1f W",Math.abs(micro)/1e6f*batteryVolts);
     }
     /** HUD windows of their own: NativeActivity takes this window's surface, so views added to it never draw. */
     private final java.util.List<android.view.View> panels = new java.util.ArrayList<>();
@@ -89,7 +96,10 @@ public final class Game extends NativeActivity {
             params.gravity = gravity; params.x = x; params.y = y;
             params.token = getWindow().getDecorView().getWindowToken();
             try { getWindowManager().addView(view, params); panels.add(view); }
-            catch (RuntimeException e) { android.util.Log.w("Zakuro", "Could not show a HUD window", e); }
+            catch (RuntimeException e) {
+                android.util.Log.w("Zakuro", "Could not show a HUD window", e);
+                if (!hudWarned) { hudWarned = true; showNativeMessage("This device refused the on-screen controls and info. They will not be shown."); }
+            }
             if (touchViews.contains(view)) updateTouchVisibility();
         });
     }
