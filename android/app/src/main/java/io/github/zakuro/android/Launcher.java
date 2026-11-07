@@ -16,7 +16,7 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10, IMPORT_LOSSLESS = 11;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10, IMPORT_LOSSLESS = 11, EXPORT_DIAGNOSTICS = 12, EXPORT_SETTINGS = 13, IMPORT_SETTINGS = 14;
     private String pendingSaveId;
     private Uri pendingIisu;
     private String pendingCodeId, pendingTextureId, pendingModId, pendingDriverId;
@@ -32,7 +32,7 @@ public final class Launcher extends Activity {
     private Button add;
     private EditText search;
     private ImportTask task;
-    private Palette p;
+    Palette p;
 
     @Override public void onCreate(Bundle state) {
         boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
@@ -76,6 +76,7 @@ public final class Launcher extends Activity {
         add = button("Add game", true, "add"); add.setOnClickListener(v -> help(true));
         LinearLayout.LayoutParams addSize = new LinearLayout.LayoutParams(-2, -2); addSize.setMargins(dp(8), dp(8), 0, dp(8)); actions.addView(add, addSize);
         Button frontend = button("Frontends", false, "frontends"); frontend.setOnClickListener(v -> frontends()); actions.addView(frontend);
+        Button tools = button("Tools", false, "tools"); tools.setOnClickListener(v -> tools()); actions.addView(tools);
         if (wide) { LinearLayout.LayoutParams find = new LinearLayout.LayoutParams(0, -2, 1); find.setMargins(dp(16), 0, dp(16), 0); heading.addView(search, find); }
         heading.addView(actions); page.addView(heading); if (!wide) page.addView(search, new LinearLayout.LayoutParams(-1, -2));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setIndeterminate(true);
@@ -100,7 +101,7 @@ public final class Launcher extends Activity {
         showLibrary(); update();
         View first = ids.isEmpty() ? null : list.findViewWithTag(ids.get(0) + ".play"); if (first == null || !first.requestFocus()) add.requestFocus();
     }
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_A) {
             if (event.getAction() == KeyEvent.ACTION_UP && getCurrentFocus() != null) getCurrentFocus().performClick();
@@ -137,7 +138,7 @@ public final class Launcher extends Activity {
         return false;
     }
     private AlertDialog controllerDialog(AlertDialog dialog) { return controllerDialog(dialog, false); }
-    private AlertDialog controllerDialog(AlertDialog dialog, boolean cancelFocused) {
+    AlertDialog controllerDialog(AlertDialog dialog, boolean cancelFocused) {
         dialog.setOnShowListener(window -> {
             p.dialog(dialog, false);
             Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (cancelFocused && cancel != null) cancel.requestFocus();
@@ -155,12 +156,12 @@ public final class Launcher extends Activity {
         });
         return dialog;
     }
-    private LinearLayout column() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); return layout; }
-    private TextView text(String value, int size, int color) {
+    LinearLayout column() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); return layout; }
+    TextView text(String value, int size, int color) {
         TextView text = new TextView(this); text.setText(value); text.setTextSize(size); text.setTextColor(color);
         if (size >= 20) { text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); text.setAccessibilityHeading(true); } return text;
     }
-    private Button button(String label, boolean primary, String tag) {
+    Button button(String label, boolean primary, String tag) {
         Button button = new Button(this); button.setText(label); button.setAllCaps(false); button.setTextSize(15); button.setTag(tag);
         button.setBackground(p.button(primary ? Palette.PRIMARY : Palette.SECONDARY)); button.setTextColor(p.label(p.ink));
         button.setMinHeight(dp(62)); button.setMinWidth(dp(98)); button.setPadding(dp(23), dp(15), dp(23), dp(15)); return button; // +5dp: the focus ring inset
@@ -204,6 +205,11 @@ public final class Launcher extends Activity {
         }
         if (request == IMPORT_LOSSLESS && result == RESULT_OK && intent != null && intent.getData() != null)
             task.importLossless(getApplicationContext(), intent.getData());
+        if (result == RESULT_OK && intent != null && intent.getData() != null) {
+            if (request == EXPORT_DIAGNOSTICS) task.exportDiagnostics(getApplicationContext(), intent.getData());
+            if (request == EXPORT_SETTINGS) task.exportSettings(getApplicationContext(), intent.getData());
+            if (request == IMPORT_SETTINGS) task.importSettings(getApplicationContext(), intent.getData());
+        }
         if (request == REPLACE_CODE) {
             String id = pendingCodeId; pendingCodeId = null;
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
@@ -242,6 +248,36 @@ public final class Launcher extends Activity {
         // ponytail: a DLL has no MIME type pickers agree on, so any file; the import checks it
         startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), IMPORT_LOSSLESS);
     }
+    boolean busy() { return task != null && task.busy; }
+    private void tools() {
+        LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
+        AlertDialog[] dialog = new AlertDialog[1];
+        String[][] items = {
+            {"Storage…", "See free space and delete old imports and backups you no longer need."},
+            {"Export diagnostics…", "Save a text file with app, device and log details to attach to a bug report. It contains no games, saves or textures."},
+            {"Export settings…", "Save every game's settings and controller mapping to a file."},
+            {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."}};
+        Runnable[] actions = {() -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings};
+        for (int i = 0; i < items.length; i++) {
+            Runnable action = actions[i];
+            Button b = button(items[i][0], false, "tools." + i); b.setOnClickListener(v -> { dialog[0].dismiss(); action.run(); });
+            LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2); size.setMargins(0, dp(i == 0 ? 0 : 8), 0, 0); content.addView(b, size);
+            content.addView(text(items[i][1], 14, p.muted));
+        }
+        ScrollView scroll = new ScrollView(this); scroll.addView(content);
+        dialog[0] = controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Tools").setView(scroll).setNegativeButton("Close", null).create());
+        dialog[0].show();
+    }
+    private void pickDocument(boolean create, String type, String title, int request) {
+        if (task.busy) return;
+        Intent intent = new Intent(create ? Intent.ACTION_CREATE_DOCUMENT : Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type);
+        if (create) intent.putExtra(Intent.EXTRA_TITLE, title + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + (type.equals("text/plain") ? ".txt" : ".json"));
+        try { startActivityForResult(intent, request); }
+        catch (ActivityNotFoundException e) { Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
+    }
+    private void exportDiagnostics() { pickDocument(true, "text/plain", "Zakuroishi-diagnostics", EXPORT_DIAGNOSTICS); }
+    private void exportSettings() { pickDocument(true, "application/json", "Zakuroishi-settings", EXPORT_SETTINGS); }
+    private void importSettings() { pickDocument(false, "*/*", null, IMPORT_SETTINGS); }
     void saves(String id) {
         if (task.busy) return;
         controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Saves · " + name(id))
@@ -413,7 +449,9 @@ public final class Launcher extends Activity {
             String title = task.errorTitle == null ? "Couldn't complete the operation" : task.errorTitle; task.errorTitle = null;
             controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle(title).setMessage(error).setPositiveButton("OK", null).create()).show(); }
     }
-    private static void installDriver(Context context, String id, Uri uri) throws Exception {
+    /** Returns the text for the success dialog: the driver library's SHA-256. */
+    private static String installDriver(Context context, String id, Uri uri) throws Exception {
+        String report = null;
         File home = new File(context.getFilesDir(),"drivers");
         if (!home.isDirectory() && !home.mkdirs()) throw new java.io.IOException("Cannot create driver storage");
         String key = UUID.randomUUID().toString();
@@ -430,6 +468,7 @@ public final class Launcher extends Activity {
                 byte[] header = input.readNBytes(64);
                 if (!arm64Driver(header)) throw new java.io.IOException("Driver library must be an Android ARM64 shared library");
             }
+            report = GameImport.identity("the driver library (" + library + ")", GameImport.sha256(new File(stage,library)));
             if (!stage.renameTo(target)) throw new java.io.IOException("Cannot install driver");
             installed = true;
             if (!GameSettings.preferences(context).edit().putString(id+".driver",key).putBoolean(id+".advanced.custom_driver",true).commit())
@@ -439,6 +478,7 @@ public final class Launcher extends Activity {
                 for (java.nio.file.Path path : (Iterable<java.nio.file.Path>)paths.sorted(Comparator.reverseOrder())::iterator) java.nio.file.Files.deleteIfExists(path);
             }
         }
+        return report;
     }
     static boolean arm64Driver(byte[] h) {
         return h.length >= 64 && h[0]==127 && h[1]=='E' && h[2]=='L' && h[3]=='F'
@@ -486,6 +526,43 @@ public final class Launcher extends Activity {
         void replaceMods(Context context, String id, Uri uri) { run(context, id, uri, 6, false); }
         void importLossless(Context context, Uri uri) { run(context, null, uri, 7, false); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
+        interface Job { String run() throws Exception; }
+        /** Runs a short job off the main thread; the job returns the status line for success. */
+        private void simple(String failTitle, String working, boolean libraryChanged, Job job) {
+            if (busy) return; busy = true; error = null; errorTitle = failTitle; message = working; refresh(false);
+            new Thread(() -> {
+                String failure = null, done = "";
+                try { done = job.run(); }
+                catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
+                final String result = failure, status = done;
+                main.post(() -> { busy = false; error = result; message = result == null ? status : failTitle + ". See the error for details."; refresh(libraryChanged); });
+            }, "tools").start();
+        }
+        private static void write(Context context, Uri uri, String text) throws java.io.IOException {
+            try (java.io.OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
+                if (output == null) throw new java.io.IOException("Cannot write the selected file.");
+                output.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+        }
+        void exportDiagnostics(Context context, Uri uri) {
+            simple("Exporting diagnostics failed", "Collecting diagnostics…", false, () -> { write(context, uri, Diagnostics.build(context)); return "Diagnostics saved. Attach the file to your bug report."; });
+        }
+        void exportSettings(Context context, Uri uri) {
+            simple("Exporting settings failed", "Exporting settings…", false, () -> { write(context, uri, SettingsTransfer.export(context)); return "Settings exported."; });
+        }
+        void importSettings(Context context, Uri uri) {
+            simple("Importing settings failed", "Checking settings file…", true, () -> {
+                String text;
+                try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
+                    if (input == null) throw new java.io.IOException("Cannot read the selected file.");
+                    byte[] bytes = input.readNBytes(SettingsTransfer.MAX_BYTES + 1);
+                    if (bytes.length > SettingsTransfer.MAX_BYTES) throw new java.io.IOException("This is not a Zakuroishi settings file: it is too large.");
+                    text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                }
+                int games = SettingsTransfer.importJson(context, text);
+                return "Settings imported for " + games + (games == 1 ? " game" : " games") + ". They apply the next time each game starts.";
+            });
+        }
         void prepareIisu(Context context, Uri source, Uri destination) {
             if(busy) return; busy=true; error=null; errorTitle="Preparing iiSU catalog failed"; message="Preparing iiSU catalog copy…"; refresh(false);
             new Thread(()->{
@@ -516,21 +593,25 @@ public final class Launcher extends Activity {
                 main.post(()->{ busy=false; error=result; message=result==null?"Exported "+exported+" game references. Scan Zakuro frontend/Games; setup instructions are in README.txt.":"Frontend export failed; existing game files are unchanged."; refresh(false); });
             },"frontend-export").start();
         }
+        /** The success text for a freshly imported title.so, or null if it cannot be read back (the import itself already succeeded). */
+        private static String codeReport(Context context, String id) {
+            try { return GameImport.codeReport(new File(GameImport.active(context, id), "code/title.so")); } catch (Exception e) { return null; }
+        }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
             String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing mod" : operation == 7 ? "Importing Lossless.dll" : "Restoring saves";
             errorTitle = action + " failed";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
-                String failure = null;
+                String failure = null, detail = null;
                 try {
                     GameImport.Progress callback = (bytes, files, name) -> main.post(() -> {
                         message = String.format(Locale.getDefault(), action + " · %.1f MB copied · %d files", bytes / 1048576.0, files); refresh(false);
                     });
-                    if (operation == 0) GameImport.install(context, uri, includeTextures, callback);
-                    else if (operation == 1) GameImport.replaceCode(context, id, uri, callback);
+                    if (operation == 0) detail = codeReport(context, GameImport.install(context, uri, includeTextures, callback));
+                    else if (operation == 1) detail = codeReport(context, GameImport.replaceCode(context, id, uri, callback));
                     else if (operation == 2) GameImport.replaceTextures(context, id, uri, callback);
-                    else if (operation == 3) installDriver(context, id, uri);
+                    else if (operation == 3) detail = installDriver(context, id, uri);
                     else if (operation == 6) GameImport.replaceRomfs(context, id, uri, callback);
                     else if (operation == 7) LosslessImport.install(context, uri);
                     else {
@@ -552,8 +633,10 @@ public final class Launcher extends Activity {
                         }
                     }
                 } catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
-                final String outcome = failure;
+                final String outcome = failure, report = detail;
                 main.post(() -> { busy = false; error = outcome;
+                    // the hash is what the user compares against, so it gets a dialog rather than only the status line
+                    if (outcome == null && report != null) { errorTitle = operation == 0 ? "Game added" : operation == 1 ? "Native game code replaced" : "Vulkan driver imported"; error = report; }
                     // settings stay open over the status line, so the result needs its own dialog
                     if (outcome == null && operation == 7) { errorTitle = "Lossless.dll imported"; error = LosslessImport.DONE; }
                     message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : operation == 7 ? LosslessImport.DONE : "Saves restored. Start the game normally; do not load an old quick save state.")

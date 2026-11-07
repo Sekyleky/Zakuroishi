@@ -11,11 +11,25 @@ import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.*;
 
 /** Validate source documents first, then stage only the immutable import plan. */
 final class GameImport {
-    private static final Object POINTER_LOCK = new Object();
+    /** Held around every read or change of an import pointer, and around deleting anything the pointers could name. */
+    static final Object POINTER_LOCK = new Object();
+    static final String NO_SPACE = "Ran out of free space while copying. No game files were changed.";
+    /** Free space that must remain after an import or replacement: the larger of 256 MiB and 5% of what is copied. */
+    static long margin(long bytes) { return Math.max(256L << 20, bytes / 20); }
+    /** Android reports a full disk as "write failed: ENOSPC (No space left on device)", sometimes wrapped. */
+    static boolean outOfSpace(Throwable error) {
+        for (int depth = 0; error != null && depth < 8; depth++, error = error.getCause()) {
+            String message = error.getMessage();
+            if (message != null && (message.contains("ENOSPC") || message.contains("No space left on device"))) return true;
+        }
+        return false;
+    }
     interface Progress { void update(long bytes, int files, String name); }
     static final class CopyProgress {
         private final Progress callback;
@@ -91,6 +105,11 @@ final class GameImport {
         } catch (Exception ignored) { return ""; }
     }
     private static void copy(ImportPlan.Source source, ImportPlan plan, File stage, Progress callback) throws IOException {
+        // Only the staging folder has been written at this point, so this sentence is true for every caller.
+        try { copyFiles(source, plan, stage, callback); }
+        catch (IOException e) { if (outOfSpace(e)) throw new IOException(NO_SPACE, e); throw e; }
+    }
+    private static void copyFiles(ImportPlan.Source source, ImportPlan plan, File stage, Progress callback) throws IOException {
         CopyProgress progress = new CopyProgress(callback);
         ByteBuffer buffer = ByteBuffer.allocate(65536);
         String root = stage.getCanonicalPath() + File.separator;
@@ -137,7 +156,7 @@ final class GameImport {
         File stage = new File(imports, UUID.randomUUID().toString());
         plan.checkDestination(stage);
         long available = new StatFs(context.getFilesDir().getAbsolutePath()).getAvailableBytes();
-        if (plan.bytes > Math.max(0, available - 16L * 1024 * 1024))
+        if (plan.bytes > Math.max(0, available - margin(plan.bytes)))
             throw new IOException("Not enough free space for this game and its selected files. No files were copied.");
         // No staging or save directories are created until all source checks pass.
         mkdir(imports); Files.createDirectory(stage.toPath());
@@ -182,7 +201,7 @@ final class GameImport {
         File parent = new File(context.getFilesDir(), "component-imports");
         File stage = new File(parent, UUID.randomUUID().toString()); plan.checkDestination(stage);
         long available = new StatFs(context.getFilesDir().getAbsolutePath()).getAvailableBytes();
-        long budget = Math.max(0, available - 16L * 1024 * 1024);
+        long budget = Math.max(0, available - margin(plan.bytes));
         if (backupBytes < 0 || backupBytes > budget || plan.bytes > budget - backupBytes) throw new IOException("Not enough free space for the replacement and backup. No files were copied.");
         mkdir(parent); Files.createDirectory(stage.toPath()); return stage;
     }
@@ -244,30 +263,75 @@ final class GameImport {
     /** Stage the plan, then swap each part folder of the game's mods for its staged copy (or none). */
     private static String swapIn(android.content.Context context, String id, File version, DocumentsSource source,
             ImportPlan plan, Progress progress, boolean dropOld, String... parts) throws Exception {
-        File stage = componentStage(context, plan); boolean uncertain = false;
+        File stage = componentStage(context, plan); boolean[] uncertain = {false};
         try {
             copy(source, plan, stage, progress);
             File staged = new File(stage, "data/mods/" + id), parent = new File(version, "data/mods/" + id); mkdir(parent);
             synchronized (POINTER_LOCK) {
                 if (!active(context, id).equals(version)) throw new IOException("The game changed while importing. Select it again.");
-                // ponytail: parts swap one by one; a failure after the first leaves that one new.
-                for (String part : parts) {
-                    File pack = new File(staged, part), target = new File(parent, part), backup = new File(parent, part + ".previous-" + UUID.randomUUID());
-                    boolean moved = target.exists();
-                    if (moved) Os.rename(target.getAbsolutePath(), backup.getAbsolutePath());
-                    if (pack.exists()) {
-                        try { Os.rename(pack.getAbsolutePath(), target.getAbsolutePath()); }
-                        catch (Exception e) {
-                            if (moved) try { Os.rename(backup.getAbsolutePath(), target.getAbsolutePath()); }
-                            catch (Exception restore) { uncertain = true; e.addSuppressed(restore); }
-                            throw e;
-                        }
-                    }
-                    if (dropOld && moved) remove(backup);
-                }
+                swapParts(staged, parent, parts, dropOld, MOVE, uncertain);
             }
             return id;
-        } finally { if (!uncertain) remove(stage); }
+        } finally { if (!uncertain[0]) remove(stage); }
+    }
+    interface Mover { void move(File from, File to) throws IOException; }
+    static final Mover MOVE = (from, to) -> Files.move(from.toPath(), to.toPath(), StandardCopyOption.ATOMIC_MOVE);
+    private static final class Swap { File target, backup, pack; boolean moved, installed; }
+    /**
+     * Replace each part of {@code parent} with its copy in {@code staged}, all or nothing: on any failure every part
+     * already swapped is put back. {@code uncertain[0]} is set when a put-back failed too, so the caller keeps the staging folder.
+     * Old parts are only deleted (dropOld) once every part has swapped.
+     */
+    static void swapParts(File staged, File parent, String[] parts, boolean dropOld, Mover move, boolean[] uncertain) throws IOException {
+        List<Swap> done = new ArrayList<>();
+        try {
+            for (String part : parts) {
+                Swap swap = new Swap(); swap.pack = new File(staged, part); swap.target = new File(parent, part);
+                swap.backup = new File(parent, part + ".previous-" + UUID.randomUUID()); done.add(swap);
+                if (swap.target.exists()) { move.move(swap.target, swap.backup); swap.moved = true; }
+                if (swap.pack.exists()) { move.move(swap.pack, swap.target); swap.installed = true; }
+            }
+        } catch (Exception e) {
+            for (int i = done.size() - 1; i >= 0; i--) {
+                Swap swap = done.get(i);
+                try {
+                    if (swap.installed) move.move(swap.target, swap.pack);
+                    if (swap.moved) move.move(swap.backup, swap.target);
+                } catch (Exception restore) { uncertain[0] = true; e.addSuppressed(restore); }
+            }
+            throw e;
+        }
+        if (dropOld) for (Swap swap : done) if (swap.moved) remove(swap.backup);
+    }
+    static String sha256(File file) throws IOException {
+        MessageDigest digest;
+        try { digest = MessageDigest.getInstance("SHA-256"); } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        try (InputStream in = Files.newInputStream(file.toPath())) {
+            byte[] buffer = new byte[65536]; int n;
+            while ((n = in.read(buffer)) > 0) digest.update(buffer, 0, n);
+        }
+        StringBuilder hex = new StringBuilder();
+        for (byte value : digest.digest()) hex.append(String.format(Locale.ROOT, "%02x", value));
+        return hex.toString();
+    }
+    /** What the user sees after native code is imported: the hash to compare, why it matters, and a rebuild hint if it is old. */
+    static String identity(String what, String hash) {
+        return "SHA-256 of " + what + ":\n" + hash.substring(0, 32) + "\n" + hash.substring(32)
+                + "\n\nThis identifies the build you imported; compare it with the hash published by whoever made it. "
+                + "Imported native code runs inside Zakuroishi with the same access to its files and saves, so only keep builds you trust.";
+    }
+    static String codeReport(File code) throws IOException {
+        NativeLibrary.Info info;
+        try (SeekableByteChannel channel = Files.newByteChannel(code.toPath())) { info = NativeLibrary.inspect(channel); }
+        String note = info.outdated() ? "This title.so was made by an older generator (generation " + info.generation + ", current " + NativeLibrary.GENERATION
+                + "). It runs, but rebuild it with zakuro-build-title for better performance.\n\n" : "";
+        return note + identity("title.so", sha256(code));
+    }
+    /** Title IDs that have an import pointer (the same rule the library uses). */
+    static SortedSet<String> importedIds(File filesDir) {
+        File[] files = new File(filesDir, "imports").listFiles(); SortedSet<String> found = new TreeSet<>();
+        if (files != null) for (File file : files) if (file.getName().matches("[0-9A-F]{16}\\.active(\\.bak)?")) found.add(file.getName().substring(0, 16));
+        return found;
     }
     static void remove(File file) {
         if (file.isDirectory() && !Files.isSymbolicLink(file.toPath())) {
