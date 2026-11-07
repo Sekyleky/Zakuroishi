@@ -8,6 +8,7 @@
 #   GAME      16-hex title id               (needed by get/set/launch/fight/ab)
 #   OUT       output dir for logs           (./device-test-out)
 #   RUNS      ab: on/off pairs per side     (1)
+#   SCREENSHOT_DISPLAY  display id for `shots` (4630946441858561667, the Thor's main screen)
 #
 # Commands:
 #   list                      list games known to the app
@@ -26,7 +27,7 @@
 #   latency NAME [SAMPLES=5]  sample the game layer's SurfaceFlinger --latency SAMPLES times ~2 s apart,
 #                             print median/p90 of (present - frame ready) in ms and present gaps >20 ms,
 #                             raw samples in $OUT/NAME.lat1 ..
-#   shots NAME N              N back-to-back screencaps of display 4630946441858561667 -> $OUT/NAME-1.png ..
+#   shots NAME N              N back-to-back screencaps of the SCREENSHOT_DISPLAY display -> $OUT/NAME-1.png ..
 #
 # Examples:
 #   export GAME=0123456789abcdef
@@ -46,6 +47,7 @@ ADB=${ADB:-adb}
 ADB_ARGS=${ADB_ARGS:-}
 GAME=${GAME:-}
 OUT=${OUT:-./device-test-out}
+SCREENSHOT_DISPLAY=${SCREENSHOT_DISPLAY:-4630946441858561667}
 PKG=io.github.zakuro.android
 LOG_FILTER='Zakuro:*'
 RESTORE=()
@@ -57,12 +59,16 @@ need_game() { [[ $GAME =~ ^[0-9A-Fa-f]{16}$ ]] || die "set GAME to a 16-hex titl
 
 # settings_call list | get | set JSON -> prints result data; returns 1 if result != 0
 settings_call() {
-  local remote="am broadcast -n $PKG/.DebugSettings" out code data
+  local remote="am broadcast -n $PKG/.DebugSettings" out code data q sq="'\\''"
   if [[ $1 == list ]]; then
     remote+=" --ez list true"
   else
     remote+=" --es game $GAME"
-    [[ $1 == set ]] && remote+=" --es set '$2'"   # single quotes: the device shell re-parses
+    # single quotes: the device shell re-parses; a ' inside the JSON is closed, escaped and reopened
+    if [[ $1 == set ]]; then
+      q=${2//\'/$sq}
+      remote+=" --es set '$q'"
+    fi
   fi
   out=$(adb_cmd shell "$remote" 2>&1)
   code=$(sed -n 's/.*Broadcast completed: result=\([-0-9]*\).*/\1/p' <<<"$out" | tail -1)
@@ -398,7 +404,7 @@ cmd_shots() {
   need_unlocked
   mkdir -p "$OUT" || die "cannot create $OUT"
   for i in $(seq 1 "$n"); do
-    adb_cmd exec-out screencap -p -d 4630946441858561667 > "$OUT/$name-$i.png"
+    adb_cmd exec-out screencap -p -d "$SCREENSHOT_DISPLAY" > "$OUT/$name-$i.png"
   done
   echo "saved $n screenshots as $OUT/$name-N.png"
 }

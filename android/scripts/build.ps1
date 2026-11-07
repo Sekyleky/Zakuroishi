@@ -1,4 +1,6 @@
-param([string]$OutputDirectory = '', [string]$Image = '')
+# -Keystore signs with that PKCS12 file instead of the throwaway key in the zakuro-android-test-key volume;
+# its password comes from ZAKURO_KEYSTORE_PASSWORD and its alias from ZAKURO_KEY_ALIAS (empty = its only key).
+param([string]$OutputDirectory = '', [string]$Image = '', [string]$Keystore = '')
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
 $repo = (Resolve-Path "$PSScriptRoot/../..").Path
@@ -18,11 +20,13 @@ if (!$Image) {
     Invoke-Docker @('build','--platform','linux/amd64','-f',"$PSScriptRoot/Containerfile",'-t',$Image,$PSScriptRoot)
 }
 $apk = "zakuro-android-test-$run.apk"
+$keyMount = if ($Keystore) { "type=bind,source=$([IO.Path]::GetFullPath($Keystore)),target=/keys/test.p12,readonly" } else { 'type=volume,source=zakuro-android-test-key,target=/keys' }
 Invoke-Docker @('run','--rm','--platform','linux/amd64',
     '--mount',"type=bind,source=$repo,target=/src,readonly",
     '--mount',"type=bind,source=$out,target=/out",
     '--mount','type=volume,source=zakuro-android-work,target=/work',
-    '--mount','type=volume,source=zakuro-android-test-key,target=/keys',
+    '--mount',$keyMount,
+    '-e','ZAKURO_KEYSTORE_PASSWORD','-e','ZAKURO_KEY_ALIAS',
     '-e','HOME=/work','-e','CARGO_HOME=/work/cargo','-e','CARGO_TARGET_DIR=/work/target',
     $Image,'bash','/src/android/scripts/inside.sh',$apk)
 Write-Host "APK: $(Join-Path $out $apk)"

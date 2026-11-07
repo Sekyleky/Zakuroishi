@@ -28,13 +28,17 @@ done
 (cd "$work" && zip -q -r -0 unsigned.apk lib)
 "$BUILD_TOOLS_BIN/zipalign" -P 16 -f 4 "$work/unsigned.apk" "$work/aligned.apk"
 umask 077
+# A release build passes its own password (and alias; empty = the keystore's only key) in the environment.
+# Passwords go through env: so they never show in a process list. Unset keeps the local test key.
+export ZAKURO_KEYSTORE_PASSWORD=${ZAKURO_KEYSTORE_PASSWORD:-android}
+key_alias=${ZAKURO_KEY_ALIAS-zakuro-android-test}
 if [[ ! -f "$keystore" ]]; then
-    keytool -genkeypair -storetype PKCS12 -keystore "$keystore" -storepass android \
-        -keypass android -alias zakuro-android-test -keyalg RSA -keysize 4096 \
+    keytool -genkeypair -storetype PKCS12 -keystore "$keystore" -storepass:env ZAKURO_KEYSTORE_PASSWORD \
+        -keypass:env ZAKURO_KEYSTORE_PASSWORD -alias zakuro-android-test -keyalg RSA -keysize 4096 \
         -validity 10000 -dname 'CN=Zakuro Android Test'
 fi
-"$BUILD_TOOLS_BIN/apksigner" sign --ks "$keystore" --ks-pass pass:android \
-    --ks-key-alias zakuro-android-test --out "$out" "$work/aligned.apk"
+"$BUILD_TOOLS_BIN/apksigner" sign --ks "$keystore" --ks-pass env:ZAKURO_KEYSTORE_PASSWORD \
+    ${key_alias:+--ks-key-alias "$key_alias"} --out "$out" "$work/aligned.apk"
 "$BUILD_TOOLS_BIN/apksigner" verify --verbose --print-certs "$out"
 "$BUILD_TOOLS_BIN/zipalign" -c -P 16 4 "$out"
 "$BUILD_TOOLS_BIN/aapt" dump badging "$out" > "$work/badging"
