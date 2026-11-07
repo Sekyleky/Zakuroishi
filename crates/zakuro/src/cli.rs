@@ -51,15 +51,18 @@ options:
   --profile                        collect a sampling profile and print it
   --recompiled <path>              run code 3dsrecomp built for the title, a
                                    library or a directory holding <title id>.so
-                                   (.dll on Windows, default: the one 3dsrecomp
-                                   build installed for it, in the system's
-                                   place for data, ~/.local/share/3dsrecomp or
+                                   (.dylib on macOS, .dll on Windows, default:
+                                   the one 3dsrecomp build installed for it, in
+                                   the system's place for data,
+                                   ~/.local/share/3dsrecomp,
+                                   ~/Library/Application Support/3dsrecomp or
                                    %APPDATA%\\3dsrecomp)
   --interpreter                    interpret everything, even with recompiled
                                    code around
   --mute                           play no sound
   --data <dir>                     where saves live (default: the system's
-                                   place for data, ~/.local/share/zakuro or
+                                   place for data, ~/.local/share/zakuro,
+                                   ~/Library/Application Support/zakuro or
                                    %APPDATA%\\zakuro)
   -h, --help                       show this message
 
@@ -128,6 +131,8 @@ pub fn parse() -> Result<Options, String> {
             "--mute" => options.mute = true,
             "--profile" => options.profile = true,
             "--test-pattern" => options.test_pattern = true,
+            // macOS hands an app it hasn't run before a process number
+            other if cfg!(target_os = "macos") && other.starts_with("-psn_") => {}
             other if other.starts_with('-') => {
                 return Err(format!("unknown option '{other}'"));
             }

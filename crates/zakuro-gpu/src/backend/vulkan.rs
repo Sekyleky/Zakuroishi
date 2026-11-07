@@ -9,13 +9,19 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::framegen::{self, FrameGen, FrameGenOptions};
 use super::vulkan_overlay::OverlayPainter;
-use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, Shown, Stereo, StereoMode, Viewport};
+use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, Shown, Stereo, StereoMode, Viewport};
 use crate::raster::hardware::{can_render, render_device};
 use crate::SharedDevice;
 
 const VERTEX_SPIRV: &[u8] = include_bytes!("../../shaders/present.vert.spv");
 const FRAGMENT_SPIRV: &[u8] = include_bytes!("../../shaders/present.frag.spv");
 const STEREO_FRAGMENT_SPIRV: &[u8] = include_bytes!("../../shaders/present_stereo.frag.spv");
+
+/// byte offset of the vertex shader's push constants
+const VERT_CONSTANTS_OFFSET: u32 = 0;
+
+/// byte offset of the fragment shader's push constants
+const FRAG_CONSTANTS_OFFSET: u32 = 16;
 
 /// the bytes of push constants the fragment shader reads: where the screen
 /// lies in its image, the bounds its samples keep in and the filter, and
@@ -168,6 +174,7 @@ pub struct VulkanPresenter {
     overlay: Option<OverlayPainter>,
     window: (u32, u32),
     arrangement: ScreenLayout,
+    orientation: ScreenOrientation,
     top_width: f32,
     filter: ScreenFilter,
     integer: bool,
@@ -191,9 +198,7 @@ impl VulkanPresenter {
         window: &(impl HasDisplayHandle + HasWindowHandle),
         size: (u32, u32),
     ) -> Result<VulkanPresenter, PresentError> {
-        // SAFETY: the loader reads the system's Vulkan library, which is the
-        // documented way to start.
-        let entry = unsafe { ash::Entry::load() }
+        let entry = crate::instance::entry()
             .map_err(|e| fail(format!("no Vulkan loader: {e}")))?;
         Self::with_entry(window, size, entry)
     }
@@ -223,10 +228,7 @@ impl VulkanPresenter {
             .map_err(vk_fail("querying surface extensions"))?
             .to_vec();
 
-        let instance_info = vk::InstanceCreateInfo::default()
-            .application_info(&application)
-            .enabled_extension_names(&extensions);
-        let instance = unsafe { entry.create_instance(&instance_info, None) }
+        let instance = crate::instance::new(&entry, &application, &extensions)
             .map_err(vk_fail("creating the instance"))?;
 
         let surface_instance = ash::khr::surface::Instance::new(&entry, &instance);
@@ -273,9 +275,11 @@ impl VulkanPresenter {
                 let queue_info = [vk::DeviceQueueCreateInfo::default()
                     .queue_family_index(queue_family)
                     .queue_priorities(&priorities)];
+                let mut extensions = swapchain_extension.to_vec();
+                extensions.extend(crate::instance::portability_subset(&instance, physical_device).map(CStr::as_ptr));
                 let device_info = vk::DeviceCreateInfo::default()
                     .queue_create_infos(&queue_info)
-                    .enabled_extension_names(&swapchain_extension);
+                    .enabled_extension_names(&extensions);
                 unsafe { instance.create_device(physical_device, &device_info, None) }
                     .map_err(vk_fail("creating the device"))?
             }
@@ -475,6 +479,7 @@ impl VulkanPresenter {
             overlay: Some(overlay),
             window: size,
             arrangement: ScreenLayout::default(),
+            orientation: ScreenOrientation::default(),
             top_width: super::TOP_WIDTH,
             filter: ScreenFilter::default(),
             integer: false,
@@ -977,7 +982,7 @@ impl VulkanPresenter {
                     Some((self.gpu_sets[self.frame][index], [x, y, width, height, left, top, right, bottom]))
                 }
             };
-            let places = place_configured(self.extent.width, self.extent.height, self.arrangement, self.top_width, self.integer, self.stereo, right, self.stretch, self.swap_screens);
+            let places = place_configured(self.extent.width, self.extent.height, self.arrangement, self.orientation, self.top_width, self.integer, self.stereo, right, self.stretch, self.swap_screens);
             for (viewport, shown) in places {
                 let index = match shown {
                     Shown::Top | Shown::Both => 0,
@@ -1002,7 +1007,8 @@ impl VulkanPresenter {
                 set_viewport(device, command_buffer, viewport, self.extent);
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline);
                 device.cmd_bind_descriptor_sets(command_buffer, vk::PipelineBindPoint::GRAPHICS, layout, 0, &[set], &[]);
-                device.cmd_push_constants(command_buffer, layout, vk::ShaderStageFlags::FRAGMENT, 0, &constants);
+                device.cmd_push_constants(command_buffer, layout, vk::ShaderStageFlags::VERTEX, VERT_CONSTANTS_OFFSET, &self.orientation.clockwise_angle().to_le_bytes());
+                device.cmd_push_constants(command_buffer, layout, vk::ShaderStageFlags::FRAGMENT, FRAG_CONSTANTS_OFFSET, &constants);
                 device.cmd_draw(command_buffer, 3, 1, 0, 0);
             }
 
@@ -1190,6 +1196,10 @@ impl Presenter for VulkanPresenter {
 
     fn set_layout(&mut self, arrangement: ScreenLayout) {
         self.arrangement = arrangement;
+    }
+
+    fn set_orientation(&mut self, orientation: ScreenOrientation) {
+        self.orientation = orientation;
     }
 
     fn set_top_width(&mut self, width: f32) {
@@ -1402,8 +1412,14 @@ fn create_pipeline(
     let fragment = create_shader_module(device, fragment_spirv)?;
 
     let layouts = [descriptor_layout];
-    let constants = [vk::PushConstantRange::default()
+    let constants = [
+        vk::PushConstantRange::default()
+        .stage_flags(vk::ShaderStageFlags::VERTEX)
+        .offset(VERT_CONSTANTS_OFFSET)
+        .size(4),
+        vk::PushConstantRange::default()
         .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+        .offset(FRAG_CONSTANTS_OFFSET)
         .size(constants_size)];
     let pipeline_layout = unsafe {
         device.create_pipeline_layout(

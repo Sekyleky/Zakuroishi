@@ -4,14 +4,22 @@ use std::collections::HashMap;
 
 use glow::HasContext;
 
-use super::{place, Overlay, OverlayVertex, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, Shown, Stereo, StereoMode, Viewport};
+use super::{place, Overlay, OverlayVertex, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, Shown, Stereo, StereoMode, Viewport};
 
 const VERTEX_SHADER: &str = r#"#version 330 core
 // a single oversized triangle covers the viewport with no vertex buffer.
 out vec2 uv;
+uniform int orientation;
 void main() {
     vec2 position = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
     uv = vec2(position.x, 1.0 - position.y);
+    if (orientation == 90) {
+        uv = vec2(uv.y, 1.0 - uv.x);
+    } else if (orientation == 180) {
+        uv = vec2(1.0 - uv.x, 1.0 - uv.y);
+    } else if (orientation == 270) {
+        uv = vec2(1.0 - uv.y, uv.x);
+    }
     gl_Position = vec4(position * 2.0 - 1.0, 0.0, 1.0);
 }
 "#;
@@ -137,6 +145,7 @@ pub struct GlPresenter {
     sizes: [(u32, u32); 3],
     window: (u32, u32),
     arrangement: ScreenLayout,
+    orientation: ScreenOrientation,
     top_width: f32,
     filter: ScreenFilter,
     integer: bool,
@@ -207,6 +216,7 @@ impl GlPresenter {
             sizes: [(0, 0); 3],
             window,
             arrangement: ScreenLayout::default(),
+            orientation: ScreenOrientation::default(),
             top_width: super::TOP_WIDTH,
             filter: ScreenFilter::default(),
             integer: false,
@@ -257,6 +267,9 @@ impl GlPresenter {
             }
             if let Some(location) = gl.get_uniform_location(program, "mode") {
                 gl.uniform_1_i32(Some(&location), self.filter.mode());
+            }
+            if let Some(location) = gl.get_uniform_location(program, "orientation") {
+                gl.uniform_1_i32(Some(&location), self.orientation.clockwise_angle());
             }
         }
     }
@@ -336,7 +349,7 @@ impl Presenter for GlPresenter {
             gl.bind_vertex_array(Some(self.vertex_array));
         }
 
-        for (viewport, shown) in place(self.window.0, self.window.1, self.arrangement, self.top_width, self.integer, self.stereo, has_right) {
+        for (viewport, shown) in place(self.window.0, self.window.1, self.arrangement, self.orientation, self.top_width, self.integer, self.stereo, has_right) {
             match shown {
                 Shown::Top if !top.is_empty() => self.draw_screen(0, viewport),
                 Shown::Bottom if !bottom.is_empty() => self.draw_screen(1, viewport),
@@ -359,6 +372,10 @@ impl Presenter for GlPresenter {
 
     fn set_layout(&mut self, arrangement: ScreenLayout) {
         self.arrangement = arrangement;
+    }
+
+    fn set_orientation(&mut self, orientation: ScreenOrientation) {
+        self.orientation = orientation;
     }
 
     fn set_top_width(&mut self, width: f32) {

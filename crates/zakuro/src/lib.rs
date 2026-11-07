@@ -34,14 +34,40 @@ use input::Keyboard;
 use library::Library;
 use menus::{Action, Menus};
 use present::Backend;
-use recompile::{Job, Stage, Toolchain};
+use recompile::{Job, Stage, Toolchain, Wanted};
 use settings::{CameraSource, Renderer, Screens, Settings};
 
+pub use zakuro_core::memory::Memory;
 pub use zakuro_core::recompiled::Linked;
+
+use crate::settings::Orientation;
+
+/// what a program built on Zakuro shows over its game, worked out from the
+/// game's memory: a line kept in a corner, and a notice shown for a moment.
+/// a recompiled game can show what the game keeps hidden this way, its
+/// alignment, a timer, without drawing into the game's own screens.
+pub trait GameOverlay {
+    /// called after each frame the game runs, with its memory.
+    fn frame(&mut self, memory: &mut Memory) -> OverlayText;
+}
+
+/// what a GameOverlay shows after a frame.
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+pub struct OverlayText {
+    /// a line in the bottom right corner while it is some.
+    pub corner: Option<String>,
+    /// a notice at the top for a moment, as a saved state's.
+    pub notice: Option<String>,
+}
 
 /// runs the emulator as the command line says, on recompiled code linked
 /// into the program when there is some.
 pub fn run(linked: Option<Linked>) {
+    run_with(linked, None)
+}
+
+/// runs the emulator as run does, with an overlay over the game.
+pub fn run_with(linked: Option<Linked>, overlay: Option<Box<dyn GameOverlay>>) {
     report::init();
 
     let options = match cli::parse() {
@@ -73,10 +99,14 @@ pub fn run(linked: Option<Linked>) {
         gamepads: gamepad::Gamepads::new(settings.pad.clone()),
         scale: options.scale.unwrap_or(settings.scale).max(1),
         layout: settings.layout,
+        orientation: settings.orientation,
         top_shape: settings.top_shape,
         options,
+        active: settings.clone(),
         settings,
         linked,
+        overlay,
+        overlay_corner: None,
         library: Library::new(data_dir.clone()),
         data_dir,
         game: None,
@@ -86,6 +116,8 @@ pub fn run(linked: Option<Linked>) {
             menus
         },
         jobs: Vec::new(),
+        waiting: Vec::new(),
+        download_compiler: false,
         gui: None,
         backend: None,
         window: None,
@@ -216,11 +248,18 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
 
 /// builds a System with no title loaded and both screens filled with a
 /// solid color, to check the presentation path (framebuffer config -> guest
-/// memory -> window) in isolation from any title's boot logic.
+/// memory -> window) in isolation from any title's boot logic, and that the
+/// GPU starts, which a packed release is tried with.
 fn paint_test_pattern(config: Config) -> System {
     use zakuro_core::memory::{MemoryRegion, MemoryState, Permission};
 
     let mut system = System::new(config);
+    if system.config.hardware_renderer {
+        match system.gpu.enable_hardware_renderer(system.config.resolution, system.config.device.clone(), None) {
+            Ok(name) => log::info!("the 3D draws on {name}"),
+            Err(error) => log::warn!("the 3D can't draw on the GPU, {error}"),
+        }
+    }
 
     // ABGR in memory for format 0 (Rgba8), red = 00 00 00 FF?
     let paint = |system: &mut System, screen: Screen, rgba: [u8; 4]| {
@@ -339,13 +378,25 @@ impl Running {
 
 struct App {
     options: cli::Options,
+    /// the settings as the user left them, which get saved.
     settings: Settings,
+    /// the settings in force, what the running game has of its own over
+    /// the general ones, which is all there is without a game.
+    active: Settings,
     linked: Option<Linked>,
+    /// what the program built on Zakuro shows over the game, and the line it
+    /// keeps in the corner now.
+    overlay: Option<Box<dyn GameOverlay>>,
+    overlay_corner: Option<String>,
     data_dir: Option<PathBuf>,
     game: Option<Running>,
     library: Library,
     menus: Menus,
     jobs: Vec<Job>,
+    /// the games waiting for their turn to recompile, the next one first.
+    waiting: Vec<Wanted>,
+    /// the player said yes to downloading a compiler for the next recompile.
+    download_compiler: bool,
     gui: Option<Gui>,
     // backend must be declared (and therefore dropped) before window, Rust
     // drops struct fields in declaration order, and the GL surface's Drop
@@ -360,6 +411,7 @@ struct App {
     scale: u32,
     /// how the screens are arranged.
     layout: Screens,
+    orientation: Orientation,
     /// how wide the top screen shows.
     top_shape: settings::TopShape,
     /// the left button is down, and where the pointer is, in window pixels.
@@ -487,9 +539,10 @@ impl ApplicationHandler for App {
             Ok((window, mut backend)) => {
                 log::info!("presenting with the {} backend", backend.name());
                 backend.set_layout(self.layout.screens());
-                backend.set_top_width(self.settings.top_shape.width());
-                backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
-                backend.set_stereo(self.settings.stereo());
+                backend.set_orientation(self.orientation.screen_orientation());
+                backend.set_top_width(self.active.top_shape.width());
+                backend.set_scaling(self.active.filter.screens(), self.active.integer_scale);
+                backend.set_stereo(self.active.stereo());
                 self.gui = Some(Gui::new(&window));
                 self.window = Some(window);
                 self.backend = Some(backend);
@@ -512,8 +565,7 @@ impl ApplicationHandler for App {
             _ => (false, false),
         };
         let in_game = self.game.as_ref().is_some_and(|game| game.system.keyboard_request().is_none())
-            && !self.menus.menu_open
-            && !self.menus.settings_open;
+            && !self.menus.over_game();
         // a Tab held down keeps repeating over a message too
         let withheld = tab && (in_game || (repeat && self.game.is_some()));
         let consumed = match (&mut self.gui, &self.window) {
@@ -562,31 +614,36 @@ impl ApplicationHandler for App {
 }
 
 impl App {
+    /// the id of the running game, none without one, or with the test
+    /// pattern.
+    fn program_id(&self) -> Option<u64> {
+        Some(self.game.as_ref()?.system.title.as_ref()?.program_id())
+    }
+
     /// the console's settings for a game, from the command line and the
-    /// settings.
-    fn config(&self) -> Config {
-        let interpret = self.options.interpreter || !self.settings.recompiled;
+    /// settings it plays with.
+    fn config(&self, settings: &Settings) -> Config {
+        let interpret = self.options.interpreter || !settings.recompiled;
         Config {
             new3ds: self.options.new3ds,
             data_dir: self.data_dir.clone(),
-            language: self.settings.language.code(),
+            language: settings.language.code(),
             recompiled: self.options.recompiled.clone().filter(|_| !interpret).map(Into::into),
             linked: self.linked.filter(|_| !interpret),
             find_recompiled: !interpret,
-            hardware_renderer: self.options.hardware_rasterizer.unwrap_or(self.settings.hardware_rasterizer),
-            texture_packs: self.settings.texture_packs,
-            interpolate: self.settings.frame_interpolation,
-            enhancements: self
-                .settings
+            hardware_renderer: self.options.hardware_rasterizer.unwrap_or(settings.hardware_rasterizer),
+            texture_packs: settings.texture_packs,
+            interpolate: settings.frame_interpolation,
+            enhancements: settings
                 .enhancements
                 .iter()
                 .filter_map(|(id, names)| Some((u64::from_str_radix(id, 16).ok()?, names.clone())))
                 .collect(),
-            resolution: self.settings.resolution,
+            resolution: settings.resolution,
             device: self.backend.as_ref().and_then(Backend::shared_device),
             username: self.nickname(),
-            console_id: self.settings.console_id,
-            slider_3d: self.settings.slider_3d(),
+            console_id: settings.console_id,
+            slider_3d: settings.slider_3d(),
             ..Config::default()
         }
     }
@@ -596,7 +653,7 @@ impl App {
         if self.options.test_pattern {
             // the test pattern has no CPU program to run, paused keeps just
             // presenting what is there
-            let system = paint_test_pattern(self.config());
+            let system = paint_test_pattern(self.config(&self.settings));
             self.game = Some(Running::new(system, PathBuf::new(), "test pattern".to_owned()));
             self.paused = true;
         } else if let Some(rom) = self.options.rom.clone() {
@@ -612,16 +669,34 @@ impl App {
         }
     }
 
-    /// starts the game at path, in place of any other.
+    /// starts the game at path, in place of any other, with what it has of
+    /// its own in the settings.
     fn play(&mut self, path: &Path) -> Result<(), String> {
-        // the old game and what it holds on the GPU go first, its sound too
+        // the old game and what it holds on the GPU go first, its sound too,
+        // and the overlay's line about it
         self.game = None;
+        self.overlay_corner = None;
         if let Some(audio) = &self.audio {
             audio.clear();
         }
         // a Download Play guest goes with the game
         self.dlp_guest = None;
-        let mut config = self.config();
+        // one from the command line isn't in the library, or not yet, and
+        // a Download Play child listed apart from its game is there with no id
+        let known = self.library.games.iter().find(|game| game.path == path && game.problem.is_none()).map(|game| game.program_id);
+        let program_id = known.or_else(|| Some(zakuro_fs::Title::load(path).ok()?.program_id()));
+        self.active = self.settings.for_game(program_id);
+        let started = self.start_game(path);
+        if started.is_err() {
+            self.active = self.settings.clone();
+        }
+        self.apply_layout();
+        started
+    }
+
+    /// loads the game at path, which the settings in force are for.
+    fn start_game(&mut self, path: &Path) -> Result<(), String> {
+        let mut config = self.config(&self.active);
         config.wireless_reboot = self.wireless_reboot.take();
         // the update, DLC and Download Play child found with the game in
         // the library
@@ -677,13 +752,21 @@ impl App {
                 Err(error) => log::warn!("could not record to {}, {error}", record.display()),
             }
         }
-        if outdated {
-            self.menus.message = Some(format!(
-                "{} was recompiled by an older version of Zakuro. Recompile it again from the library to get the newest improvements.",
-                game.name
-            ));
-        } else if in_software {
-            self.menus.message = Some(GPU_FALLBACK.to_owned());
+        // both can be so, and the GPU's is what explains a slow game
+        let notes: Vec<String> = [
+            in_software.then(|| GPU_FALLBACK.to_owned()),
+            outdated.then(|| {
+                format!(
+                    "{} was recompiled by an older version of Zakuro. Recompile it again from the library to get the newest improvements.",
+                    game.name
+                )
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if !notes.is_empty() {
+            self.menus.message = Some(notes.join("\n\n"));
         }
         self.game = Some(game);
         // the new game's cameras see what the settings say, and it plays
@@ -691,7 +774,10 @@ impl App {
         self.camera = None;
         self.apply_camera();
         self.link_room();
+        // nothing left open holds the game back
         self.menus.menu_open = false;
+        self.menus.settings_open = false;
+        self.menus.game_settings = None;
         self.keyboard.release();
         self.paused = false;
         self.next_frame = Instant::now();
@@ -700,6 +786,7 @@ impl App {
 
     fn back_to_library(&mut self) {
         self.game = None;
+        self.overlay_corner = None;
         if let Some(room) = &self.room {
             room.playing("");
         }
@@ -708,6 +795,22 @@ impl App {
         }
         self.menus.menu_open = false;
         self.keyboard.release();
+        // what the game had of its own goes with it
+        self.active = self.settings.clone();
+        self.apply_layout();
+    }
+
+    /// arranges the screens another way, for the running game alone when it
+    /// has an arrangement of its own.
+    fn set_layout(&mut self, layout: Screens) {
+        let own = self.program_id().and_then(|id| self.settings.per_game.get_mut(&settings::game_key(id)));
+        match own.filter(|own| own.layout.is_some()) {
+            Some(own) => own.layout = Some(layout),
+            None => self.settings.layout = layout,
+        }
+        self.settings.save();
+        self.active = self.settings.for_game(self.program_id());
+        self.apply_layout();
     }
 
     fn key(&mut self, event: KeyEvent, consumed: bool) {
@@ -743,16 +846,8 @@ impl App {
                     self.paused = !self.paused;
                     log::info!("{}", if self.paused { "paused" } else { "resumed" });
                 }
-                KeyCode::F9 => {
-                    self.settings.layout = self.settings.layout.next();
-                    self.settings.save();
-                    self.apply_layout();
-                }
-                KeyCode::F10 if self.settings.layout.other_screen() != self.settings.layout => {
-                    self.settings.layout = self.settings.layout.other_screen();
-                    self.settings.save();
-                    self.apply_layout();
-                }
+                KeyCode::F9 => self.set_layout(self.active.layout.next()),
+                KeyCode::F10 if self.active.layout.other_screen() != self.active.layout => self.set_layout(self.active.layout.other_screen()),
                 KeyCode::F11 => self.toggle_fullscreen(),
                 KeyCode::F5 if self.game.is_some() => self.save_state(),
                 KeyCode::F8 if self.game.is_some() => self.load_state(),
@@ -760,8 +855,7 @@ impl App {
             }
         }
         let to_game = self.game.is_some()
-            && !self.menus.menu_open
-            && !self.menus.settings_open
+            && !self.menus.over_game()
             && !consumed
             && !self.gui.as_ref().is_some_and(Gui::wants_keyboard);
         // letting go always gets through, so that no button stays held
@@ -795,7 +889,7 @@ impl App {
     fn touch(&mut self) {
         let Some(window) = &self.window else { return };
         let size = window.inner_size();
-        let (_, bottom) = layout(size.width, size.height, self.layout.screens(), self.top_shape.width(), self.settings.integer_scale);
+        let (_, bottom) = layout(size.width, size.height, self.layout.screens(), self.orientation.screen_orientation(), self.top_shape.width(), self.active.integer_scale);
         // with the top screen alone there is nothing to touch
         let Some(bottom) = bottom else {
             self.keyboard.touch(None);
@@ -805,7 +899,14 @@ impl App {
         let y = self.cursor.1 - bottom.y;
         let inside = x >= 0.0 && y >= 0.0 && x < bottom.width && y < bottom.height;
         self.keyboard.touch((self.mouse_down && inside).then(|| {
-            ((x / bottom.width * 320.0) as u16, (y / bottom.height * 240.0) as u16)
+            let (u, v) = (x / bottom.width, y / bottom.height);
+            let (u, v) = match self.orientation {
+                Orientation::North => (u, v),
+                Orientation::East => (v, 1.0 - u),
+                Orientation::South => (1.0 - u, 1.0 - v),
+                Orientation::West => (1.0 - v, u),
+            };
+            (((u * 320.0) as u16).min(319), ((v * 240.0) as u16).min(239))
         }));
     }
 
@@ -854,13 +955,14 @@ impl App {
     /// saves the settings and puts to use what can change right away.
     fn apply_settings(&mut self) {
         self.settings.save();
+        self.active = self.settings.for_game(self.program_id());
         if let Some(game) = &mut self.game {
-            if game.system.gpu.interpolates() != self.settings.frame_interpolation {
-                let on = game.system.set_interpolation(self.settings.frame_interpolation);
+            if game.system.gpu.interpolates() != self.active.frame_interpolation {
+                let on = game.system.set_interpolation(self.active.frame_interpolation);
                 log::info!("frame interpolation {}", if on { "on" } else { "off" });
             }
             // games read the 3D slider every frame
-            let slider = self.settings.slider_3d();
+            let slider = self.active.slider_3d();
             if game.system.config.slider_3d != slider {
                 game.system.set_slider_3d(slider);
             }
@@ -901,17 +1003,19 @@ impl App {
     /// the window to them.
     fn apply_layout(&mut self) {
         if let Some(backend) = &mut self.backend {
-            backend.set_top_width(self.settings.top_shape.width());
-            backend.set_scaling(self.settings.filter.screens(), self.settings.integer_scale);
-            backend.set_stereo(self.settings.stereo());
+            backend.set_top_width(self.active.top_shape.width());
+            backend.set_scaling(self.active.filter.screens(), self.active.integer_scale);
+            backend.set_stereo(self.active.stereo());
         }
-        let scale = if self.options.scale.is_none() { self.settings.scale.max(1) } else { self.scale };
-        if scale != self.scale || self.settings.layout != self.layout || self.settings.top_shape != self.top_shape {
+        let scale = if self.options.scale.is_none() { self.active.scale.max(1) } else { self.scale };
+        if scale != self.scale || self.active.layout != self.layout || self.active.orientation != self.orientation || self.active.top_shape != self.top_shape {
             self.scale = scale;
-            self.layout = self.settings.layout;
-            self.top_shape = self.settings.top_shape;
+            self.layout = self.active.layout;
+            self.orientation = self.active.orientation;
+            self.top_shape = self.active.top_shape;
             if let Some(backend) = &mut self.backend {
                 backend.set_layout(self.layout.screens());
+                backend.set_orientation(self.orientation.screen_orientation());
             }
             // a full screen or maximized window keeps its size, resizing
             // it would take it out of that, full screen fits it on leaving
@@ -928,53 +1032,82 @@ impl App {
     /// the window size that fits the screens at the chosen scale.
     fn window_size(&self) -> winit::dpi::Size {
         let (width, height) = self.layout.screens().size(self.top_shape.width());
+        let (width, height) = match self.orientation.screen_orientation().is_portrait() {
+            true => (height, width),
+            false => (width, height)
+        };
         // scaled by whole numbers, a desktop scaled by 125% say would leave a
         // border, so the window gets whole multiples of the screens' pixels
-        if let (true, Some(window)) = (self.settings.integer_scale, &self.window) {
+        if let (true, Some(window)) = (self.active.integer_scale, &self.window) {
             let times = (self.scale as f64 * window.scale_factor()).round().max(1.0) as u32;
             return winit::dpi::PhysicalSize::new(width * times, height * times).into();
         }
         winit::dpi::LogicalSize::new(width * self.scale, height * self.scale).into()
     }
 
-    /// recompiles the library's game at index, with the computer's C
-    /// compiler, or the Zig Zakuro downloaded, or else, when download is
-    /// set, with Zig downloaded first. with none of those it asks whether
-    /// to download it.
-    fn recompile(&mut self, index: usize, download: bool) {
-        let Some(game) = self.library.games.get(index) else { return };
-        self.jobs.retain(|job| job.program_id != game.program_id || !job.stage().finished());
-        if self.jobs.iter().any(|job| job.program_id == game.program_id) {
-            return;
-        }
+    /// what to recompile with: the computer's C compiler, or the Zig Zakuro
+    /// downloaded, or else, when the player said yes to it, Zig downloaded
+    /// first. with none of those there is none, it asks whether to download
+    /// Zig for games, or says what is missing.
+    fn toolchain(&mut self, games: &[Wanted]) -> Option<Toolchain> {
         let tools = zig::tools_dir(self.data_dir.as_deref());
-        let toolchain = match recomp3ds::compile::check(None) {
-            Ok(compiler) => Toolchain::Ready(compiler),
-            Err(error) => match tools.as_deref().and_then(zig::installed) {
-                Some(compiler) => Toolchain::Ready(compiler),
-                None => match tools {
-                    Some(tools) if download && zig::download_size().is_some() && zig::can_download() => Toolchain::Download(tools),
-                    Some(_) if zig::download_size().is_some() && zig::can_download() => {
-                        self.menus.compiler_offer = Some(index);
-                        return;
-                    }
-                    Some(_) if zig::download_size().is_some() => {
-                        self.menus.message =
-                            Some(format!("Recompiling needs a C compiler, gcc or clang, or curl or wget for Zakuro to download one: {error}."));
-                        return;
-                    }
-                    _ => {
-                        self.menus.message = Some(format!("Recompiling needs a C compiler: {error}."));
-                        return;
-                    }
-                },
-            },
+        let error = match recomp3ds::compile::check(None) {
+            Ok(compiler) => return Some(Toolchain::Ready(compiler)),
+            Err(error) => error,
         };
-        let update = game.update.as_ref().map(|update| update.path.as_path());
-        self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
+        if let Some(compiler) = tools.as_deref().and_then(zig::installed) {
+            return Some(Toolchain::Ready(compiler));
+        }
+        match tools {
+            Some(tools) if self.download_compiler && zig::download_size().is_some() && zig::can_download() => return Some(Toolchain::Download(tools)),
+            Some(_) if zig::download_size().is_some() && zig::can_download() => self.menus.compiler_offer = Some(games.to_vec()),
+            Some(_) if zig::download_size().is_some() => {
+                self.menus.message = Some(format!("Recompiling needs a C compiler, gcc or clang, or curl or wget for Zakuro to download one: {error}."));
+            }
+            _ => self.menus.message = Some(format!("Recompiling needs a C compiler: {error}.")),
+        }
+        None
     }
 
-    /// tells about recompiles as they finish.
+    /// puts games in line to recompile, after those there are, each with
+    /// its turn once the one before it is done. download says the player
+    /// agreed to download a compiler should there be none.
+    fn recompile(&mut self, games: Vec<Wanted>, download: bool) {
+        self.download_compiler = download;
+        if self.toolchain(&games).is_none() {
+            return;
+        }
+        for game in games {
+            let running = self.jobs.iter().any(|job| job.program_id == game.program_id && !job.stage().finished());
+            if !running && !self.waiting.iter().any(|waiting| waiting.program_id == game.program_id) {
+                self.waiting.push(game);
+            }
+        }
+        self.next_recompile();
+    }
+
+    /// starts the game next in line, when none is recompiling.
+    fn next_recompile(&mut self) {
+        if self.waiting.is_empty() || self.jobs.iter().any(|job| !job.stage().finished()) {
+            return;
+        }
+        // a compiler can have stopped being there, its download failing or
+        // being cancelled, and it asks again for those left
+        let Some(toolchain) = self.toolchain(&self.waiting.clone()) else {
+            self.waiting.clear();
+            return;
+        };
+        self.download_compiler = false;
+        let wanted = self.waiting.remove(0);
+        self.jobs.retain(|job| job.program_id != wanted.program_id);
+        // a scan may have taken it out of the library meanwhile
+        if let Some(game) = self.library.games.iter().find(|game| game.path == wanted.path) {
+            let update = game.update.as_ref().map(|update| update.path.as_path());
+            self.jobs.push(Job::start(&game.path, update, game.program_id, &game.name, self.data_dir.as_deref(), toolchain));
+        }
+    }
+
+    /// tells about recompiles as they finish, and starts the next.
     fn poll_jobs(&mut self) {
         let mut finished = Vec::new();
         for job in &mut self.jobs {
@@ -986,8 +1119,11 @@ impl App {
         for (program_id, name, stage) in finished {
             match stage {
                 Stage::Done => {
-                    self.library.refresh_recompiled();
-                    let playing = self.game.as_ref().is_some_and(|game| game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id));
+                    self.library.recompiled(program_id);
+                    // a game told to run on the interpreter stays on it
+                    let playing = self.game.as_ref().is_some_and(|game| {
+                        game.system.config.find_recompiled && game.system.title.as_ref().is_some_and(|title| title.program_id() == program_id)
+                    });
                     let installed = zakuro_core::recompiled::installed(program_id);
                     if let (true, Some(game), Some(path)) = (playing, self.game.as_mut(), installed) {
                         // from here on the game runs on the new code, no reset needed
@@ -1000,12 +1136,15 @@ impl App {
                         }
                     }
                 }
+                // others can fail before anyone reads this, in a long line
                 Stage::Failed(error) if error != "cancelled" => {
-                    self.menus.message = Some(format!("Recompiling {name} failed, {error}"));
+                    let failed = format!("Recompiling {name} failed, {error}");
+                    self.menus.message = Some(self.menus.message.take().map_or(failed.clone(), |earlier| format!("{earlier}\n\n{failed}")));
                 }
                 _ => {}
             }
         }
+        self.next_recompile();
     }
 
     fn act(&mut self, action: Action, event_loop: &ActiveEventLoop) {
@@ -1015,8 +1154,8 @@ impl App {
                     self.menus.message = Some(error);
                 }
             }
-            Action::Recompile(index) => self.recompile(index, false),
-            Action::DownloadCompiler(index) => self.recompile(index, true),
+            Action::Recompile(games) => self.recompile(games, false),
+            Action::DownloadCompiler(games) => self.recompile(games, true),
             Action::Mods(program_id) => {
                 if let Some(data_dir) = &self.data_dir {
                     let folder = zakuro_core::mods::dir(data_dir, program_id);
@@ -1028,10 +1167,12 @@ impl App {
                 }
             }
             Action::CancelRecompile(program_id) => {
+                self.waiting.retain(|waiting| waiting.program_id != program_id);
                 for job in self.jobs.iter().filter(|job| job.program_id == program_id) {
                     job.cancel();
                 }
             }
+            Action::CancelWaiting => self.waiting.clear(),
             Action::ChooseFolder => {
                 if let Some(folder) = rfd::FileDialog::new().set_title("Where your games are").pick_folder() {
                     self.settings.games = Some(folder.clone());
@@ -1179,8 +1320,7 @@ impl App {
 
         // a game waiting on its keyboard waits for the user, not running
         let typing = self.game.as_ref().is_some_and(|game| game.system.keyboard_request().is_some());
-        let playing =
-            self.game.is_some() && !self.paused && !self.menus.menu_open && !self.menus.settings_open && !typing;
+        let playing = self.game.is_some() && !self.paused && !self.menus.over_game() && !typing;
         // Tab or a controller's right trigger, or the right stick's click
         // while ZR has the trigger, whichever no button of the console's is on
         let free = |button: gilrs::Button| self.settings.pad.map().iter().all(|&(_, bound)| bound != button);
@@ -1281,6 +1421,16 @@ impl App {
         }
         game.system.set_input(input);
         let outcome = game.system.run_frame();
+        // the overlay reads the game the program was built on, not another
+        // one its library opened
+        let ours = self.linked.as_ref().is_none_or(|linked| game.system.title.as_ref().is_some_and(|title| title.program_id() == linked.program_id()));
+        if let Some(overlay) = self.overlay.as_mut().filter(|_| ours) {
+            let text = overlay.frame(&mut game.system.memory);
+            self.overlay_corner = text.corner;
+            if let Some(notice) = text.notice {
+                self.menus.toast = Some((notice, Instant::now()));
+            }
+        }
         game.count_frame();
         let sound = game.system.take_audio();
         // fast forward plays no sound, there is too much of it too soon
@@ -1467,6 +1617,9 @@ impl App {
                 log::info!("loaded the state from {}", path.display());
                 self.menus.toast = Some((format!("Loaded slot {slot}"), Instant::now()));
                 self.menus.menu_open = false;
+                // the overlay's line was about the memory before, the next
+                // frame gives the one about the state
+                self.overlay_corner = None;
                 if let Some(audio) = &self.audio {
                     audio.clear();
                 }
@@ -1500,6 +1653,7 @@ impl App {
             .flatten()
             .and_then(|path| std::fs::metadata(path).ok()?.modified().ok())
             .map(ago);
+        let program_id = self.program_id();
         let (Some(gui), Some(window)) = (&mut self.gui, &self.window) else { return Overlay::default() };
         let show_fps = self.settings.show_fps;
         let game = self.game.as_ref().map(|game| (game.name.clone(), game.fps, game.system.recompiled.is_some()));
@@ -1517,16 +1671,22 @@ impl App {
         let cheats = self.game.as_ref().filter(|_| self.menus.cheats_open).map(|game| {
             game.system.cheats.iter().map(|cheat| (cheat.name.clone(), cheat.enabled, cheat.notes.join("\n"), cheat.builtin)).collect::<Vec<_>>()
         });
-        let (menus, library, settings, jobs) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs);
+        let corner = self.overlay_corner.clone().filter(|_| game.is_some());
+        let (menus, library, settings, jobs, waiting) = (&mut self.menus, &self.library, &mut self.settings, &self.jobs, &self.waiting);
         let mut actions = Vec::new();
         let overlay = gui.frame(window, |ui| {
             match &game {
                 Some((name, fps, recompiled)) => {
-                    actions.extend(menus.game(ui, name, show_fps.then_some(*fps), *recompiled, fast, jobs, saved.as_deref()))
+                    actions.extend(menus.game(ui, name, program_id, show_fps.then_some(*fps), *recompiled, fast, jobs, waiting.len(), saved.as_deref()));
+                    if let Some(text) = &corner {
+                        menus::corner(ui.ctx(), text);
+                    }
                 }
-                None => actions.extend(menus.library(ui, library, settings, jobs)),
+                None => actions.extend(menus.library(ui, library, settings, jobs, waiting)),
             }
-            actions.extend(menus.settings(ui.ctx(), settings));
+            let own = program_id.is_some_and(|id| settings.has_own(id));
+            actions.extend(menus.settings(ui.ctx(), settings, own));
+            actions.extend(menus.game_settings(ui.ctx(), settings));
             if menus.multiplayer_open {
                 actions.extend(menus.multiplayer(ui.ctx(), settings, room.as_ref()));
             }
@@ -1550,7 +1710,7 @@ impl App {
         let overlay = self.interface(event_loop);
         let blank = |screen: Screen| ((std::sync::Arc::new(Vec::new()), screen.width(), screen.height()), None);
         // the right eye's picture only while the 3D shows
-        let stereo = self.settings.stereo != settings::Stereo3d::Off;
+        let stereo = self.active.stereo != settings::Stereo3d::Off;
         let (top, bottom, right) = match &mut self.game {
             Some(game) => (
                 shown(&mut game.system, Screen::Top),

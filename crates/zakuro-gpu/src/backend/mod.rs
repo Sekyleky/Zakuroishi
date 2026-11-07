@@ -183,6 +183,32 @@ pub enum ScreenLayout {
     LargeTop,
 }
 
+/// the Orientation of both screens. north is up
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScreenOrientation {
+    #[default]
+    North,
+    East,
+    South,
+    West,
+}
+
+impl ScreenOrientation {
+    pub fn is_portrait(&self) -> bool {
+        *self == Self::East || *self == Self::West
+    }
+
+    /// clockwise rotation in degrees
+    pub(crate) fn clockwise_angle(&self) -> i32 {
+        match self {
+            ScreenOrientation::North => 0,
+            ScreenOrientation::East => 90,
+            ScreenOrientation::South => 180,
+            ScreenOrientation::West => 270,
+        }
+    }
+}
+
 /// how the screens' pixels are drawn when scaled to the window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScreenFilter {
@@ -235,41 +261,39 @@ pub const TOP_WIDTH: f32 = 400.0;
 const LARGE_TOP_BOTTOM: (u32, u32) = (160, 120);
 
 /// works out where the screens go inside a window, keeping the 3DS's
-/// aspect ratio, or the top screen top_w wide, and centring them, scaled by
+/// aspect ratio, or the top screen top_w wide, rotating and centring them, scaled by
 /// a whole number when integer asks and the window has room. a screen that
 /// does not show has no place.
-pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, top_w: f32, integer: bool) -> (Option<Viewport>, Option<Viewport>) {
-    let (total_width, total_height) = arrangement.size_f(top_w);
+pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_w: f32, integer: bool) -> (Option<Viewport>, Option<Viewport>) {
+    let (layout_width, layout_height) = arrangement.size_f(top_w);
+    let (total_width, total_height) = if matches!(orientation, ScreenOrientation::East | ScreenOrientation::West) {
+        (layout_height, layout_width)
+    } else {
+        (layout_width, layout_height)
+    };
 
     let mut scale = (window_width as f32 / total_width).min(window_height as f32 / total_height);
     if integer && scale >= 1.0 {
         scale = scale.floor();
     }
-    let mut offset_x = (window_width as f32 - total_width * scale) / 2.0;
-    let mut offset_y = (window_height as f32 - total_height * scale) / 2.0;
-    if integer {
-        // whole pixels, or every texel would not get the same size
-        offset_x = offset_x.floor();
-        offset_y = offset_y.floor();
-    }
 
     let top = (arrangement != ScreenLayout::BottomOnly).then_some(Viewport {
-        x: offset_x,
-        y: offset_y,
+        x: 0.0,
+        y: 0.0,
         width: top_w * scale,
         height: 240.0 * scale,
     });
     let bottom = match arrangement {
         // the bottom screen is narrower, so it is centered under the top one.
         ScreenLayout::Stacked => Some(Viewport {
-            x: offset_x + (total_width - 320.0) / 2.0 * scale,
-            y: offset_y + 240.0 * scale,
+            x: (layout_width - 320.0) / 2.0 * scale,
+            y: 240.0 * scale,
             width: 320.0 * scale,
             height: 240.0 * scale,
         }),
         ScreenLayout::SideBySide => Some(Viewport {
-            x: offset_x + top_w * scale,
-            y: offset_y,
+            x: top_w * scale,
+            y: 0.0,
             width: 320.0 * scale,
             height: 240.0 * scale,
         }),
@@ -279,21 +303,48 @@ pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, 
             let half = (LARGE_TOP_BOTTOM.0 as f32 / 320.0) * scale;
             let small = if integer && half >= 1.0 { half.floor() } else { half };
             Some(Viewport {
-                x: offset_x + top_w * scale,
-                y: offset_y + 240.0 * scale - 240.0 * small,
+                x: top_w * scale,
+                y: 240.0 * scale - 240.0 * small,
                 width: 320.0 * small,
                 height: 240.0 * small,
             })
         }
         ScreenLayout::TopOnly => None,
         ScreenLayout::BottomOnly => Some(Viewport {
-            x: offset_x,
-            y: offset_y,
+            x: 0.0,
+            y: 0.0,
             width: 320.0 * scale,
             height: 240.0 * scale,
         }),
     };
-    (top, bottom)
+
+    let canvas_width = layout_width * scale;
+    let canvas_height = layout_height * scale;
+    let rotate = |viewport: Viewport| {
+        let Viewport { x, y, width, height } = viewport;
+        let (x, y, width, height) = match orientation {
+            ScreenOrientation::North => (x, y, width, height),
+            ScreenOrientation::East => (canvas_height - y - height, x, height, width),
+            ScreenOrientation::South => (canvas_width - x - width, canvas_height - y - height, width, height),
+            ScreenOrientation::West => (y, canvas_width - x - width, height, width),
+        };
+        Viewport { x, y, width, height }
+    };
+    let (top, bottom) = (top.map(rotate), bottom.map(rotate));
+
+    let mut offset_x = (window_width as f32 - total_width * scale) / 2.0;
+    let mut offset_y = (window_height as f32 - total_height * scale) / 2.0;
+    if integer {
+        // whole pixels, or every texel would not get the same size
+        offset_x = offset_x.floor();
+        offset_y = offset_y.floor();
+    }
+    let offset = |viewport: Viewport| Viewport {
+        x: offset_x + viewport.x,
+        y: offset_y + viewport.y,
+        ..viewport
+    };
+    (top.map(offset), bottom.map(offset))
 }
 
 /// how the top screen's two pictures, one for each eye, are shown when the
@@ -338,7 +389,7 @@ pub enum Shown {
 /// the screens a frame draws, where and from which picture. the 3D shows
 /// when the title drew a picture for the right eye, side by side shows the
 /// left one's twice otherwise, so a 3D TV keeps its halves.
-pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, top_width: f32, integer: bool, stereo: Stereo, right: bool) -> Vec<(Viewport, Shown)> {
+pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool) -> Vec<(Viewport, Shown)> {
     let screens = |(top, bottom): (Option<Viewport>, Option<Viewport>), eye: Shown| {
         top.map(|viewport| (viewport, eye)).into_iter().chain(bottom.map(|viewport| (viewport, Shown::Bottom)))
     };
@@ -348,21 +399,21 @@ pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, t
         (true, true) => (Shown::Right, Shown::Top),
     };
     match stereo.mode {
-        StereoMode::Off => screens(layout(window_width, window_height, arrangement, top_width, integer), Shown::Top).collect(),
+        StereoMode::Off => screens(layout(window_width, window_height, arrangement, orientation, top_width, integer), Shown::Top).collect(),
         StereoMode::Anaglyph | StereoMode::Interlaced => {
             let top = if right { Shown::Both } else { Shown::Top };
-            screens(layout(window_width, window_height, arrangement, top_width, integer), top).collect()
+            screens(layout(window_width, window_height, arrangement, orientation, top_width, integer), top).collect()
         }
         StereoMode::SideBySide => {
             // each half a window of its own
             let half = window_width / 2;
-            let places = layout(half, window_height, arrangement, top_width, integer);
+            let places = layout(half, window_height, arrangement, orientation, top_width, integer);
             let moved = |(viewport, shown): (Viewport, Shown)| (Viewport { x: viewport.x + half as f32, ..viewport }, shown);
             screens(places, first).chain(screens(places, second).map(moved)).collect()
         }
         StereoMode::HalfSideBySide => {
             // the whole window's places, squeezed into each half
-            let places = layout(window_width, window_height, arrangement, top_width, integer);
+            let places = layout(window_width, window_height, arrangement, orientation, top_width, integer);
             let half = window_width as f32 / 2.0;
             let squeezed = |by: f32| move |(viewport, shown): (Viewport, Shown)| {
                 (Viewport { x: viewport.x / 2.0 + by, width: viewport.width / 2.0, ..viewport }, shown)
@@ -374,8 +425,8 @@ pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, t
 
 /// Presentation geometry shared by Vulkan drawing and frontend touch hit tests.
 /// Stretch fills the display with the arrangement's bounding rectangle.
-pub fn place_configured(window_width: u32, window_height: u32, arrangement: ScreenLayout, top_width: f32, integer: bool, stereo: Stereo, right: bool, stretch: bool, swap: bool) -> Vec<(Viewport, Shown)> {
-    let mut places = place(window_width, window_height, arrangement, top_width, integer && !stretch, stereo, right);
+pub fn place_configured(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool, stretch: bool, swap: bool) -> Vec<(Viewport, Shown)> {
+    let mut places = place(window_width, window_height, arrangement, orientation, top_width, integer && !stretch, stereo, right);
     if swap {
         for (viewport, shown) in &mut places {
             *shown = match *shown {
@@ -451,6 +502,9 @@ pub trait Presenter {
     /// how the screens are arranged from the next frame on.
     fn set_layout(&mut self, arrangement: ScreenLayout);
 
+    /// sets the orientation of both screens.
+    fn set_orientation(&mut self, orientation: ScreenOrientation);
+
     /// how wide the top screen shows, TOP_WIDTH for the console's shape.
     fn set_top_width(&mut self, width: f32);
 
@@ -465,6 +519,10 @@ pub trait Presenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bounds(viewport: Viewport) -> (f32, f32, f32, f32) {
+        (viewport.x, viewport.y, viewport.width, viewport.height)
+    }
 
     #[test]
     fn renderer_overrides_round_trip_all_flags_without_global_test_state() {
@@ -490,7 +548,7 @@ mod tests {
     #[test]
     fn layout_keeps_the_aspect_ratio_and_centers() {
         // a window exactly 400x480 needs no scaling or offset.
-        let (top, bottom) = layout(400, 480, ScreenLayout::Stacked, TOP_WIDTH, false);
+        let (top, bottom) = layout(400, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false);
         let (top, bottom) = (top.unwrap(), bottom.unwrap());
         assert_eq!(top.x, 0.0);
         assert_eq!(top.y, 0.0);
@@ -500,12 +558,12 @@ mod tests {
         assert_eq!(bottom.width, 320.0);
 
         // doubling both dimensions doubles the scale.
-        let top = layout(800, 960, ScreenLayout::Stacked, TOP_WIDTH, false).0.unwrap();
+        let top = layout(800, 960, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false).0.unwrap();
         assert_eq!(top.width, 800.0);
         assert_eq!(top.height, 480.0);
 
         // a window that is too wide letterboxes horizontally.
-        let top = layout(1000, 480, ScreenLayout::Stacked, TOP_WIDTH, false).0.unwrap();
+        let top = layout(1000, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false).0.unwrap();
         assert_eq!(top.width, 400.0);
         assert_eq!(top.x, 300.0);
     }
@@ -513,29 +571,43 @@ mod tests {
     #[test]
     fn the_other_layouts_place_the_screens_their_way() {
         // side by side, the bottom screen starts where the top one ends
-        let (top, bottom) = layout(1440, 480, ScreenLayout::SideBySide, TOP_WIDTH, false);
+        let (top, bottom) = layout(1440, 480, ScreenLayout::SideBySide, ScreenOrientation::North, TOP_WIDTH, false);
         let (top, bottom) = (top.unwrap(), bottom.unwrap());
         assert_eq!((top.x, top.y, top.width), (0.0, 0.0, 800.0));
         assert_eq!((bottom.x, bottom.y, bottom.width, bottom.height), (800.0, 0.0, 640.0, 480.0));
 
         // the top screen alone fills a window of its shape, and a taller
         // one centers it
-        let (top, bottom) = layout(800, 960, ScreenLayout::TopOnly, TOP_WIDTH, false);
+        let (top, bottom) = layout(800, 960, ScreenLayout::TopOnly, ScreenOrientation::North, TOP_WIDTH, false);
         assert!(bottom.is_none());
         let top = top.unwrap();
         assert_eq!((top.x, top.y, top.width, top.height), (0.0, 240.0, 800.0, 480.0));
 
         // and so does the bottom screen alone, a wider window centering it
-        let (top, bottom) = layout(800, 480, ScreenLayout::BottomOnly, TOP_WIDTH, false);
+        let (top, bottom) = layout(800, 480, ScreenLayout::BottomOnly, ScreenOrientation::North, TOP_WIDTH, false);
         assert!(top.is_none());
         let bottom = bottom.unwrap();
         assert_eq!((bottom.x, bottom.y, bottom.width, bottom.height), (80.0, 0.0, 640.0, 480.0));
     }
 
     #[test]
+    fn all_layouts_center_the_visible_screens() {
+        for (arrangement, expected) in [
+            (ScreenLayout::Stacked, (Some((100.0, 20.0, 800.0, 480.0)), Some((180.0, 500.0, 640.0, 480.0)))),
+            (ScreenLayout::SideBySide, (Some((140.0, 380.0, 400.0, 240.0)), Some((540.0, 380.0, 320.0, 240.0)))),
+            (ScreenLayout::LargeTop, (Some((220.0, 380.0, 400.0, 240.0)), Some((620.0, 500.0, 160.0, 120.0)))),
+            (ScreenLayout::TopOnly, (Some((100.0, 260.0, 800.0, 480.0)), None)),
+            (ScreenLayout::BottomOnly, (None, Some((20.0, 140.0, 960.0, 720.0)))),
+        ] {
+            let (top, bottom) = layout(1000, 1000, arrangement, ScreenOrientation::North, TOP_WIDTH, true);
+            assert_eq!((top.map(bounds), bottom.map(bounds)), expected, "{arrangement:?}");
+        }
+    }
+
+    #[test]
     fn the_large_top_screen_takes_most_of_the_window() {
         // the bottom screen at half size sits at the top one's lower right
-        let (top, bottom) = layout(1120, 480, ScreenLayout::LargeTop, TOP_WIDTH, false);
+        let (top, bottom) = layout(1120, 480, ScreenLayout::LargeTop, ScreenOrientation::North, TOP_WIDTH, false);
         let (top, bottom) = (top.unwrap(), bottom.unwrap());
         assert_eq!((top.x, top.y, top.width, top.height), (0.0, 0.0, 800.0, 480.0));
         assert_eq!((bottom.x, bottom.y, bottom.width, bottom.height), (800.0, 240.0, 320.0, 240.0));
@@ -546,18 +618,18 @@ mod tests {
     #[test]
     fn a_wider_top_screen_takes_its_shape() {
         let wide = 240.0 * 16.0 / 9.0;
-        let (top, _) = layout(1920, 1080, ScreenLayout::TopOnly, wide, false);
+        let (top, _) = layout(1920, 1080, ScreenLayout::TopOnly, ScreenOrientation::North, wide, false);
         let top = top.unwrap();
         assert_eq!((top.x, top.y, top.width.round(), top.height), (0.0, 0.0, 1920.0, 1080.0));
 
         // stacked, the bottom screen stays centered under it
-        let (top, bottom) = layout(560, 480, ScreenLayout::Stacked, 560.0, false);
+        let (top, bottom) = layout(560, 480, ScreenLayout::Stacked, ScreenOrientation::North, 560.0, false);
         let (top, bottom) = (top.unwrap(), bottom.unwrap());
         assert_eq!((top.x, top.width), (0.0, 560.0));
         assert_eq!((bottom.x, bottom.width), (120.0, 320.0));
 
         // side by side, it starts where the top screen ends
-        let (_, bottom) = layout(880, 240, ScreenLayout::SideBySide, 560.0, false);
+        let (_, bottom) = layout(880, 240, ScreenLayout::SideBySide, ScreenOrientation::North, 560.0, false);
         assert_eq!(bottom.unwrap().x, 560.0);
         assert_eq!(ScreenLayout::TopOnly.size(wide), (427, 240));
     }
@@ -573,25 +645,25 @@ mod tests {
         };
 
         // off, or a title drawing no 3D, the screens as ever
-        let off = place(400, 480, ScreenLayout::Stacked, TOP_WIDTH, false, on(StereoMode::Off), true);
+        let off = place(400, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, on(StereoMode::Off), true);
         assert_eq!(shown(&off), [Shown::Top, Shown::Bottom]);
-        let flat = place(400, 480, ScreenLayout::Stacked, TOP_WIDTH, false, on(StereoMode::Anaglyph), false);
+        let flat = place(400, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, on(StereoMode::Anaglyph), false);
         assert_eq!(shown(&flat), [Shown::Top, Shown::Bottom]);
 
         // red and cyan or rows, both pictures where the top screen goes
-        let mixed = place(400, 480, ScreenLayout::Stacked, TOP_WIDTH, false, on(StereoMode::Interlaced), true);
+        let mixed = place(400, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, on(StereoMode::Interlaced), true);
         assert_eq!(shown(&mixed), [Shown::Both, Shown::Bottom]);
         assert_eq!(at(&mixed, 0), (0.0, 0.0, 400.0, 240.0));
 
         // side by side, each half a window of its own
-        let halves = place(800, 480, ScreenLayout::Stacked, TOP_WIDTH, false, on(StereoMode::SideBySide), true);
+        let halves = place(800, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, on(StereoMode::SideBySide), true);
         assert_eq!(shown(&halves), [Shown::Top, Shown::Bottom, Shown::Right, Shown::Bottom]);
         assert_eq!(at(&halves, 0), (0.0, 0.0, 400.0, 240.0));
         assert_eq!(at(&halves, 2), (400.0, 0.0, 400.0, 240.0));
         assert_eq!(at(&halves, 3), (440.0, 240.0, 320.0, 240.0));
 
         // squeezed, the whole window's places at half width in each half
-        let squeezed = place(800, 480, ScreenLayout::Stacked, TOP_WIDTH, false, on(StereoMode::HalfSideBySide), true);
+        let squeezed = place(800, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, on(StereoMode::HalfSideBySide), true);
         assert_eq!(shown(&squeezed), [Shown::Top, Shown::Bottom, Shown::Right, Shown::Bottom]);
         assert_eq!(at(&squeezed, 0), (100.0, 0.0, 200.0, 240.0));
         assert_eq!(at(&squeezed, 1), (120.0, 240.0, 160.0, 240.0));
@@ -599,27 +671,67 @@ mod tests {
 
         // swapped, the right eye on the left, and with no 3D drawn both
         // halves the left eye's
-        let swapped = place(800, 480, ScreenLayout::Stacked, TOP_WIDTH, false, Stereo { mode: StereoMode::SideBySide, swap: true }, true);
+        let swapped = place(800, 480, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, Stereo { mode: StereoMode::SideBySide, swap: true }, true);
         assert_eq!(shown(&swapped), [Shown::Right, Shown::Bottom, Shown::Top, Shown::Bottom]);
-        let flat = place(800, 480, ScreenLayout::TopOnly, TOP_WIDTH, false, on(StereoMode::SideBySide), false);
+        let flat = place(800, 480, ScreenLayout::TopOnly, ScreenOrientation::North, TOP_WIDTH, false, on(StereoMode::SideBySide), false);
         assert_eq!(shown(&flat), [Shown::Top, Shown::Top]);
+    }
+
+    #[test]
+    fn the_screens_rotate_together() {
+        use ScreenOrientation::{East, South, West};
+
+        for (orientation, width, height, expected) in [
+            (East, 240, 560, ((0.0, 0.0, 240.0, 400.0), (0.0, 400.0, 120.0, 160.0))),
+            (South, 560, 240, ((160.0, 0.0, 400.0, 240.0), (0.0, 0.0, 160.0, 120.0))),
+            (West, 240, 560, ((0.0, 160.0, 240.0, 400.0), (120.0, 0.0, 120.0, 160.0))),
+        ] {
+            let (top, bottom) = layout(width, height, ScreenLayout::LargeTop, orientation, TOP_WIDTH, false);
+            assert_eq!((bounds(top.unwrap()), bounds(bottom.unwrap())), expected, "{orientation:?}");
+        }
+    }
+
+    #[test]
+    fn rotated_layouts_keep_integer_scaling() {
+        let (top, bottom) = layout(1001, 1201, ScreenLayout::Stacked, ScreenOrientation::East, 560.0, true);
+        assert_eq!(bounds(top.unwrap()), (500.0, 40.0, 480.0, 1120.0));
+        assert_eq!(bounds(bottom.unwrap()), (20.0, 280.0, 480.0, 640.0));
+    }
+
+    #[test]
+    fn stereo_places_rotate_within_each_eye() {
+        for (mode, width, expected) in [
+            (StereoMode::SideBySide, 960, [
+                (240.0, 0.0, 240.0, 400.0), (0.0, 40.0, 240.0, 320.0),
+                (720.0, 0.0, 240.0, 400.0), (480.0, 40.0, 240.0, 320.0),
+            ]),
+            (StereoMode::HalfSideBySide, 480, [
+                (120.0, 0.0, 120.0, 400.0), (0.0, 40.0, 120.0, 320.0),
+                (360.0, 0.0, 120.0, 400.0), (240.0, 40.0, 120.0, 320.0),
+            ]),
+        ] {
+            let places = place(width, 400, ScreenLayout::Stacked, ScreenOrientation::East,
+                TOP_WIDTH, false, Stereo { mode, swap: false }, true);
+            let actual: Vec<_> = places.iter().map(|(viewport, _)| bounds(*viewport)).collect();
+            assert_eq!(actual, expected, "{mode:?}");
+        }
     }
 
     #[test]
     fn integer_scaling_keeps_whole_multiples() {
         // 2.5 times fits, 2 is used, and the rest is border
-        let top = layout(1000, 1200, ScreenLayout::Stacked, TOP_WIDTH, true).0.unwrap();
+        let top = layout(1000, 1200, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, true).0.unwrap();
         assert_eq!((top.width, top.height), (800.0, 480.0));
         assert_eq!((top.x, top.y), (100.0, 120.0));
         // a window smaller than the console's screens still shows them whole
-        let top = layout(200, 240, ScreenLayout::Stacked, TOP_WIDTH, true).0.unwrap();
+        let top = layout(200, 240, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, true).0.unwrap();
         assert_eq!(top.width, 200.0);
         // an odd window puts the screens on whole pixels
-        let (top, bottom) = layout(1001, 961, ScreenLayout::Stacked, TOP_WIDTH, true);
+        let (top, bottom) = layout(1001, 961, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, true);
         assert_eq!((top.unwrap().x, top.unwrap().y), (100.0, 0.0));
         assert_eq!(bottom.unwrap().x, 180.0);
         // the small bottom screen of the big top layout keeps a whole scale
-        let (top, bottom) = layout(1680, 720, ScreenLayout::LargeTop, TOP_WIDTH, true);
+        let (top, bottom) = layout(1680, 720, ScreenLayout::LargeTop, ScreenOrientation::North, TOP_WIDTH, true);
         assert_eq!(top.unwrap().width, 1200.0);
         assert_eq!((bottom.unwrap().width, bottom.unwrap().height), (320.0, 240.0));
     }
@@ -627,7 +739,7 @@ mod tests {
     #[test]
     fn swapping_squeezed_stereo_keeps_eye_order_and_half_width_aspects() {
         let stereo = Stereo { mode: StereoMode::HalfSideBySide, swap: true };
-        let places = place_configured(1600, 960, ScreenLayout::Stacked, 400.0, false, stereo, true, false, true);
+        let places = place_configured(1600, 960, ScreenLayout::Stacked, ScreenOrientation::North, 400.0, false, stereo, true, false, true);
         assert_eq!(places.iter().map(|(_, s)| *s).collect::<Vec<_>>(), [Shown::Bottom, Shown::Right, Shown::Bottom, Shown::Top]);
         for (v, shown) in places {
             let expected = if shown == Shown::Bottom { 320.0 / 240.0 / 2.0 } else { 400.0 / 240.0 / 2.0 };
@@ -637,7 +749,7 @@ mod tests {
 
     #[test]
     fn swapping_preserves_whole_pixel_scaling_when_there_is_room() {
-        for (v, shown) in place_configured(1600, 960, ScreenLayout::Stacked, 400.0, true, Stereo::default(), false, false, true) {
+        for (v, shown) in place_configured(1600, 960, ScreenLayout::Stacked, ScreenOrientation::North, 400.0, true, Stereo::default(), false, false, true) {
             let source_width = if shown == Shown::Bottom { 320.0 } else { 400.0 };
             assert_eq!((v.width / source_width).fract(), 0.0);
             assert_eq!((v.height / 240.0).fract(), 0.0);
@@ -650,7 +762,7 @@ mod tests {
         for arrangement in [ScreenLayout::Stacked, ScreenLayout::SideBySide, ScreenLayout::LargeTop, ScreenLayout::TopOnly, ScreenLayout::BottomOnly] {
             for mode in [StereoMode::Off, StereoMode::Anaglyph, StereoMode::SideBySide, StereoMode::HalfSideBySide, StereoMode::Interlaced] {
                 for swap in [false, true] { for stretch in [false, true] {
-                    let places = place_configured(1280, 720, arrangement, 560.0, true, Stereo { mode, swap: true }, true, stretch, swap);
+                    let places = place_configured(1280, 720, arrangement, ScreenOrientation::North, 560.0, true, Stereo { mode, swap: true }, true, stretch, swap);
                     for (v, _) in &places {
                         assert!(v.width > 0.0 && v.height > 0.0);
                         assert!(v.x >= -0.01 && v.y >= -0.01 && v.x + v.width <= 1280.01 && v.y + v.height <= 720.01, "{arrangement:?} {mode:?} {v:?}");

@@ -53,6 +53,8 @@ pub fn places(settings: &Advanced, width: u32, height: u32, right: bool) -> Vec<
         width,
         height,
         layout(settings),
+        // ponytail: the Activity's orientation setting turns the window here, so contents stay North; add a setting if a handheld's panel ever needs them turned too
+        zakuro_gpu::backend::ScreenOrientation::North,
         settings.top_width,
         settings.integer_scale,
         stereo(settings),

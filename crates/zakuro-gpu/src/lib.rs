@@ -4,6 +4,8 @@ pub mod backend;
 pub mod blend;
 #[cfg(feature = "vulkan")]
 mod device;
+#[cfg(feature = "vulkan")]
+mod instance;
 mod pattern;
 pub mod proctex;
 pub mod fog;
@@ -22,7 +24,7 @@ pub mod texture;
 use format::ColorFormat;
 pub use interpolation::Matches;
 use registers::*;
-pub use backend::{layout, place, GpuScreen, Overlay, OverlayMesh, OverlayTexture, OverlayVertex, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, Shown, Stereo, StereoMode, Viewport};
+pub use backend::{layout, place, GpuScreen, Overlay, OverlayMesh, OverlayTexture, OverlayVertex, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, Shown, Stereo, StereoMode, Viewport};
 pub use renderer::{DrawCall, Renderer, RendererKind, SoftwareRenderer};
 #[cfg(feature = "vulkan")]
 pub use device::SharedDevice;
