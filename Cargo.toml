@@ -29,7 +29,7 @@ log = "0.4"
 thiserror = "2"
 bitflags = { version = "2", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
-recomp-abi = { git = "https://github.com/fearkov/3dsrecomp" }
+recomp-abi = { git = "https://github.com/fearkov/3dsrecomp", rev = "73b8f9caf3700991c290dd84bccffb92294d6b15" }
 rayon = "1"
 memmap2 = "0.9"
 bytemuck = { version = "1", features = ["derive"] }
