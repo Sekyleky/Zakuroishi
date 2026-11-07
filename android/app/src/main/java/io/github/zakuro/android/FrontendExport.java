@@ -20,7 +20,7 @@ final class FrontendExport {
         +COMPONENT+" -a android.intent.action.VIEW -d %ROM_URI% --grant-read-uri-permission\n"
         +"Alternatively merge config/iiSU-Zakuro-entry.json into the Nintendo 3DS console's emulators array in a COPY of your own emuladores.json, then import that complete edited copy through iiSU Settings > Updates. The exported entry is a snippet, not a replacement catalog. Back up your catalog first.\n"
         +"If your iiSU build cannot scan .zkr, scan your original decrypted .3ds/.cci/.cxi ROM folder instead. Zakuroishi reads its title ID and launches the installed game without importing it again. Custom-launch syntax and extension controls depend on the frontend version; Zakuroishi is not yet in their built-in player catalogs.\n\n"
-        +"Other frontends: use ACTION_VIEW, component "+COMPONENT+", and a readable content:// or file:// URI. A per-game URI also works: zakuro://game/TITLE_ID.\n"
+        +"Other frontends: use ACTION_VIEW, component "+COMPONENT+", and a readable content:// URI. A per-game URI also works: zakuro://game/TITLE_ID.\n"
         +"Never point another emulator at these .zkr references. They contain no ROM data and are not suitable for ROM hashing/RetroAchievements.\n";
 
     private static Uri child(Context context, Uri parent, String name, String mime) throws IOException {

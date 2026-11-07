@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 
@@ -29,9 +28,7 @@ public final class FrontendLaunch extends Activity {
                     if(descriptor==null) throw new IOException("Cannot open frontend reference");
                     try(FileInputStream in=new ParcelFileDescriptor.AutoCloseInputStream(descriptor)) { id=FrontendReference.read(in.getChannel()); }
                 }
-            } else if("file".equals(uri.getScheme())) {
-                try(FileInputStream in=new FileInputStream(new File(uri.getPath()))) { id=FrontendReference.read(in.getChannel()); }
-            } else throw new IOException("Use a content URI, file URI or Zakuroishi game link");
+            } else throw new IOException("Use a content URI or Zakuroishi game link");
             startActivity(GameLaunch.intent(this,id)); finish();
         } catch(Exception e) {
             new AlertDialog.Builder(this).setTitle("Couldn't launch this game")

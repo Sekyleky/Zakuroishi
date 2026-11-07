@@ -116,8 +116,7 @@ Use exported component `io.github.zakuro.android/.FrontendLaunch` with
 
 - A `content://` URI for a `.zkr` reference or a decrypted NCSD/NCCH ROM. Grant
   read access in the launch intent; providers must support seeking.
-- A `file://` URI to a file Zakuro already has permission to read. Scoped storage
-  often prevents this; content URIs are preferred.
+- `file://` URIs are not accepted; share the file as a `content://` URI instead.
 - `zakuro://game/00040000001B5100`, replacing the final segment with the imported
   game's 16-digit title ID. A direct URI needs no ROM file access.
 
