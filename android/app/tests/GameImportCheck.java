@@ -145,7 +145,7 @@ public final class GameImportCheck {
         } catch (UnsupportedOperationException | IOException | SecurityException e) { links = false; System.out.println("(symlinks unavailable here; symlink cases skipped)"); }
         String savesBefore = snapshot(new File(files, "savedata"));
         java.util.Set<String> listed = new java.util.TreeSet<>();
-        for (StorageDialog.Item item : StorageDialog.scan(files)) listed.add(files.toPath().relativize(item.file.toPath()).toString().replace('\\', '/'));
+        for (StorageDialog.Item item : StorageDialog.scan(files)) listed.add(files.getCanonicalFile().toPath().relativize(item.file.toPath()).toString().replace('\\', '/'));
         java.util.Set<String> expected = new java.util.TreeSet<>(java.util.Arrays.asList(
                 "imports/" + old, "imports/" + active + "/code/title.so.previous-" + u1,
                 "imports/" + active + mods + "textures.previous-" + u2, "imports/" + active + mods + "romfs.previous-" + u3,
