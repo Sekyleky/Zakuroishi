@@ -128,9 +128,13 @@ final class SaveArchive {
     static Path saveFile(File filesDir, String titleId, String relative) throws IOException {
         Path user = parent(filesDir, titleId).resolve("user");
         checkDirectory(user);
-        if (relative.isEmpty()) return user;
+        return below(user, relative);
+    }
+
+    private static Path below(Path root, String relative) throws IOException {
+        if (relative.isEmpty()) return root;
         validateName("user/" + relative);
-        Path path = user;
+        Path path = root;
         for (String part : relative.split("/")) {
             path = path.resolve(part);
             if (Files.isSymbolicLink(path)) throw new IOException("Symlink in saves");
@@ -138,11 +142,41 @@ final class SaveArchive {
         return path;
     }
 
-    /** Copies the in-game saves to user.previous, replacing the older copy, before an external editor changes them. */
+    private static final int KEEP_BACKUPS = 3;
+    private static final String BACKUP_PREFIX = "user.backup-";
+
+    /** The game's backup folders, newest first. Only exact "user.backup-" + 15 digits names count; nothing else there is ours to touch. */
+    static List<Path> backups(File filesDir, String titleId) throws IOException {
+        List<Path> found = new ArrayList<>();
+        try (DirectoryStream<Path> children = Files.newDirectoryStream(parent(filesDir, titleId), BACKUP_PREFIX + "*")) {
+            for (Path child : children)
+                if (child.getFileName().toString().matches("user\\.backup-\\d{15}") && Files.isDirectory(child, NOFOLLOW)) found.add(child);
+        }
+        Collections.sort(found, Collections.reverseOrder());
+        return found;
+    }
+
+    /** A file or folder inside a backup, by "NAME/path" (NAME = the 15 digits after "user.backup-"); same refusals as saveFile. */
+    static Path backupFile(File filesDir, String titleId, String relative) throws IOException {
+        int slash = relative.indexOf('/');
+        String name = slash < 0 ? relative : relative.substring(0, slash);
+        if (!name.matches("\\d{15}")) throw new IOException("Not a backup");
+        Path root = parent(filesDir, titleId).resolve(BACKUP_PREFIX + name);
+        if (!Files.isDirectory(root, NOFOLLOW)) throw new IOException("No such backup");
+        return below(root, slash < 0 ? "" : relative.substring(slash + 1));
+    }
+
+    /**
+     * Copies the in-game saves to a new user.backup-<millis> folder before an external editor changes them, keeping the
+     * newest 3. Skipped when user is byte-identical to the newest one, so reopening can't rotate good copies out.
+     * user.previous is left alone: recover() and restoreZip() own it.
+     */
     static void backup(File filesDir, String titleId) throws IOException {
-        Path parent = parent(filesDir, titleId), user = parent.resolve("user"), previous = parent.resolve("user.previous");
+        Path parent = parent(filesDir, titleId), user = parent.resolve("user");
         List<Path> paths = new ArrayList<>();
         collect(user, user, paths, new long[2]);
+        List<Path> old = backups(filesDir, titleId);
+        if (!old.isEmpty() && sameTree(user, paths, old.get(0))) return;
         Path staged = Files.createTempDirectory(parent, "save-backup-");
         try {
             for (Path path : paths) {
@@ -150,10 +184,41 @@ final class SaveArchive {
                 if (Files.isDirectory(path, NOFOLLOW)) Files.createDirectories(target);
                 else Files.copy(path, target, LinkOption.NOFOLLOW_LINKS);
             }
-            checkDirectory(previous);
-            if (exists(previous)) deleteTree(previous);
-            Files.move(staged, previous);
+            // Names sort by time; never go below the newest, even if the clock was set back.
+            long stamp = System.currentTimeMillis();
+            if (!old.isEmpty()) stamp = Math.max(stamp, Long.parseLong(old.get(0).getFileName().toString().substring(BACKUP_PREFIX.length())) + 1);
+            Files.move(staged, parent.resolve(String.format(Locale.ROOT, BACKUP_PREFIX + "%015d", stamp)));
         } finally { cleanup(staged); }
+        List<Path> all = backups(filesDir, titleId);
+        for (int i = KEEP_BACKUPS; i < all.size(); i++) cleanup(all.get(i));
+    }
+
+    private static boolean sameTree(Path user, List<Path> paths, Path other) throws IOException {
+        List<Path> theirs = new ArrayList<>();
+        try { collect(other, other, theirs, new long[2]); } catch (IOException unreadable) { return false; }
+        if (theirs.size() != paths.size()) return false;
+        Map<String, Path> byName = new HashMap<>();
+        for (Path path : theirs) byName.put(other.relativize(path).toString(), path);
+        for (Path path : paths) {
+            Path match = byName.get(user.relativize(path).toString());
+            if (match == null || Files.isDirectory(path, NOFOLLOW) != Files.isDirectory(match, NOFOLLOW)) return false;
+            if (!Files.isDirectory(path, NOFOLLOW) && !sameBytes(path, match)) return false;
+        }
+        return true;
+    }
+
+    private static boolean sameBytes(Path a, Path b) throws IOException {
+        if (Files.size(a) != Files.size(b)) return false;
+        try (InputStream x = Files.newInputStream(a, LinkOption.NOFOLLOW_LINKS); InputStream y = Files.newInputStream(b, LinkOption.NOFOLLOW_LINKS)) {
+            byte[] p = new byte[32768], q = new byte[32768];
+            int n;
+            while ((n = x.read(p)) != -1) {
+                int got = 0;
+                while (got < n) { int r = y.read(q, got, n - got); if (r < 0) return false; got += r; }
+                if (!Arrays.equals(Arrays.copyOf(p, n), Arrays.copyOf(q, n))) return false;
+            }
+            return true;
+        }
     }
 
     private static byte[] manifest(String title) {

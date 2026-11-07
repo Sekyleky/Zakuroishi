@@ -190,14 +190,36 @@ public final class SaveArchiveCheck {
         Path link = user.resolve("linked");
         try { Files.createSymbolicLink(link, root); } catch (IOException | UnsupportedOperationException noLinks) { link = null; }
         if (link != null) { final Path through = link; fails(() -> SaveArchive.saveFile(files, TITLE, "linked/x")); Files.delete(through); }
+        // user.previous belongs to restore/recover: an editor backup must not touch it.
+        Files.createDirectories(previous); Files.write(previous.resolve("keep"), text("restore copy"));
         SaveArchive.backup(files, TITLE);
-        require(Arrays.equals(Files.readAllBytes(previous.resolve("slot.bin")), text("original save")));
-        require(Files.isDirectory(previous.resolve("empty/nested")));
-        Files.write(user.resolve("slot.bin"), text("edited"));
-        SaveArchive.backup(files, TITLE);
-        require(Arrays.equals(Files.readAllBytes(previous.resolve("slot.bin")), text("edited")));
+        List<Path> ring = SaveArchive.backups(files, TITLE);
+        require(ring.size() == 1);
+        require(Arrays.equals(Files.readAllBytes(ring.get(0).resolve("slot.bin")), text("original save")));
+        require(Files.isDirectory(ring.get(0).resolve("empty/nested")));
+        require(Arrays.equals(Files.readAllBytes(previous.resolve("keep")), text("restore copy")));
+        // Reopening an unchanged save must not add a copy (or rotate a good one out).
+        for (int i = 0; i < 5; i++) SaveArchive.backup(files, TITLE);
+        require(SaveArchive.backups(files, TITLE).size() == 1);
+        String[] edits = {"edit 1", "edit 2", "edit 3"};
+        for (String edit : edits) { Files.write(user.resolve("slot.bin"), text(edit)); SaveArchive.backup(files, TITLE); }
+        ring = SaveArchive.backups(files, TITLE);
+        require(ring.size() == 3); // "original save" was the oldest of 4 and was pruned
+        require(Arrays.equals(Files.readAllBytes(ring.get(0).resolve("slot.bin")), text("edit 3")));
+        require(Arrays.equals(Files.readAllBytes(ring.get(2).resolve("slot.bin")), text("edit 1")));
+        // Only exactly named folders are pruned; look-alikes stay.
+        Path lookalike = Files.createDirectory(user.getParent().resolve("user.backup-keepme"));
+        Files.write(user.resolve("slot.bin"), text("edit 4")); SaveArchive.backup(files, TITLE);
+        require(SaveArchive.backups(files, TITLE).size() == 3 && Files.isDirectory(lookalike));
+        Files.delete(lookalike);
+        // The provider's read-only view of a backup resolves inside it only.
+        String name = SaveArchive.backups(files, TITLE).get(0).getFileName().toString().substring("user.backup-".length());
+        require(SaveArchive.backupFile(files, TITLE, name + "/slot.bin").equals(SaveArchive.backups(files, TITLE).get(0).resolve("slot.bin")));
+        for (String bad : new String[] {"", "x", name + "/../slot.bin", "000000000000000", name.replace('0', '9') + "/slot.bin", "../user"})
+            fails(() -> SaveArchive.backupFile(files, TITLE, bad));
         Files.write(user.resolve("slot.bin"), text("original save"));
         try (DirectoryStream<Path> stale = Files.newDirectoryStream(user.getParent(), "save-backup-*")) { require(!stale.iterator().hasNext()); }
+        for (Path backup : SaveArchive.backups(files, TITLE)) delete(backup);
         delete(previous);
     }
     private static void testLinks(File files, Path root, Path user, byte[] exported) throws Exception {
@@ -214,6 +236,12 @@ public final class SaveArchiveCheck {
         Path aliased = Files.createSymbolicLink(root.resolve("alias"), root);
         try (SaveArchive.Guard ignored = SaveArchive.lock(aliased.toFile(), TITLE)) { require(false); }
         catch (IOException inUse) { require(inUse.getMessage().equals(SaveArchive.IN_USE)); }
+        // The backup ring goes through the aliased filesDir to the same real folders.
+        SaveArchive.backup(aliased.toFile(), TITLE);
+        require(SaveArchive.backups(files, TITLE).size() == 1 && SaveArchive.backups(aliased.toFile(), TITLE).size() == 1);
+        SaveArchive.backup(files, TITLE);
+        require(SaveArchive.backups(files, TITLE).size() == 1);
+        delete(SaveArchive.backups(files, TITLE).get(0));
         Files.delete(aliased);
         Path previous = user.resolveSibling("user.previous");
         Files.createSymbolicLink(previous, outside);
