@@ -29,6 +29,9 @@ with each release. Nothing here has been measured on more than one device, an AY
   not your render scale. Frame generation is top screen only.
 - **Portrait:** `orientation=portrait` left the picture landscape on the Thor. Not yet compared with
   a build before the upstream merge, which doesn't change that code.
+- **First five seconds with frame generation on a 60 Hz panel:** about 56% speed, 40-50 audio
+  underruns and one stall of about 400 ms while it switches from x4 to x2. Likely that switch; not
+  confirmed.
 - **Anaglyph stereo** showed no red/cyan fringing in the one scene tried, before and after the
   upstream merge. Side by side does show parallax. Cause unknown.
 - **Frame generation** is experimental. It needs your own `Lossless.dll` and is mostly measured on

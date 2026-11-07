@@ -4,6 +4,21 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## 0.4.0 release check (2026-11-07, build `6c3b621`)
+
+AYN Thor, Turnip (Balemuni), panel 60 Hz, Ultra Moon 3x + HD, `frame_generation` x4 (falls back to
+x2), second display on. `adb install -r` over the merge build, then one run from launch into a wild
+battle.
+
+| Check | Result |
+| --- | --- |
+| Install | Version 0.4.0 (14), same first install time, Ultra Moon settings byte-identical |
+| Picture | HD textures in battle, seen by screenshot |
+| After the first 5 s | 100.2-100.4%, 59.9-60.1 presented/s, 0 underruns, audio queue 116-159 ms |
+| Battle | Worst core 33.3 ms, mean core 4.51 ms; field entry core 8.1 ms |
+| First 5 s | 56.3%, 52 underruns, one 425 ms frame, as in every earlier run (see below) |
+| Log | No E or FATAL lines |
+
 ## Upstream 0.2.32 merge on the Thor (2026-11-07, build `3488a03`)
 
 AYN Thor, one device, against `813ad3e`, the same work without the merge. Ultra Moon 3x + HD,
@@ -22,13 +37,16 @@ at 60 Hz and no system setting was changed, so 120 Hz was not measured.
 | Worst frame total, per run | 423, 431, 432 ms | 44, 430, 45 ms |
 | First field frame, total | 25-30 ms | 25-27 ms |
 | Audio queue | 93-147 ms | 93-144 ms |
-| Underruns | 0 | 0 |
+| Underruns after the first 5 s | 0 | 0 |
+| Underruns in the first 5 s | 48, 51, 52 | 52, 48, 41 |
 | Battery temperature | 22-23 C | 26 C |
 
 Core and worst-frame figures come from the runs' `frame hitch` lines. No win is claimed. The merge's
 mean core time is 0.2-0.7 ms higher and its worst core frame lower, but it ran 4 C warmer and each
-build has only three runs. Neither the 400 ms present stalls nor why two merge runs lacked one is
-explained.
+build has only three runs. The first 5 s of every run, on both builds, hold the underruns and a
+stall of about 400 ms; that is when frame generation switches from x4 to x2 for the 60 Hz panel,
+which is the likely cause but not confirmed. Why two merge runs show no 400 ms `frame hitch` line
+is not explained.
 
 | Check on the merge | Result |
 | --- | --- |

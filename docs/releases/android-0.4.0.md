@@ -50,7 +50,7 @@ build.
 | Latency, median | 38.0-40.4 ms | 40.1-40.5 ms |
 | Average emulation time per frame | 4.77-5.06 ms | 4.93-5.73 ms |
 | Worst emulation frame | 36.3-45.1 ms | 24.8-33.0 ms |
-| Audio underruns | 0 | 0 |
+| Audio underruns after the first 5 s | 0 | 0 |
 
 This isn't claimed as a speedup: there are only three runs per build, and the merge's runs were about
 4 °C warmer.
@@ -65,8 +65,11 @@ This isn't claimed as a speedup: there are only three runs per build, and the me
   battery watts while discharging, a long thermal run, and touch on wide layouts beyond one tap.
 - **Known problems:** `orientation=portrait` stays landscape on the Thor (this merge doesn't change
   that code; an older build wasn't compared). Anaglyph stereo showed no red/cyan fringing in the one
-  scene tried, with or without the merge. Roughly 400 ms display stalls appeared in all three runs
-  without the merge and one of three with it, unexplained.
+  scene tried, with or without the merge.
+- **The first five seconds of a game** with frame generation on a 60 Hz screen run at about 56%,
+  with crackling sound (40-50 underruns) and one stall of about 400 ms, before and after this
+  release. That is when frame generation switches from x4 to x2; the switch is the likely cause but
+  that isn't confirmed.
 - Frame generation is still experimental. It ran at x2 and 100.4% in one field scene on the stock
   driver; everything else was measured on Turnip.
 
