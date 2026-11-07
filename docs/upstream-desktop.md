@@ -8,7 +8,7 @@ A WIP HLE Nintendo 3DS emulator written in Rust that uses ahead-of-time (AOT) re
 
 Bug reports, progress and everything else are on the [Discord server](https://discord.gg/7dduXVv2xm).
 
-The games tested so far are in [COMPATIBILITY.md](COMPATIBILITY.md).
+The games tested so far are in [COMPATIBILITY.md](../COMPATIBILITY.md).
 
 <p>
   <img width="266" alt="Pokémon Y running in Zakuro" src="docs/screenshots/pokemon-y.png" />
