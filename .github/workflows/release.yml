@@ -84,9 +84,9 @@ jobs:
             Zakuro-x86_64.AppImage*
 
   release:
-    if: github.repository == 'fearkov/zakuro'
     needs: build
-    if: ${{ github.event_name == 'push' || inputs.publish }}
+    # Preserve upstream desktop automation without publishing desktop assets in this fork.
+    if: ${{ github.repository == 'fearkov/zakuro' && (github.event_name == 'push' || inputs.publish) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
