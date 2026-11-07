@@ -178,8 +178,15 @@ impl Material {
             State::Read(picture) => Some(picture.clone()),
             State::OnDisk => {
                 *state = State::Reading { wanted: true };
+                let Some(pool) = readers() else {
+                    // ponytail: no reader threads, so the picture is decoded here and the frame waits for it;
+                    // a hitch the first time each picture is wanted, instead of a panic
+                    drop(state);
+                    self.read(kept);
+                    return None;
+                };
                 let material = Arc::downgrade(self);
-                readers().spawn(move || {
+                pool.spawn(move || {
                     // a game closed meanwhile takes its pack with it
                     if let Some(material) = material.upgrade() {
                         material.read(kept);
@@ -196,7 +203,8 @@ impl Material {
     }
 
     fn read(&self, kept: u32) {
-        let read = read_png(&self.path, self.flipped, kept);
+        // A panic in a reader task would leave the texture in Reading for good (and rayon aborts on one in a spawned task).
+        let read = std::panic::catch_unwind(|| read_png(&self.path, self.flipped, kept)).unwrap_or_else(|_| Err("the decoder panicked".into()));
         let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         *state = match (&*state, read) {
             (State::Broken, _) => return,
@@ -229,17 +237,20 @@ impl Material {
 }
 
 /// the threads pictures are read on, half the cores and at most four, so
-/// that the game goes on meanwhile.
-fn readers() -> &'static rayon::ThreadPool {
-    static READERS: OnceLock<rayon::ThreadPool> = OnceLock::new();
-    READERS.get_or_init(|| {
-        let cores = std::thread::available_parallelism().map_or(2, |cores| cores.get());
-        rayon::ThreadPoolBuilder::new()
-            .num_threads((cores / 2).clamp(1, 4))
-            .thread_name(|index| format!("texture pack {index}"))
-            .build()
-            .expect("threads to read texture packs on")
-    })
+/// that the game goes on meanwhile. none when the system refuses the threads.
+fn readers() -> Option<&'static rayon::ThreadPool> {
+    static READERS: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
+    READERS
+        .get_or_init(|| {
+            let cores = std::thread::available_parallelism().map_or(2, |cores| cores.get());
+            rayon::ThreadPoolBuilder::new()
+                .num_threads((cores / 2).clamp(1, 4))
+                .thread_name(|index| format!("texture pack {index}"))
+                .build()
+                .inspect_err(|error| log::warn!("could not start threads to read texture packs on, {error}, reading on the game's own"))
+                .ok()
+        })
+        .as_ref()
 }
 
 /// a pack with one picture, named for these bytes as Citra hashed them.
@@ -254,10 +265,12 @@ pub(crate) fn pack_for(data: &[u8], format: TextureFormat, width: u32, height: u
 /// picture readers, so a frame bringing many new textures does not wait on
 /// hashing them.
 pub(crate) fn look_up(job: impl FnOnce() + Send + 'static) {
-    static LOOKUP: OnceLock<rayon::ThreadPool> = OnceLock::new();
-    LOOKUP
-        .get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(1).thread_name(|_| "pack lookup".into()).build().expect("a thread to look textures up on"))
-        .spawn(job);
+    static LOOKUP: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
+    match LOOKUP.get_or_init(|| rayon::ThreadPoolBuilder::new().num_threads(1).thread_name(|_| "pack lookup".into()).build().ok()) {
+        Some(pool) => pool.spawn(job),
+        // ponytail: no thread to look up on, so the frame hashes it itself
+        None => job(),
+    }
 }
 
 /// what pack.json says, or what holds without one.
@@ -971,6 +984,15 @@ mod tests {
         material.read(4096);
         assert!(matches!(*material.state.lock().unwrap(), State::Broken));
         std::fs::remove_file(&path).unwrap();
+    }
+
+    /// a picture that can't be read leaves the texture as it is for good, not reading.
+    #[test]
+    fn an_unreadable_picture_is_broken_not_left_reading() {
+        let missing = std::env::temp_dir().join(format!("zakuro-missing-{}.png", std::process::id()));
+        let material = Material { hash: 1, path: missing, flipped: false, state: Mutex::new(State::Reading { wanted: true }) };
+        material.read(4096);
+        assert!(matches!(*material.state.lock().unwrap(), State::Broken));
     }
 
     #[test]
