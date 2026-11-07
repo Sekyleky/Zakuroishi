@@ -130,7 +130,8 @@ release-key APK, an old-key APK won't install over it.
   `release.password.dpapi`, encrypted for that Windows user; without it, the test key.
 - `build.ps1 -Keystore FILE.p12` applies the lineage too.
 - `android-release.yml` needs secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`
-  and variable `ANDROID_CERT_SHA256` set to the release fingerprint. It has not run on GitHub yet.
+  and variable `ANDROID_CERT_SHA256` set to the release fingerprint. At 0.4.0 it refused to build because the secrets were not set yet, and 0.4.0 was
+  built locally with `build-windows.ps1`, the APK that was tested on the Thor.
 
 ## Generator pin
 
