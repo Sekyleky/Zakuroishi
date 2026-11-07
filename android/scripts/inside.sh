@@ -24,4 +24,6 @@ bash /src/android/scripts/make_apk.sh /work/libzakuro_android.so /work/signed.ap
 # Signing and replacement happen on Linux storage; the bind mount gets a new file.
 test ! -e "/out/$out"
 cp --no-clobber /work/signed.apk "/out/$out"
-sha256sum "/out/$out" > "/out/$out.sha256"
+# make_apk.sh's umask 077 protects the key, not the APK, and the host reads /out as another user.
+chmod 644 "/out/$out"
+(cd /out && sha256sum "$out" > "$out.sha256")
