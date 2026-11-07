@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — Upstream 0.2.32, Tools menu, save-editor backups, release signing key (2026-11-07)
 
-Not released; the version stays 0.3.1. Checked on the Thor on 2026-11-07 (build `2fc37e4`),
-see [testing](testing.md#thor-re-test-of-the-audit-fixes-branch-2026-11-07-build-2fc37e4).
+Checked on the Thor on 2026-11-07, see
+[testing](testing.md#thor-re-test-of-the-audit-fixes-branch-2026-11-07-build-2fc37e4). Release notes:
+[0.4.0](releases/android-0.4.0.md).
 
 - **Merged upstream Zakuro 0.2.32** (`c856685`), so upstream's history is part of this branch instead
   of ported commits. The fork's shader, texture and upload switches stay. Checked against the build

@@ -401,8 +401,8 @@ settings persistence are audited separately from engine support.
 ## Actual verification and limits (history, as of 0.1.3)
 
 This section records the state at 0.1.3, when the matrix was last audited.
-Current host counts (unreleased changes, 2026-11-07, commit `acd3a74`): `zakuro-gpu --lib` 143
-passed and 2 ignored, `zakuro-core --lib` 149, `zakuro-android` 45. It is not the
+Host counts at 0.4.0 (2026-11-07): `zakuro-gpu --lib` 147
+passed and 2 ignored, `zakuro-core --lib` 151, `zakuro-android` 45. This section is not the
 current state: counts belong to the release they were taken on, and the current results
 and gaps are in the [verification record](testing.md) and [known issues](known-issues.md).
 At that time (the evidence is a local record, see the note at the top of the verification record):

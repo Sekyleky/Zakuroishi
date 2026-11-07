@@ -72,8 +72,8 @@ The reverse was not tried: an old-key APK is expected to be refused now.
 ## Thor re-test of the audit-fixes branch (2026-11-07, build `2fc37e4`)
 
 AYN Thor, Turnip (Balemuni), panel 60 Hz (`peak_refresh_rate=60`), Ultra Moon 3x + HD,
-`frame_generation` x4 (which falls back to x2), battle scene. This build is unreleased; the
-changes are under Unreleased in the [changelog](changelog.md).
+`frame_generation` x4 (which falls back to x2), battle scene. These changes shipped in
+0.4.0, see the [changelog](changelog.md).
 
 | Check | Result |
 | --- | --- |

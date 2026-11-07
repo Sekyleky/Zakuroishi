@@ -269,7 +269,7 @@ editor that opens files through the picker (PKForge, PKHeX ports) can open and s
 them in place; no extra permission is needed and other apps only get the file you
 pick. Writes are refused while that game is running, and files can't be created,
 renamed or deleted from the picker. Quick save states are not listed. Before a write,
-0.3.1 and earlier copy the saves to `user.previous`. The unreleased changes instead keep
+0.3.1 and earlier copy the saves to `user.previous`. 0.4.0 and later instead keep
 the 3 newest backups of the in-game saves as `user.backup-<ms>`, skipping a copy when
 nothing changed; browse them read-only under `:backups` in the game's folder in the picker.
 
@@ -287,7 +287,7 @@ The app stores files privately beneath Android's app files directory:
 | --- | --- |
 | `savedata/TITLE_ID/user/` | Stable in-game saves, linked into each import |
 | `savedata/TITLE_ID/user.previous/` | Recovery copy retained by Restore ZIP (0.3.1 and earlier: also the save-editor backup) |
-| `savedata/TITLE_ID/user.backup-<ms>/` | Save-editor backups, 3 newest kept (unreleased) |
+| `savedata/TITLE_ID/user.backup-<ms>/` | Save-editor backups, 3 newest kept (0.4.0 and later) |
 | `imports/TITLE_ID.active` | Atomically activated version UUID |
 | `imports/UUID/game/game.3ds` | Imported original ROM |
 | `imports/UUID/code/title.so` | Read-only native game library |
@@ -298,11 +298,11 @@ The app stores files privately beneath Android's app files directory:
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's
 state files. Old imports and component backups are retained deliberately and are never
-deleted automatically; **Tools → Storage** (unreleased) lists them and deletes one at a
+deleted automatically; **Tools → Storage** lists them and deletes one at a
 time after a confirm. Large imports need space for both old and new copies. App-private data is not ordinarily browsable in Android's
 Files app. Back up saves before uninstalling or clearing app data.
 
-## Tools menu (unreleased)
+## Tools menu
 
 The library header has a **Tools** menu:
 
