@@ -4,6 +4,21 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Release key install over the old key (2026-11-07, build `813ad3e`)
+
+AYN Thor, one device. `adb install -r` of a build signed with the release key and its lineage,
+over an installed build signed with the old development key. No uninstall.
+
+| Check | Result |
+| --- | --- |
+| Install | `Success` |
+| App identity | Same user id (10174); first install time unchanged (2026-10-30) |
+| Ultra Moon settings | Byte-identical before and after |
+| Signing history on the device | `apkSigningVersion=3`; both certificates listed as past signatures |
+| Ultra Moon after the install | Save loaded, field reached, HD textures seen by screenshot; 100.3%, 0 underruns |
+
+The reverse was not tried: an old-key APK is expected to be refused now.
+
 ## Thor re-test of the audit-fixes branch (2026-11-07, build `2fc37e4`)
 
 AYN Thor, Turnip (Balemuni), panel 60 Hz (`peak_refresh_rate=60`), Ultra Moon 3x + HD,
