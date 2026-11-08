@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+Not released. Host checks only: nothing below has run on a device.
+
+- **Save states:** **Save to slot…** and **Load from slot…** in the game menu keep up to 9 states
+  per game, listed with the time they were saved. **Save state** and **Load state** still use the
+  quick slot, slot 0, as before.
+- **Mods:** a mod can be added on top of a game's current mods or replace them; files from the
+  newer mod win, and two mods that both change game code are refused. **Remove mods** deletes a
+  game's mods and keeps its texture pack. A mod folder is found when you pick a folder above it.
+  An `exefs/` banner, icon or logo is ignored. ZIPs still need extracting first.
+- **Ported from Pocket Native:**
+  - A request to a system service no longer waits when no other thread is ready to run, so an
+    idle core doesn't wait for the GPU on every request. The old wait is the Performance switch
+    `request_wait_idle`, off by default.
+  - Closed timers leave the timer list, and a timer is never listed twice.
+  - Country code lookups in the system settings service.
+  - Writing a sound voice's filter settings no longer turns the filter on.
+  - Geometry shaders in fixed primitive mode (Kid Icarus: Uprising).
+- Quick states saved by 0.4.0 may fail to load, with a message, because a sound filter's state
+  changed. Saves are not affected.
+
 ## 0.4.0 — Upstream 0.2.32, Tools menu, save-editor backups, release signing key (2026-11-07)
 
 Checked on the Thor on 2026-11-07, see

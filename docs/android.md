@@ -59,11 +59,25 @@ Other build outputs, source files and unrelated files are not copied.
 ## Mods
 
 Open a game's **Settings** and choose **Import mod…**, then select the mod's
-folder as Luma3DS (`luma/titles/TITLE_ID/`) or Citra/Azahar (`load/mods/TITLE_ID/`)
-lay it out: its `romfs/`, `romfs_ext/` and code patches are copied to the game's mods
-folder and laid over the game the next time it starts. Importing again replaces
-the previous mod; adding the game again removes it. A folder named for a different
-title id is refused.
+folder. The importer finds the mod whichever level you pick: the folder that holds
+`romfs/`, `exefs/` or the code patches, a folder above it (`luma/titles/`,
+`load/mods/` or a wrapper from an extracted ZIP, where the folder named for the
+game's title id is used, in any letter case), or a `romfs`/`romfs_ext` folder itself.
+Folders for other games are skipped; two possible mods in one folder are refused.
+Names such as `RomFS`, `ExeFS` and `Code.IPS` are accepted in any case. Its `romfs/`,
+`romfs_ext/` (`.ips`, `.bps` patches and `.stub` removals), `code.bin`/`code.ips`/`code.bps`
+(in the folder or its `exefs/`, IPS and IPS32) and `exheader.bin` are copied to the game's
+mods folder and laid over the game the next time it starts. `exefs/banner.bin`,
+`icon.bin` and `logo` files are ignored. A ZIP has to be extracted first (the importer
+reads folders, and says so when it finds only a ZIP).
+
+When the game already has mods, you choose **Add to current mods** or **Replace
+current mods**. Adding lays the new files over the current ones (the newer mod
+wins where they overlap) and, like replacing, changes nothing if anything fails.
+Only one mod can change the game's code: if the current mods and the new one both
+carry `code.*` or `exheader.bin`, adding is refused; replace instead. **Remove
+mods** deletes the game's mods and keeps its texture pack, ROM and saves. Adding the
+game again also removes them. A folder named for a different title id is refused.
 
 Mods that change game code (`code.bin`, `code.ips`, `code.bps`, in the folder or its
 `exefs/`, and `exheader.bin`) run best with a `title.so` built with them: pass a data
@@ -211,6 +225,9 @@ sound/tap latching (Audio/Controls):
 - **Vsync: fewer frames waiting** (`short_vsync_queue`), off: 3 swapchain images instead
   of 4 under FIFO; Turnip shows frames 57 → 40 ms after they are ready, the stock driver
   is unchanged (16 ms) with a few more late frames. Worth turning on with Turnip.
+- **Service requests wait for the reply even when idle** (`request_wait_idle`), off: a
+  request to a system service is answered at once when no other game thread could run;
+  on brings back the old wait on every request, to compare. Not measured on a device yet.
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 
@@ -294,6 +311,11 @@ The app stores files privately beneath Android's app files directory:
 | `imports/UUID/data/mods/TITLE_ID/textures/` | Optional replacement pack |
 | `imports/UUID/data/mods/TITLE_ID/romfs/`, `romfs_ext/` | Optional mod (also `code.ips`, `code.bps`, `code.bin`, `exheader.bin`) |
 | `imports/UUID/data/states/TITLE_ID/0.state` | Quick-save slot for this import |
+| `imports/UUID/data/states/TITLE_ID/1.state` to `9.state` | Numbered state slots (pause menu: Save to slot / Load from slot) |
+
+Save state / Load state always use slot 0. The numbered slots 1-9 show their save time (file modified
+time); overwriting and loading ask first, and empty slots cannot be loaded. Deleting an old import
+removes its whole `states` folder, so every slot goes with it.
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's
