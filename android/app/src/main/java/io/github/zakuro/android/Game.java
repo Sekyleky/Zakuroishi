@@ -224,9 +224,9 @@ public final class Game extends NativeActivity {
     private void pauseMenu() {
         if(menuOpen || errorDialog!=null || isFinishing()) return;
         menuOpen=true; nativeCommand(PAUSE);
-        // Grid order (index = switch case below): Resume|Save, Load|Swap, Recalibrate|Settings, Restart|Exit.
-        String[] entries={"Resume","Save state","Load state","Restart game","Swap screens","Recalibrate motion","Settings…","Exit to library"};
-        int[] grid={0,1,2,4,5,6,3,7};
+        // Grid order (index = switch case below): Resume|Save, Load|Swap, Save slot|Load slot, Recalibrate|Settings, Restart|Exit.
+        String[] entries={"Resume","Save state","Load state","Restart game","Swap screens","Recalibrate motion","Settings…","Exit to library","Save to slot…","Load from slot…"};
+        int[] grid={0,1,2,4,8,9,5,6,3,7};
         Palette p=palette;
         android.widget.LinearLayout card=new android.widget.LinearLayout(this);
         card.setOrientation(android.widget.LinearLayout.VERTICAL); card.setPadding(p.dp(24),p.dp(22),p.dp(24),p.dp(22));
@@ -275,6 +275,8 @@ public final class Game extends NativeActivity {
             case 5: nativeCommand(RECALIBRATE); break;
             case 6: openSettings(); break;
             case 7: confirmExit(); break;
+            case 8: slotMenu(true); break;
+            case 9: slotMenu(false); break;
         }
     }
     private void confirmRestart() {
@@ -294,6 +296,47 @@ public final class Game extends NativeActivity {
         confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Load quick state?").setMessage("Progress since it was saved is lost.")
                 .setPositiveButton("Load",(d,w) -> nativeCommand(LOAD)).setNegativeButton("Cancel",null)
                 .setOnDismissListener(d -> nativeCommand(RESUME)));
+    }
+    /** Slot files sit beside the quick state (slot 0), named <n>.state; the native side builds the same path. */
+    private java.io.File stateFile(int slot) {
+        return new java.io.File(getIntent().getStringExtra("data"),"states/"+getIntent().getStringExtra("game_id")+"/"+slot+".state");
+    }
+    /** Lists slots 1-9 with their save time (load: only filled ones). D-pad moves, A picks, B closes. Overwrite and load ask first. */
+    private void slotMenu(boolean save) {
+        menuOpen=false;
+        java.text.DateFormat when=java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM,java.text.DateFormat.SHORT);
+        java.util.List<String> rows=new java.util.ArrayList<>(); java.util.List<Integer> slots=new java.util.ArrayList<>(); java.util.List<String> dates=new java.util.ArrayList<>();
+        for(int n=1;n<=9;n++) {
+            java.io.File f=stateFile(n); boolean used=f.isFile();
+            if(!save && !used) continue;
+            String date=used ? when.format(new java.util.Date(f.lastModified())) : null;
+            rows.add("Slot "+n+"   "+(used ? date : "Empty")); slots.add(n); dates.add(date);
+        }
+        if(rows.isEmpty()) { showNativeMessage("No saved slots yet"); nativeCommand(RESUME); return; }
+        boolean[] chained={false}; // a confirm took over: it resumes the game, not this list
+        AlertDialog d=new AlertDialog.Builder(this,palette.dialogTheme()).setTitle(save ? "Save to slot" : "Load from slot")
+            .setItems(rows.toArray(new String[0]),(dd,i) -> {
+                int n=slots.get(i); String date=dates.get(i);
+                int command=(save ? SAVE : LOAD) | n<<4;
+                if(save && date==null) { nativeCommand(command); return; }
+                chained[0]=true;
+                confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle((save ? "Overwrite slot " : "Load slot ")+n+"?")
+                    .setMessage(save ? "It holds the state saved "+date+"." : "Progress since it was saved ("+date+") is lost.")
+                    .setPositiveButton(save ? "Overwrite" : "Load",(c,w) -> nativeCommand(command)).setNegativeButton("Cancel",null)
+                    .setOnDismissListener(c -> nativeCommand(RESUME)));
+            }).setNegativeButton("Cancel",null).create();
+        d.setOnDismissListener(dd -> { if(!chained[0]) nativeCommand(RESUME); });
+        d.setOnKeyListener((dd,code,event) -> {
+            if(code!=KeyEvent.KEYCODE_BUTTON_A && code!=KeyEvent.KEYCODE_BUTTON_B) return false;
+            if(event.getAction()==KeyEvent.ACTION_UP) {
+                android.widget.ListView list=d.getListView(); int at=list.getSelectedItemPosition();
+                if(code==KeyEvent.KEYCODE_BUTTON_B) d.cancel();
+                else if(at>=0) list.performItemClick(list.getSelectedView(),at,list.getItemIdAtPosition(at));
+            }
+            return true;
+        });
+        d.show(); palette.dialog(d,false);
+        android.widget.ListView list=d.getListView(); list.setItemsCanFocus(false); list.setFocusableInTouchMode(true); list.post(() -> { list.requestFocus(); list.setSelection(0); });
     }
     private void confirmExit() {
         menuOpen=false;

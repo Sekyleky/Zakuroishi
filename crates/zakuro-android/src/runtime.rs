@@ -673,19 +673,15 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     input.finger = None;
                     bridge::clear_input();
                 }
-                Command::Save | Command::Load => {
+                Command::Save(slot) | Command::Load(slot) => {
                     if let Some(system) = &mut system {
                         let id = system
                             .title
                             .as_ref()
                             .map(|title| title.program_id())
                             .unwrap_or(0);
-                        let path = launch
-                            .data
-                            .join("states")
-                            .join(format!("{id:016X}"))
-                            .join("0.state");
-                        let result = if matches!(command, Command::Save) {
+                        let path = crate::storage::state_path(&launch.data, id, slot);
+                        let result = if matches!(command, Command::Save(_)) {
                             system
                                 .save_state()
                                 .and_then(|bytes| crate::storage::save(&path, &bytes))
@@ -695,11 +691,14 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                         match result {
                             Ok(()) => platform::message(
                                 app,
-                                if matches!(command, Command::Save) {
-                                    "Saved slot 0"
-                                } else {
-                                    "Loaded slot 0"
-                                },
+                                &format!(
+                                    "{} slot {slot}",
+                                    if matches!(command, Command::Save(_)) {
+                                        "Saved"
+                                    } else {
+                                        "Loaded"
+                                    }
+                                ),
                             ),
                             Err(error) => platform::message(app, &error),
                         }
@@ -765,6 +764,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 language: settings.language as u8,
                 slider_3d: settings.slider_3d,
                 skip_idle_loops: settings.skip_idle_loops,
+                request_wait_idle: settings.request_wait_idle,
                 interpolate: settings.interpolate_on_main(second.is_some()) && s.shared,
                 data_dir: Some(launch.data.clone()),
                 hardware_renderer: settings.hardware_renderer,

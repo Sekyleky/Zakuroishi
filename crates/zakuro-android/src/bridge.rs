@@ -12,8 +12,9 @@ pub enum Command {
     Pause,
     Resume,
     Restart,
-    Save,
-    Load,
+    /// Slot 0 is the quick state; 1 to 9 are the numbered slots.
+    Save(u8),
+    Load(u8),
     Recalibrate,
     Swap,
     Exit,
@@ -83,22 +84,29 @@ pub fn clear_input() {
     state.second_touch = None;
 }
 
+/// Low 4 bits are the command id, the rest is the save-state slot (0 for plain SAVE/LOAD).
+fn decode(command: i32) -> Option<Command> {
+    let slot = u8::try_from(command >> 4).ok().filter(|slot| *slot <= 9)?;
+    Some(match command & 15 {
+        0 => Command::Pause,
+        1 => Command::Save(slot),
+        2 => Command::Load(slot),
+        3 => Command::Restart,
+        4 => Command::Recalibrate,
+        5 => Command::Swap,
+        6 => Command::Resume,
+        7 => Command::Exit,
+        _ => return None,
+    })
+}
 #[no_mangle]
 pub extern "system" fn Java_io_github_zakuro_android_Game_nativeCommand(
     _: JNIEnv<'_>,
     _: JObject<'_>,
     command: jint,
 ) {
-    let command = match command {
-        0 => Command::Pause,
-        1 => Command::Save,
-        2 => Command::Load,
-        3 => Command::Restart,
-        4 => Command::Recalibrate,
-        5 => Command::Swap,
-        6 => Command::Resume,
-        7 => Command::Exit,
-        _ => return,
+    let Some(command) = decode(command) else {
+        return;
     };
     let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     if state.commands.len() >= 32 {
@@ -220,5 +228,19 @@ pub extern "system" fn Java_io_github_zakuro_android_Game_nativeSecondTouch(
         .then_some((x, y, width.max(0) as u32, height.max(0) as u32));
     if let Some(waker) = &state.waker {
         waker.wake();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn command_ids_carry_the_state_slot() {
+        assert!(matches!(decode(1), Some(Command::Save(0))));
+        assert!(matches!(decode(2), Some(Command::Load(0))));
+        assert!(matches!(decode(1 | 3 << 4), Some(Command::Save(3))));
+        assert!(matches!(decode(2 | 9 << 4), Some(Command::Load(9))));
+        assert!(decode(1 | 10 << 4).is_none() && decode(8).is_none() && decode(-1).is_none());
+        assert!(matches!(decode(7), Some(Command::Exit)));
     }
 }
