@@ -441,6 +441,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     // Declared before surfaces/core so custom libraries outlive every Vulkan object.
     let driver = crate::driver::Driver::load(launch.driver.as_ref())?;
     let mut paused = false;
+    let (mut keyboard_shown, mut keyboard_refused) = (false, false);
     for axis in [
         Axis::Z,
         Axis::Rz,
@@ -710,6 +711,28 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                         platform::message(app, "Game has not started yet");
                     }
                 }
+            }
+        }
+        // a title waiting on the software keyboard gets an Android text dialog
+        if let Some(system) = &mut system {
+            if let Some((text, button)) = bridge::keyboard_answer() {
+                let refused = system.keyboard_request().is_some_and(|request| {
+                    button + 1 >= request.buttons.len() && !request.accepts(&text)
+                });
+                if refused {
+                    keyboard_shown = false;
+                } else {
+                    system.answer_keyboard(&text, button);
+                }
+                keyboard_refused = refused;
+            }
+            match system.keyboard_request() {
+                Some(request) if !keyboard_shown => {
+                    platform::show_keyboard(app, request, keyboard_refused);
+                    keyboard_shown = true;
+                }
+                None => (keyboard_shown, keyboard_refused) = (false, false),
+                _ => {}
             }
         }
         if let Some(window) = bridge::second_surface() {

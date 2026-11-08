@@ -34,7 +34,7 @@ public final class SettingsBridgeCheck {
                     || !Pattern.compile("\\b"+i+"\\s*=>\\s*Command::"+commands[i]+"\\b").matcher(rust).find())
                 throw new AssertionError("Java/Rust command mismatch: "+commands[i]);
         }
-        for(String callback:new String[]{"updateNativeStats","showNativeMessage","showNativeError","showPauseMenu","closeSecondDisplay"})
+        for(String callback:new String[]{"updateNativeStats","showNativeMessage","showNativeError","showPauseMenu","closeSecondDisplay","showKeyboard"})
             if(!java.contains("void "+callback+"(") || !platform.contains("\""+callback+"\""))
                 throw new AssertionError("Missing callback: "+callback);
         if (!java.contains("String prepareSaves()") || !platform.contains("\"prepareSaves\", \"()Ljava/lang/String;\""))
@@ -47,7 +47,7 @@ public final class SettingsBridgeCheck {
             if(!Pattern.compile("pub\\s+"+setting.key+"\\s*:").matcher(settings).find())
                 throw new AssertionError("No native advanced setting: "+setting.key);
         }
-        for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch"})
+        for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch","nativeKeyboard"})
             if(!java.contains("void "+method+"(") || !rust.contains("Game_"+method+"("))
                 throw new AssertionError("Missing JNI export: "+method);
         System.out.println("Java/native contracts passed: eight command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings.");

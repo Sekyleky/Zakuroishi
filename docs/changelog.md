@@ -4,6 +4,9 @@
 
 Not released. Host checks only: nothing below has run on a device.
 
+- **Software keyboard:** a game asking for a name or other text (Ocarina of Time 3D's file name)
+  now gets an Android text dialog with the game's own buttons. Before, nothing appeared and the game
+  waited forever.
 - **Save states:** **Save to slot…** and **Load from slot…** in the game menu keep up to 9 states
   per game, listed with the time they were saved. **Save state** and **Load state** still use the
   quick slot, slot 0, as before.

@@ -21,6 +21,7 @@ public final class Game extends NativeActivity {
     private native void nativeTouch(int mask, float x, float y);
     private native void nativeSecondSurface(android.view.Surface surface);
     private native void nativeSecondTouch(boolean pressed, float x, float y, int width, int height);
+    private native void nativeKeyboard(String text, int button);
     private android.hardware.display.DisplayManager displays;
     private android.app.Presentation secondDisplay;
     private int failedSecondDisplay = -1;
@@ -163,6 +164,24 @@ public final class Game extends NativeActivity {
         }
     };
     public void updateNativeStats(String text) { runOnUiThread(() -> nativeStats = text == null ? "" : text); }
+    /** The game's software keyboard: buttons one per line, left to right, the last confirms. */
+    public void showKeyboard(String hint, String text, int maxLength, String buttons, boolean refused) { runOnUiThread(() -> {
+        android.widget.EditText edit = new android.widget.EditText(this);
+        edit.setSingleLine(); edit.setText(text); edit.setSelection(edit.length());
+        if (maxLength > 0) edit.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(maxLength)});
+        String[] labels = buttons.isEmpty() ? new String[]{"OK"} : buttons.split("\n", -1);
+        int last = labels.length - 1;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this, palette.dialogTheme()).setCancelable(false).setView(edit)
+                .setTitle(hint.isEmpty() ? "Enter text" : hint).setMessage(refused ? "That text isn't accepted. Try again." : null)
+                .setPositiveButton(labels[last].isEmpty() ? "OK" : labels[last], (d, w) -> nativeKeyboard(edit.getText().toString(), last));
+        // ponytail: a middle button (three-button keyboards) shows as neutral, Android has no fourth slot
+        if (last >= 1) builder.setNegativeButton(labels[0], (d, w) -> nativeKeyboard(edit.getText().toString(), 0));
+        if (last >= 2) builder.setNeutralButton(labels[1], (d, w) -> nativeKeyboard(edit.getText().toString(), 1));
+        AlertDialog dialog = builder.create();
+        if (dialog.getWindow() != null) dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+        dialog.show();
+        edit.requestFocus();
+    }); }
     public void showNativeMessage(String text) { runOnUiThread(() -> android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show()); }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     private void overlays() {

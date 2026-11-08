@@ -274,6 +274,30 @@ fn java_text(app: &AndroidApp, method: &str, text: &str) {
     });
 }
 
+/// asks Game to show the software keyboard: its hint, starting text, longest
+/// length and button labels (one per line, the last confirms), and whether a
+/// confirmed text was refused.
+pub fn show_keyboard(app: &AndroidApp, request: &zakuro_core::services::keyboard::Request, refused: bool) {
+    let _ = with_activity(app, |env, activity| {
+        let hint = env.new_string(&request.hint)?;
+        let text = env.new_string(&request.text)?;
+        let buttons = env.new_string(request.buttons.join("\n"))?;
+        env.call_method(
+            activity,
+            "showKeyboard",
+            "(Ljava/lang/String;Ljava/lang/String;ILjava/lang/String;Z)V",
+            &[
+                JValue::Object(&hint),
+                JValue::Object(&text),
+                JValue::Int(request.max_length.min(i32::MAX as usize) as i32),
+                JValue::Object(&buttons),
+                JValue::Bool(refused.into()),
+            ],
+        )
+        .map(|_| ())
+    });
+}
+
 /// Game may show a dialog on the UI thread and finish after dismissal.
 pub fn report_error(app: &AndroidApp, error: &str) -> bool {
     log::error!("{error}");

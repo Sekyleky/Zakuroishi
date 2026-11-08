@@ -1,7 +1,7 @@
 //! Java calls only enqueue commands and input. The emulator stays on android_main.
 use android_activity::{AndroidApp, AndroidAppWaker};
 use jni::{
-    objects::JObject,
+    objects::{JObject, JString},
     sys::{jboolean, jfloat, jint},
     JNIEnv,
 };
@@ -27,6 +27,8 @@ struct State {
     second_window: Option<ndk::native_window::NativeWindow>,
     second_changed: bool,
     second_touch: Option<(f32, f32, u32, u32)>,
+    /// the software keyboard's text and the button pressed, once typed.
+    keyboard: Option<(String, usize)>,
 }
 static STATE: Mutex<State> = Mutex::new(State {
     commands: VecDeque::new(),
@@ -40,6 +42,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     second_window: None,
     second_changed: false,
     second_touch: None,
+    keyboard: None,
 });
 
 pub struct Session;
@@ -49,6 +52,7 @@ impl Session {
         state.commands.clear();
         state.input = VirtualInput::default();
         state.waker = Some(app.create_waker());
+        state.keyboard = None;
         Self
     }
 }
@@ -82,6 +86,25 @@ pub fn clear_input() {
     let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
     state.input = VirtualInput::default();
     state.second_touch = None;
+}
+
+/// the software keyboard's answer, once the dialog closed.
+pub fn keyboard_answer() -> Option<(String, usize)> {
+    STATE.lock().unwrap_or_else(|e| e.into_inner()).keyboard.take()
+}
+#[no_mangle]
+pub extern "system" fn Java_io_github_zakuro_android_Game_nativeKeyboard(
+    mut env: JNIEnv<'_>,
+    _: JObject<'_>,
+    text: JString<'_>,
+    button: jint,
+) {
+    let text: String = env.get_string(&text).map(Into::into).unwrap_or_default();
+    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
+    state.keyboard = Some((text, button.max(0) as usize));
+    if let Some(waker) = &state.waker {
+        waker.wake();
+    }
 }
 
 /// Low 4 bits are the command id, the rest is the save-state slot (0 for plain SAVE/LOAD).
