@@ -248,31 +248,143 @@ final class GameImport {
         validId(id); File version = active(context, id);
         DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
         ImportPlan plan = ImportPlan.texturePack(source, DocumentsContract.getTreeDocumentId(tree), id);
-        return swapIn(context, id, version, source, plan, progress, false, "textures");
+        return swapIn(context, id, version, source, plan, progress, false, 0, false, "textures");
+    }
+    /** The parts of a game's mods folder that mods own; textures are kept apart and never touched here. */
+    static final String[] MOD_PARTS = {"romfs", "romfs_ext", "code.ips", "code.bps", "code.bin", "exheader.bin"};
+    /** Names that change the game's code: only one mod may carry any of them. */
+    private static final List<String> CODE_PARTS = Arrays.asList("code.ips", "code.bps", "code.bin", "exheader.bin");
+    /**
+     * Whether the next replaceRomfs adds to the current mods (true) or replaces them (false). Set by the settings dialog
+     * just before it starts the folder picker, because the launcher calls replaceRomfs without a mode.
+     * ponytail: a static flag instead of a new parameter through Launcher; one import runs at a time.
+     */
+    static volatile boolean addToMods;
+    static File modsDir(File version, String id) { return new File(version, "data/mods/" + id); }
+    static boolean hasMods(File version, String id) {
+        for (String part : MOD_PARTS) if (new File(modsDir(version, id), part).exists()) return true;
+        return false;
     }
     static String replaceRomfs(android.content.Context context, String id, Uri tree, Progress progress) throws Exception {
         validId(id); File version = active(context, id);
+        boolean add = addToMods; addToMods = false;
         String folder = folderName(context.getContentResolver(), tree);
         if (folder.matches("[0-9A-Fa-f]{16}") && !folder.equalsIgnoreCase(id))
             throw new IOException("This mod folder is for game " + folder.toUpperCase(Locale.ROOT) + ", not this one.");
         DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
-        ImportPlan plan = ImportPlan.romfsMod(source, DocumentsContract.getTreeDocumentId(tree), id);
-        // The old copy goes once replaced: mods can be large and the source folder still has it.
-        return swapIn(context, id, version, source, plan, progress, true, "romfs", "romfs_ext", "code.ips", "code.bps", "code.bin", "exheader.bin");
+        ImportPlan plan = ImportPlan.romfsMod(source, DocumentsContract.getTreeDocumentId(tree), folder, id);
+        return installMod(context, id, version, source, plan, progress, add);
+    }
+    /** Remove a game's mods (not its texture pack). All or nothing; the old parts are deleted once every part has gone. */
+    static String removeMods(android.content.Context context, String id) throws Exception {
+        validId(id); File version = active(context, id);
+        File parent = modsDir(version, id); boolean[] uncertain = {false};
+        synchronized (POINTER_LOCK) {
+            if (!active(context, id).equals(version)) throw new IOException("The game changed. Open its settings again.");
+            swapParts(new File(parent, ".none"), parent, MOD_PARTS, true, MOVE, uncertain);
+        }
+        return id;
+    }
+    private static String installMod(android.content.Context context, String id, File version, DocumentsSource source,
+            ImportPlan plan, Progress progress, boolean add) throws Exception {
+        File parent = modsDir(version, id);
+        if (!add) // The old copy goes once replaced: mods can be large and the source folder still has it.
+            return swapIn(context, id, version, source, plan, progress, true, 0, false, MOD_PARTS);
+        String clash = codeClash(plan, parent);
+        if (clash != null) throw new IOException(clash);
+        // ponytail: the merged tree is hard-linked or copied beside the new files, so space for the old mods is reserved too.
+        return swapIn(context, id, version, source, plan, progress, true, size(parent, MOD_PARTS), true, MOD_PARTS);
+    }
+    /** Two mods that both change the game's code cannot be combined meaningfully; say so instead of guessing. */
+    static String codeClash(ImportPlan plan, File parent) {
+        String incoming = null, existing = null;
+        for (ImportPlan.Item item : plan.files) {
+            String name = item.destination.substring(item.destination.lastIndexOf('/') + 1);
+            if (item.destination.equals("data/mods/" + plan.titleId + "/" + name) && CODE_PARTS.contains(name)) { incoming = name; break; }
+        }
+        for (String name : CODE_PARTS) if (new File(parent, name).exists()) { existing = name; break; }
+        return incoming == null || existing == null ? null
+                : "Both the current mods and this one change the game's code (" + existing + " and " + incoming
+                + "). Only one code mod can be active. Choose Replace current mods, or remove the mods first.";
+    }
+    static long size(File dir, String... parts) {
+        long total = 0;
+        for (String part : parts) total += size(new File(dir, part));
+        return total;
+    }
+    private static long size(File file) {
+        if (Files.isSymbolicLink(file.toPath())) return 0;
+        if (!file.isDirectory()) return file.length();
+        long total = 0; File[] children = file.listFiles();
+        if (children != null) for (File child : children) total += size(child);
+        return total;
+    }
+    /** Copy tree {@code from} to {@code to}, hard-linking where the filesystem allows. Symbolic links are skipped. */
+    static void copyTree(File from, File to) throws IOException {
+        if (Files.isSymbolicLink(from.toPath())) return;
+        if (from.isDirectory()) {
+            mkdir(to); File[] children = from.listFiles();
+            if (children != null) for (File child : children) copyTree(child, new File(to, child.getName()));
+            return;
+        }
+        mkdir(to.getParentFile());
+        try { Files.createLink(to.toPath(), from.toPath()); }
+        catch (IOException | UnsupportedOperationException | SecurityException e) { Files.copy(from.toPath(), to.toPath()); }
+    }
+    private static File named(File dir, String name) {
+        String[] names = dir.list(); File same = null;
+        if (names != null) for (String other : names) {
+            if (other.equals(name)) return new File(dir, other);
+            if (same == null && other.equalsIgnoreCase(name)) same = new File(dir, other);
+        }
+        return same;
+    }
+    /**
+     * Lay the files of {@code from} over {@code into}: the newer file wins, folders merge. Names match ignoring case, as
+     * mods made on Windows spell them either way and the game's own files are matched that way too.
+     */
+    static void mergeTree(File from, File into) throws IOException {
+        File[] children = from.listFiles();
+        if (children != null) for (File child : children) {
+            File old = named(into, child.getName());
+            if (child.isDirectory() && old != null && old.isDirectory()) { mergeTree(child, old); continue; }
+            if (old != null) remove(old);
+            Files.move(child.toPath(), new File(into, child.getName()).toPath());
+        }
     }
     /** Stage the plan, then swap each part folder of the game's mods for its staged copy (or none). */
     private static String swapIn(android.content.Context context, String id, File version, DocumentsSource source,
-            ImportPlan plan, Progress progress, boolean dropOld, String... parts) throws Exception {
-        File stage = componentStage(context, plan); boolean[] uncertain = {false};
+            ImportPlan plan, Progress progress, boolean dropOld, long reserve, boolean add, String... parts) throws Exception {
+        File stage = componentStage(context, plan, reserve); boolean[] uncertain = {false};
         try {
             copy(source, plan, stage, progress);
             File staged = new File(stage, "data/mods/" + id), parent = new File(version, "data/mods/" + id); mkdir(parent);
+            if (add) parts = mergeStaged(stage, staged, parent, parts);
             synchronized (POINTER_LOCK) {
                 if (!active(context, id).equals(version)) throw new IOException("The game changed while importing. Select it again.");
                 swapParts(staged, parent, parts, dropOld, MOVE, uncertain);
             }
             return id;
         } finally { if (!uncertain[0]) remove(stage); }
+    }
+    /**
+     * For adding: turn each staged romfs part into the current part with the new files over it, so the swap that follows
+     * stays one all-or-nothing replacement. Returns the parts to swap: those the new mod carries (code files only when it
+     * has them, so the current mods' code is left alone).
+     */
+    static String[] mergeStaged(File stage, File staged, File parent, String[] parts) throws IOException {
+        List<String> swap = new ArrayList<>();
+        for (String part : parts) {
+            File fresh = new File(staged, part), old = new File(parent, part);
+            if (!fresh.exists()) continue;
+            if (fresh.isDirectory() && old.isDirectory()) {
+                File merged = new File(stage, "merged/" + part);
+                copyTree(old, merged); mergeTree(fresh, merged); remove(fresh);
+                Files.move(merged.toPath(), fresh.toPath());
+            }
+            swap.add(part);
+        }
+        return swap.toArray(new String[0]);
     }
     interface Mover { void move(File from, File to) throws IOException; }
     static final Mover MOVE = (from, to) -> Files.move(from.toPath(), to.toPath(), StandardCopyOption.ATOMIC_MOVE);

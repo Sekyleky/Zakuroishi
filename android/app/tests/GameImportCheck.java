@@ -117,6 +117,28 @@ public final class GameImportCheck {
             throw new AssertionError();
         } catch (IOException expected) { require(uncertain[0]); }
     }
+    /** Adding a mod merges its romfs over the current one (case-insensitive, newer wins) and keeps old code; failures roll back. */
+    static void checkAddMods(File dir) throws Exception {
+        File work = new File(dir, "add"), stage = new File(work, "stage"), staged = new File(stage, "mods"), parent = new File(work, "mods");
+        write(new File(parent, "romfs/Data/old.bin"), "old"); write(new File(parent, "romfs/Data/both.bin"), "old"); write(new File(parent, "code.ips"), "ips");
+        write(new File(parent, "romfs_ext/x.ips"), "ext");
+        write(new File(staged, "romfs/data/BOTH.bin"), "new"); write(new File(staged, "romfs/data/new.bin"), "new");
+        String before = snapshot(parent);
+        String[] parts = GameImport.mergeStaged(stage, staged, parent, GameImport.MOD_PARTS);
+        require(java.util.Arrays.equals(parts, new String[]{"romfs"})); // no romfs_ext or code in the new mod: those stay
+        require(snapshot(parent).equals(before)); // nothing live touched before the swap
+        GameImport.swapParts(staged, parent, parts, true, GameImport.MOVE, new boolean[1]);
+        File data = new File(parent, "romfs/Data");
+        require(data.isDirectory() && new File(data, "old.bin").isFile() && new File(data, "new.bin").isFile());
+        require(java.util.Arrays.asList(data.list()).contains("BOTH.bin") && !java.util.Arrays.asList(data.list()).contains("both.bin")); // listing, not exists(): Windows ignores case
+        require(new File(parent, "code.ips").isFile() && new File(parent, "romfs_ext/x.ips").isFile());
+        // removing keeps everything that is not a mod part
+        write(new File(parent, "textures/a.png"), "png");
+        GameImport.swapParts(new File(parent, ".none"), parent, GameImport.MOD_PARTS, true, GameImport.MOVE, new boolean[1]);
+        File v = new File(work, "v"); require(!GameImport.hasMods(v, "ID")); write(new File(v, "data/mods/ID/exheader.bin"), "x"); require(GameImport.hasMods(v, "ID"));
+        require(new File(parent, "textures/a.png").isFile() && !new File(parent, "romfs").exists() && !new File(parent, "code.ips").exists());
+        require(java.util.Arrays.stream(parent.list()).noneMatch(n -> n.contains(".previous-")));
+    }
     /** C1: what the storage screen may offer and delete. */
     static void checkStorage(File dir) throws Exception {
         File files = new File(dir, "storage-files"), imports = new File(files, "imports"), saves = new File(files, "savedata/00040000001B5100");
@@ -294,7 +316,7 @@ public final class GameImportCheck {
             // A normal directory named user must not prevent staging cleanup.
             new File(stage, "user").mkdir();
             GameImport.remove(stage); require(!stage.exists()); require(new File(saves, "keep").exists());
-            checkSwap(dir); checkStorage(dir); checkSettings(); checkSmallThings(dir);
+            checkSwap(dir); checkAddMods(dir); checkStorage(dir); checkSettings(); checkSmallThings(dir);
             System.out.println("Import boundary checks passed (swap rollback, storage selection, settings round trip, margin, hashes)");
         } finally { GameImport.remove(dir); }
     }

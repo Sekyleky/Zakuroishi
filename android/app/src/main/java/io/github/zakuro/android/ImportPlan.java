@@ -173,8 +173,61 @@ final class ImportPlan {
     }
     /** A Luma3DS/Citra mod folder: its romfs and romfs_ext trees and code patches, laid over the game at launch. */
     static ImportPlan romfsMod(Source source, String rootId, String titleId) throws IOException {
-        Scan scan = new Scan(false); scan.walk(source, rootId, "mod", "", new HashSet<>(), 0);
+        return romfsMod(source, rootId, "", titleId);
+    }
+    private static boolean modMarker(Entry entry) {
+        String lower = entry.name.toLowerCase(Locale.ROOT);
+        return entry.directory ? lower.equals("romfs") || lower.equals("romfs_ext") || lower.equals("exefs")
+                : lower.equals("code.ips") || lower.equals("code.bps") || lower.equals("code.bin") || lower.equals("exheader.bin");
+    }
+    /**
+     * The folder that holds the mod when the user picked it or a folder above it: the picked folder itself when it holds
+     * romfs/exefs/code files, else the shallowest folder below it that does (luma/titles/ID, load/mods/ID, a wrapper from a ZIP).
+     * A folder named for another game's title id is skipped; several candidates are refused rather than guessed.
+     */
+    private static String modRoot(Source source, String rootId, String titleId) throws IOException {
+        List<String[]> level = new ArrayList<>(); level.add(new String[]{rootId, ""});
+        boolean other = false, zip = false; int visited = 0;
+        for (int depth = 0; depth <= 6 && !level.isEmpty(); depth++) {
+            List<String[]> found = new ArrayList<>(), next = new ArrayList<>();
+            for (String[] folder : level) {
+                if (++visited > 5000) throw new IOException("Folder nesting or cycle limit");
+                List<Entry> entries = source.children(folder[0]);
+                if (entries == null) throw new IOException("Cannot read selected folder");
+                boolean marked = false;
+                for (Entry entry : entries) {
+                    safeName(entry.name);
+                    if (entry.id == null || entry.id.isEmpty()) throw new IOException("Missing document ID");
+                    if (modMarker(entry)) marked = true;
+                    else if (!entry.directory && entry.name.toLowerCase(Locale.ROOT).endsWith(".zip")) zip = true;
+                }
+                if (marked) {
+                    if (folder[1].matches("(?i)[0-9a-f]{16}") && !folder[1].equalsIgnoreCase(titleId)) other = true;
+                    else found.add(folder);
+                } else for (Entry entry : entries) if (entry.directory) next.add(new String[]{entry.id, entry.name});
+            }
+            if (found.size() > 1) {
+                List<String[]> named = new ArrayList<>();
+                for (String[] folder : found) if (folder[1].equalsIgnoreCase(titleId)) named.add(folder);
+                if (named.size() == 1) return named.get(0)[0];
+                throw new IOException("Several mods found in this folder. Select just one mod's folder.");
+            }
+            if (found.size() == 1) return found.get(0)[0];
+            level = next;
+        }
+        if (other) throw new IOException("This folder only has mods for other games, not game " + titleId + ".");
+        throw new IOException(zip ? "No romfs folder or code patch found. Extract the ZIP first, then select the extracted folder."
+                : "No romfs folder or code patch found. Select the mod's folder that contains them.");
+    }
+    /** rootName is the picked folder's name: a folder that is itself romfs or romfs_ext is taken as that tree. */
+    static ImportPlan romfsMod(Source source, String rootId, String rootName, String titleId) throws IOException {
+        Scan scan = new Scan(false); String lowerRoot = rootName == null ? "" : rootName.toLowerCase(Locale.ROOT);
+        boolean tree = lowerRoot.equals("romfs") || lowerRoot.equals("romfs_ext");
+        if (tree) scan.walk(source, rootId, "romfs", lowerRoot + "/", new HashSet<>(), 0);
+        else scan.walk(source, modRoot(source, rootId, titleId), "mod", "", new HashSet<>(), 0);
         if (scan.assets.isEmpty()) throw new IOException("No romfs folder or code patch found. Select the mod's folder that contains them.");
+        Set<String> seen = new HashSet<>();
+        for (Item item : scan.assets) if (!seen.add(item.destination)) throw new IOException("The mod has " + item.destination + " twice (folder and exefs). Keep one.");
         List<Item> files = new ArrayList<>(); long total = 0;
         for (Item item : scan.assets) {
             try (SeekableByteChannel file = source.open(item.source.id)) {

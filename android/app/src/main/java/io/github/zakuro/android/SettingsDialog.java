@@ -126,6 +126,31 @@ final class SettingsDialog {
         });
         dialog.show();
     }
+    /** Ask add or replace when the game already has mods, then open the folder picker. */
+    private void importMod() {
+        if (!GameImport.hasMods(version, settings.id)) { GameImport.addToMods = false; mods.run(); return; }
+        AlertDialog ask = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Import mod for " + title)
+            .setMessage("This game already has mods. Add the new mod on top of them (its files win where they overlap), or replace them?")
+            .setPositiveButton("Add to current mods", (d, w) -> { GameImport.addToMods = true; mods.run(); })
+            .setNegativeButton("Replace current mods", (d, w) -> { GameImport.addToMods = false; mods.run(); })
+            .setNeutralButton("Cancel", null).create();
+        show(ask);
+    }
+    private void removeMods() {
+        confirm("Remove mods for " + title + "?", "Deletes the mods imported for this game. Its texture pack, ROM and saves are kept.", "Remove", "Cancel", () -> {
+            String id = settings.id;
+            new Thread(() -> {
+                String failure = null;
+                try { GameImport.removeMods(activity, id); }
+                catch (Exception e) { failure = e.getMessage() == null ? "Could not remove the mods." : e.getMessage(); }
+                String result = failure;
+                activity.runOnUiThread(() -> {
+                    Toast.makeText(activity, result == null ? "Mods removed." : result, Toast.LENGTH_LONG).show();
+                    if (result == null && rootDialog != null) rootDialog.dismiss();
+                });
+            }, "remove-mods").start();
+        });
+    }
     private void root() {
         LinearLayout content = column();
         content.addView(text(inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts." : "Settings are saved for this game and apply the next time you play.", true));
@@ -141,8 +166,12 @@ final class SettingsDialog {
                 content.addView(text("Optional. Attach a pack without copying your game again.", true));
             }
             if (mods != null) {
-                Button mod = button("Import mod…"); mod.setOnClickListener(v -> mods.run()); addButton(content, mod);
-                content.addView(text("Optional. Choose a Luma3DS or Citra mod folder. Replaces the previous mod. A mod that changes game code runs best with a title.so built with it. Add the game again to remove it.", true));
+                Button mod = button("Import mod…"); mod.setOnClickListener(v -> importMod()); addButton(content, mod);
+                content.addView(text("Optional. Choose a Luma3DS or Citra mod folder. You can add it to the current mods or replace them. A mod that changes game code runs best with a title.so built with it, and only one code mod can be active.", true));
+                if (GameImport.hasMods(version, settings.id)) {
+                    Button remove = button("Remove mods"); remove.setOnClickListener(v -> removeMods()); addButton(content, remove);
+                    content.addView(text("Removes this game's mods. Its texture pack, ROM and saves stay.", true));
+                }
             }
             if (repair != null) {
                 Button replace = button("Replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);

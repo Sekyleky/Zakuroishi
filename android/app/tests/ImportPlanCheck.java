@@ -402,6 +402,41 @@ public final class ImportPlanCheck {
         check(item(ImportPlan.romfsMod(exefs, "root", TITLE), "code").destination.equals(base + "code.ips"), "Wrong destination for exefs patch");
         Tree none = new Tree(); none.file("root", "f", "f", new byte[]{1});
         rejects(() -> ImportPlan.romfsMod(none, "root", TITLE), "mod without romfs");
+        // exefs banner, icon and logo are ignored, not refused
+        Tree extras = new Tree(); extras.directory("root", "exefs", "ExeFS");
+        extras.file("exefs", "b", "banner.bin", new byte[]{1}); extras.file("exefs", "i", "icon.bin", new byte[]{1});
+        extras.file("exefs", "l", ".logo", new byte[]{1}); extras.file("exefs", "c", "Code.IPS", new byte[]{1});
+        check(ImportPlan.romfsMod(extras, "root", TITLE).files.size() == 1, "exefs extras should be ignored");
+        // wrapper folders above the title id folder, any case, and other games' folders skipped
+        for (String path : new String[]{"luma/titles/00040000001b0000", "load/mods/" + TITLE, "Mod/atmosphere/contents/" + TITLE, "Mod"}) {
+            Tree wrap = new Tree(); String at = "root", name = "";
+            for (String part : path.split("/")) { name += "/" + part; wrap.directory(at, name, part); at = name; }
+            wrap.directory(at, "rf", "RomFS"); wrap.file("rf", "f", "a.bin", new byte[]{9});
+            wrap.directory("root", "other", "00040000001B9999"); wrap.directory("other", "ofs", "romfs"); wrap.file("ofs", "o", "o.bin", new byte[]{9});
+            ImportPlan found = ImportPlan.romfsMod(wrap, "root", TITLE);
+            check(found.files.size() == 1 && found.files.get(0).destination.equals("data/mods/" + TITLE + "/romfs/a.bin"), "Wrong wrapped mod " + path);
+        }
+        Tree two = new Tree(); two.directory("root", "t", "titles");
+        for (String game : new String[]{TITLE, "00040000001B1111"}) { two.directory("t", game, game); two.directory(game, game + "r", "romfs"); two.file(game + "r", game + "f", "a", new byte[]{1}); }
+        check(ImportPlan.romfsMod(two, "root", TITLE).files.size() == 1, "titles folder with two games");
+        Tree others = new Tree(); others.directory("root", "o", "00040000001B1111"); others.directory("o", "r", "romfs"); others.file("r", "f", "a", new byte[]{1});
+        rejects(() -> ImportPlan.romfsMod(others, "root", TITLE), "only another game's mod");
+        Tree several = new Tree(); several.directory("root", "a", "ModA"); several.directory("a", "ar", "romfs"); several.file("ar", "af", "a", new byte[]{1});
+        several.directory("root", "b", "ModB"); several.directory("b", "br", "romfs"); several.file("br", "bf", "a", new byte[]{1});
+        rejects(() -> ImportPlan.romfsMod(several, "root", TITLE), "two mods in one folder");
+        Tree zip = new Tree(); zip.file("root", "z", "mod.zip", new byte[]{1});
+        try { ImportPlan.romfsMod(zip, "root", TITLE); throw new AssertionError("zip accepted"); }
+        catch (IOException e) { check(e.getMessage().contains("Extract the ZIP"), "zip hint missing"); }
+        // the picked folder is itself romfs
+        Tree bare = new Tree(); bare.directory("root", "d", "data"); bare.file("d", "f", "a.bin", new byte[]{1});
+        check(ImportPlan.romfsMod(bare, "root", "RomFS", TITLE).files.get(0).destination.equals("data/mods/" + TITLE + "/romfs/data/a.bin"), "bare romfs folder");
+        Tree twice = new Tree(); twice.file("root", "c1", "code.ips", new byte[]{1}); twice.directory("root", "x", "exefs"); twice.file("x", "c2", "code.ips", new byte[]{1});
+        rejects(() -> ImportPlan.romfsMod(twice, "root", TITLE), "code.ips twice");
+        // two code mods are refused, one code mod beside a romfs mod is fine
+        File parent = java.nio.file.Files.createTempDirectory("clash").toFile(); new File(parent, "code.bin").createNewFile();
+        check(GameImport.codeClash(ImportPlan.romfsMod(extras, "root", TITLE), parent) != null, "code clash not refused");
+        check(GameImport.codeClash(ImportPlan.romfsMod(mod, "root", TITLE), parent) == null, "romfs-only mod refused");
+        new File(parent, "code.bin").delete(); parent.delete();
     }
     private static void unknownSizes() throws Exception {
         Tree tree = valid();
