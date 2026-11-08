@@ -168,6 +168,9 @@ pub struct Advanced {
     /// under vsync, the surface's minimum swapchain images instead of one more. Off: Turnip
     /// shows frames 57 -> 40 ms sooner, but the stock driver gains nothing and hitches more.
     pub short_vsync_queue: bool,
+    /// a request to a system service sleeps its thread even when no other thread is ready, as
+    /// before. Off: the reply is there at once, the idle core no longer waits on the GPU.
+    pub request_wait_idle: bool,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -243,6 +246,7 @@ impl Default for Advanced {
             low_latency_audio: false,
             latch_short_presses: true,
             short_vsync_queue: false,
+            request_wait_idle: false,
             enhancements: Vec::new(),
         }
     }
@@ -435,6 +439,8 @@ mod tests {
         assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
         assert!(!settings.frame_generation && settings.frame_generation_multiplier == 4 && settings.frame_generation_flow == 100);
         assert!(Advanced::parse(r#"{"frame_generation":true}"#).unwrap().renderer_options().frame_generation);
+        assert!(!settings.request_wait_idle);
+        assert!(Advanced::parse(r#"{"request_wait_idle":true}"#).unwrap().request_wait_idle);
         assert!(!settings.short_vsync_queue);
         assert!(Advanced::parse(r#"{"short_vsync_queue":true}"#).unwrap().short_vsync_queue);
         assert!(!Advanced::parse(r#"{"audio_queue_managed":false}"#).unwrap().audio_queue_managed);

@@ -17,6 +17,8 @@ public final class SettingsBridgeCheck {
         String jit=Files.readString(root.resolve("crates/zakuro-gpu/src/shader/jit.rs"));
         if(!runtime.contains("set_renderer_options(settings.renderer_options())"))
             throw new AssertionError("Runtime does not install advanced renderer options");
+        if(!runtime.contains("request_wait_idle: settings.request_wait_idle"))
+            throw new AssertionError("Runtime does not pass request_wait_idle to the core config");
         String[][] shaderFields={{"shader_mode","gpu_shaders"},{"shader_execution","translate_shaders"},
             {"cpu_shader_jit","cpu_shader_jit"},{"shader_compilation","wait_for_shaders"},
             {"generic_shaders","generic_shaders"},{"depth_blits","depth_blits"},

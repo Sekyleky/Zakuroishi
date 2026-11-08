@@ -380,6 +380,10 @@ impl Kernel {
     /// releases what waits on it then, and clears after. whether any fired.
     fn fire_timers(&mut self, tick: u64) -> bool {
         let mut fired = false;
+        // a timer closed for good leaves the list, its slot may hold another
+        // object since
+        let objects = &self.objects;
+        self.timers.retain(|&id| matches!(objects.get(id), Some(KObject::Timer(_))));
         for &id in &self.timers {
             if let Some(KObject::Timer(timer)) = self.objects.get_mut(id) {
                 let Some(at) = timer.fire_at.filter(|&at| at <= tick) else { continue };

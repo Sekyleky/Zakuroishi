@@ -93,6 +93,9 @@ pub struct Config {
     /// the interpreter skips to the next event past loops that change
     /// nothing, see idle.
     pub skip_idle_loops: bool,
+    /// a request to a service puts its thread to sleep even when no other
+    /// thread is ready to run, as before. off, the reply is there at once.
+    pub request_wait_idle: bool,
 }
 
 impl Default for Config {
@@ -122,6 +125,7 @@ impl Default for Config {
             dlp_child: None,
             wireless_reboot: None,
             skip_idle_loops: true,
+            request_wait_idle: false,
         }
     }
 }
@@ -1956,6 +1960,74 @@ mod tests {
         }
         let due = asked + kernel::svc::REQUEST_TICKS;
         assert!((due..due + PREEMPT_INTERVAL).contains(&system.cpu.cycles), "replied at {}, due at {due}", system.cpu.cycles);
+    }
+
+    /// a request to a service, svcSendSyncRequest to the srv: port, on the
+    /// thread, whose reply is in its command buffer.
+    fn ask_srv(system: &mut System, id: ThreadId) {
+        let port = system.kernel.objects.insert(KObject::ClientPort("srv:".into()));
+        let handle = system.kernel.handles.create(&mut system.kernel.objects, port, "srv:");
+        let buffer = system.kernel.thread(id).tls + 0x80;
+        system.memory.write32(buffer, 0x0001_0002);
+        system.memory.write32(buffer + 4, 0x20);
+        system.cpu.regs[0] = handle;
+        kernel::svc::dispatch(system, 0x32);
+        assert_eq!((system.cpu.regs[0], system.memory.read32(buffer + 4)), (0, 0), "answered");
+    }
+
+    /// a request with no other thread ready to run is answered at once, the
+    /// thread running on: an idle core would wait for the GPU.
+    #[test]
+    fn a_request_with_no_thread_below_keeps_running() {
+        let mut system = System::new(Config::default());
+        let id = one_spinning_thread(&mut system);
+        ask_srv(&mut system, id);
+        assert_eq!(system.kernel.thread(id).status, ThreadStatus::Running, "running on");
+    }
+
+    /// request_wait_idle brings the wait back, idle or not.
+    #[test]
+    fn a_request_waits_when_request_wait_idle_is_on() {
+        let mut system = System::new(Config { request_wait_idle: true, ..Config::default() });
+        let id = one_spinning_thread(&mut system);
+        ask_srv(&mut system, id);
+        assert_eq!(system.kernel.thread(id).status, ThreadStatus::Sleeping, "waiting for the reply");
+    }
+
+    /// a signal still finds its waiter, and a closed timer leaves the list
+    /// with its slot's next object not listed twice, among a great many
+    /// threads that ended.
+    #[test]
+    fn a_signal_wakes_its_waiter_among_many_ended_threads() {
+        let mut system = System::new(Config::default());
+        let id = one_spinning_thread(&mut system);
+        let ended: Vec<ThreadId> = (0..2000).map(|_| system.kernel.create_thread("gone", 0x0010_0000, 0x0010_0F00, 0, 0x30, 0)).collect();
+        for gone in ended {
+            system.kernel.end_thread(gone);
+        }
+        system.cpu.regs[1] = 0;
+        kernel::svc::dispatch(&mut system, 0x17);
+        let event = system.cpu.regs[1];
+        wait_on(&mut system, event);
+        assert_eq!(system.kernel.thread(id).status, ThreadStatus::WaitSync);
+        let object = system.kernel.resolve(event).unwrap();
+        system.kernel.signal_event(object);
+        runs_again(&mut system, id);
+
+        // a timer made, closed, and its slot taken by another timer
+        for _ in 0..3 {
+            system.cpu.regs[1] = 0;
+            kernel::svc::dispatch(&mut system, 0x1A);
+            let timer = system.cpu.regs[1];
+            system.cpu.regs[0] = timer;
+            kernel::svc::dispatch(&mut system, 0x23);
+        }
+        system.kernel.schedule(&mut system.cpu, 1);
+        let mut listed = system.kernel.timers.clone();
+        listed.sort_by_key(|object| object.0);
+        listed.dedup();
+        assert_eq!(listed.len(), system.kernel.timers.len(), "none twice");
+        assert!(system.kernel.timers.len() <= 1, "closed ones gone");
     }
 
     /// a timer fires at its tick, not at the next frame, and the thread on

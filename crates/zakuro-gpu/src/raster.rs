@@ -1249,6 +1249,9 @@ fn geometry_stage(
     vertex_outputs: impl Iterator<Item = [Vec4; 16]>,
 ) -> Vec<Vertex> {
     let mode = registers[REG_GS_CONFIG] & 0xFF;
+    if mode == 2 {
+        return fixed_geometry(registers, unit, map, vertex_outputs);
+    }
     if mode != 0 {
         log::warn!("geometry shader mode {mode} is not implemented");
         return Vec::new();
@@ -1300,6 +1303,36 @@ fn geometry_stage(
         for triangle in triangles {
             for outputs in triangle {
                 vertices.push(plan.vertex(outputs));
+            }
+        }
+    }
+    vertices
+}
+
+/// the fixed primitive mode: each vertex's outputs go into the geometry
+/// shader's float uniforms from the one bits 16-23 name on, and the shader
+/// runs, with no inputs, once every vertex count in bits 8-11 has.
+/// Kid Icarus: Uprising draws with it.
+fn fixed_geometry(registers: &[u32], unit: &ShaderUnit, map: &OutputMap, vertex_outputs: impl Iterator<Item = [Vec4; 16]>) -> Vec<Vertex> {
+    let config = registers[REG_GS_CONFIG];
+    let per_vertex = ((registers[REG_VS_OUTPUT_TOTAL] & 0xF) + 1) as usize;
+    let start = (config >> 16 & 0xFF) as usize;
+    let end = start + per_vertex * ((config >> 8 & 0xF) + 1) as usize;
+    let plan = VertexPlan::new(map, registers[REG_GS_BLOCK + SHADER_OUTPUT_MASK]);
+    let mut unit = unit.clone();
+    let mut at = start;
+    let mut vertices = Vec::new();
+    for outputs in vertex_outputs {
+        for &value in &outputs[..per_vertex] {
+            if let Some(uniform) = unit.float_uniforms.get_mut(at) {
+                *uniform = value;
+            }
+            at += 1;
+        }
+        if at >= end {
+            at = start;
+            for triangle in shader::run_geometry_many(&unit, &[[shader::ZERO; shader::INPUT_REGISTERS]]).into_iter().flatten() {
+                vertices.extend(triangle.iter().map(|outputs| plan.vertex(outputs)));
             }
         }
     }
@@ -3721,6 +3754,44 @@ mod tests {
             .into_iter()
             .map(|[x, y]| Vertex { clip: [x, y, z, 1.0], color, texcoords: [[0.0; 2]; 3], quaternion: [0.0, 0.0, 0.0, 1.0], view: [0.0; 3], texcoord0_w: 1.0 })
             .collect()
+    }
+
+    /// the fixed primitive mode: three vertices' outputs go into the
+    /// geometry shader's uniforms, c0.. two to a vertex, and one run of its
+    /// program, which emits them as they are, gives the triangle back.
+    #[test]
+    fn fixed_geometry_runs_once_per_primitive_over_uniforms() {
+        let mut registers = target_registers();
+        registers[REG_SHADER_OUTPUT_TOTAL] = 2;
+        registers[REG_SHADER_OUTPUT_MAP] = 0x0302_0100;
+        registers[REG_SHADER_OUTPUT_MAP + 1] = 0x0B0A_0908;
+        registers[REG_VS_OUTPUT_TOTAL] = 1; // two outputs a vertex
+        registers[REG_GS_CONFIG] = 2 | 2 << 8; // fixed, three vertices, from c0
+        let mut unit = ShaderUnit::new();
+        unit.descriptors[0] = 0xF | 0x1B << 5 | 0x1B << 14 | 0x1B << 23;
+        let mov = |destination: u32, uniform: u32| 0x13 << 26 | destination << 21 | (0x20 + uniform) << 12;
+        let setemit = |vertex: u32, completes: u32| 0x2B << 26 | vertex << 24 | completes << 23;
+        let mut program = Vec::new();
+        for vertex in 0..3 {
+            program.extend([setemit(vertex, (vertex == 2) as u32), mov(0, vertex * 2), mov(1, vertex * 2 + 1), 0x2A << 26]);
+        }
+        program.push(0x22 << 26);
+        unit.program[..program.len()].copy_from_slice(&program);
+        unit.prepare();
+
+        let vertex_outputs = (0..3u32).map(|vertex| {
+            let mut outputs = [shader::ZERO; 16];
+            outputs[0] = [vertex as f32, 1.0, 0.5, 1.0];
+            outputs[1] = [0.0, vertex as f32 / 4.0, 1.0, 1.0];
+            outputs
+        });
+        let map = read_output_map(&registers);
+        let vertices = fixed_geometry(&registers, &unit, &map, vertex_outputs);
+        assert_eq!(vertices.len(), 3, "one triangle");
+        for (index, vertex) in vertices.iter().enumerate() {
+            assert_eq!(vertex.clip, [index as f32, 1.0, 0.5, 1.0], "position {index}");
+            assert_eq!(vertex.color, [0.0, index as f32 / 4.0, 1.0, 1.0], "color {index}");
+        }
     }
 
     fn pixels(memory: &mut ConsoleMemory) -> Vec<[u8; 4]> {

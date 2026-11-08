@@ -645,7 +645,10 @@ fn create_timer(system: &mut System) {
         fire_at: None,
         interval: 0,
     }));
-    system.kernel.timers.push(object);
+    // the slot of a timer closed since may be this one's
+    if !system.kernel.timers.contains(&object) {
+        system.kernel.timers.push(object);
+    }
     let handle = system
         .kernel
         .handles
@@ -982,8 +985,13 @@ fn send_sync_request(system: &mut System) {
     // waits for its reply, while the threads below it run. Star Fox 64 3D
     // marks a job running once the more urgent thread doing it is made,
     // which has to be waiting on its first request by then, or the job is
-    // done before it is marked and stays running forever
-    if system.kernel.current().is_some_and(|thread| thread.status == ThreadStatus::Running) {
+    // done before it is marked and stays running forever. With none ready
+    // the reply is there at once: an idle core waits for the GPU to finish
+    // everything it was given, on every request (request_wait_idle brings
+    // that wait back, to compare)
+    if system.kernel.current().is_some_and(|thread| thread.status == ThreadStatus::Running)
+        && (system.config.request_wait_idle || system.kernel.others_ready())
+    {
         let tick = system.cpu.cycles;
         system.kernel.sleep_current(REQUEST_TICKS, tick);
     }
