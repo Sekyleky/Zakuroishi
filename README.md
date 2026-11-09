@@ -1,7 +1,20 @@
-# Zakuroishi
+# Zakuroishi: 3DS emulator for Android handhelds
+
+An experimental Nintendo 3DS emulator for Android, built for dual-screen handhelds such as the
+**AYN Thor**. Games run as ahead-of-time recompiled native ARM64 code, with a Vulkan renderer, HD
+texture packs, frame generation and each screen on its own display. Nothing is decompiled: each
+game's code is recompiled once on a PC with [3dsrecomp](https://github.com/fearkov/3dsrecomp).
 
 **[Download the latest Android release](https://github.com/Sekyleky/Zakuroishi/releases/latest)** ·
 [Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/Zakuroishi/issues/new/choose)
+
+| Choose Zakuroishi if | Choose Azahar if |
+| --- | --- |
+| You have a dual-screen handheld like the AYN Thor | You want to install the app and play right away |
+| You want HD texture packs at up to 3x, frame generation, and native recompiled game code | You want broad, tested game compatibility |
+| You're comfortable building each game's native code on a PC once | You don't want to use a PC at all |
+
+Speed hasn't been benchmarked against Azahar yet, so nothing here claims it's faster.
 
 An unofficial community fork, not an official release from the Zakuro developers.
 Previously named Zakuro Android. Existing installs update in place; the Android
@@ -114,3 +127,10 @@ Zakuro and the upstream Pocket Native work are credited in the source-backed
 [matrix source inventory](docs/feature-parity.md#sources-and-counting). This repository retains the
 [MIT license](LICENSE). Upstream desktop game reports remain in
 [COMPATIBILITY.md](COMPATIBILITY.md); they are not Android device-test results.
+
+<!-- Ko-fi: replace KOFI_NAME, then remove this comment's start and end lines to show the section.
+## Support the project
+
+Zakuroishi is free. If you want to support it, you can [buy us a coffee on Ko-fi](https://ko-fi.com/KOFI_NAME).
+Donations don't buy features or game support, and are never needed to use the app.
+-->
