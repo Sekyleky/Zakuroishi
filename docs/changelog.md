@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — Save slots, stacking mods, the software keyboard, Pocket Native core fixes (2026-11-09)
 
-Not released. Host checks only: nothing below has run on a device.
+Released without a device test: host checks and CI only, see the [release notes](releases/android-0.5.0.md).
 
 - **Software keyboard:** a game asking for a name or other text (Ocarina of Time 3D's file name)
   now gets an Android text dialog with the game's own buttons. Before, nothing appeared and the game
