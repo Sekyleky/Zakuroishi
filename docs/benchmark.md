@@ -1,7 +1,7 @@
 # Android benchmark protocol
 
 This is a measurement plan, with no performance or compatibility claims. Compare
-Zakuro and Azahar on the same physical device, game, save and repeatable scene.
+Zakuro and another 3DS emulator on the same physical device, game, save and repeatable scene.
 If either cannot render/play that scene correctly, report that limitation before
 comparing speed. Never redistribute game files with scripts or result bundles.
 
@@ -20,7 +20,7 @@ disable recording/overlays unless needed for both, and cool to the same starting
 thermal state between runs. Use the same controller input route.
 
 Record both app versions, source revisions and APK hashes; for Zakuro also retain
-the build log, Cargo.lock hash and toolchain image digest. For Azahar record its
+the build log, Cargo.lock hash and toolchain image digest. For the other emulator record its
 exact settings/export or screenshots, including renderer (Vulkan), resolution
 scale, shader compilation/cache policy, CPU clock override, speed limit,
 VSync/frame pacing, audio, texture/filter settings, cheats/mods and hacks. Match
@@ -97,10 +97,10 @@ Cargo target directory. Off-CPU waits do not appear in these samples.
 ./android/scripts/capture-adb.ps1 -Serial DEVICE_SERIAL `
   -Package io.github.zakuro.android -WarmupSeconds 30 -Seconds 60 `
   -OutputDirectory './benchmark-captures/zakuro-run1'
-# Substitute the exact installed Azahar application ID, including any suffix.
+# Substitute the exact installed application ID of the other emulator, including any suffix.
 ./android/scripts/capture-adb.ps1 -Serial DEVICE_SERIAL `
-  -Package AZAHAR_APPLICATION_ID -WarmupSeconds 30 -Seconds 60 `
-  -OutputDirectory './benchmark-captures/azahar-run1'
+  -Package OTHER_APPLICATION_ID -WarmupSeconds 30 -Seconds 60 `
+  -OutputDirectory './benchmark-captures/other-run1'
 ```
 
 The script creates a unique directory with device/package metadata, start/end
@@ -126,7 +126,7 @@ equivalent Perfetto/SurfaceFlinger traces as a separately documented experiment
 on both apps; presentation timing still does not prove guest emulation speed.
 No benchmark has been run yet.
 
-On hold for now, by choice. When it resumes: Azahar is installed on the test device, but not in a state that matches. Its
+On hold for now, by choice. When it resumes: the other emulator on the test device is not in a state that matches. Its
 last log shows 4x resolution against 3x for Zakuro. Its save is much older and at another
 place in the game. It has no launch intent, so a script cannot start the game. Matching
 settings and the scene needs a person at the device. Until then the only comparisons are

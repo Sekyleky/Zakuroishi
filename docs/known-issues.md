@@ -5,7 +5,6 @@ with each release. Nothing here has been measured on more than one device, an AY
 
 ## Not tested
 
-- **Azahar comparison.** On hold for now, by choice; none has been run. See the [benchmark](benchmark.md).
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.
 - **Save editor backups** (`user.backup-<ms>`, `:backups` in the picker) in a real editor.

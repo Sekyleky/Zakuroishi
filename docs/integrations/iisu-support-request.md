@@ -14,8 +14,7 @@ be another emulator.
 ## Why an upstream change is needed
 
 Inspected the installed `com.iisulauncher` version **0.1.6.1**, versionCode **9**
-on an AYN Thor on 2026-11-01. Its active Nintendo 3DS catalog contains Azahar,
-AzaharPlus, RetroArch and other named players, but not `io.github.zakuro.android`.
+on an AYN Thor on 2026-11-01. Its active Nintendo 3DS catalog names other players, but not `io.github.zakuro.android`.
 The Nintendo 3DS extension list does not include `.zkr`.
 
 Read-only inspection of that APK's emulator resolver confirms that automatic

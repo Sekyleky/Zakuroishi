@@ -38,7 +38,7 @@ reported a game launching on Thor with 0.1.3, with rotated screens; the 0.1.4 fi
 passes targeted regression tests but still needs physical Thor confirmation.
 Motion, second-display behavior and custom-driver combinations need more device
 testing. The second display currently uses GPU readback, and compositor rotation
-can add overhead. **Faster-than-Azahar performance has not been demonstrated.**
+can add overhead. **No performance advantage has been demonstrated.**
 
 The APK build, signature and alignment checks passed. Detailed automated results
 and their limits are in the [verification record](https://github.com/Sekyleky/Zakuroishi/blob/android-v0.1.4/docs/testing.md).

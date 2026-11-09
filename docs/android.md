@@ -342,5 +342,5 @@ The library header has a **Tools** menu:
 
 See [Testing](testing.md) for exact artifacts and checks. APK packaging, host
 tests and emulator UI/import tests do not establish ARM64 gameplay, Thor dual
-screen/sensor behavior, 16 KB device execution, or a performance win over Azahar.
-Use the [benchmark protocol](benchmark.md) for that comparison.
+screen/sensor behavior, 16 KB device execution, or performance.
+Use the [benchmark protocol](benchmark.md) for measurements.

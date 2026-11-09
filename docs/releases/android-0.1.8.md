@@ -55,7 +55,7 @@ Android-runtime reference/configuration checks passed.
 **Not yet verified:** scanning and launching inside Cocoon/iiSU themselves,
 switching between two live titles, and a long held-speed gameplay session.
 Some isolated stutters remain at high resolution. No across-game 3x/4x speed
-guarantee or controlled Azahar performance claim is made.
+guarantee or controlled performance claim is made.
 
 Turnip had more uncapped headroom than the system driver in one matched Ultra
 Moon overworld scene, but the tested custom driver can show a corner artifact.

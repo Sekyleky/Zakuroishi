@@ -423,8 +423,7 @@ At that time (the evidence is a local record, see the note at the top of the ver
   preflight. No original ROM or older build was replaced.
 
 These checks do not establish ARM64 gameplay, physical gyro axes/calibration,
-Thor dual-panel routing, custom-driver execution, sustained performance or a
-win over Azahar. The secondary presenter uses readback. Surface recreation also
+Thor dual-panel routing, custom-driver execution, sustained performance. The secondary presenter uses readback. Surface recreation also
 uses readback until the renderer can rebind a shared Vulkan presentation device;
 interpolation requires the shared path. Device-specific capabilities require
 hardware verification even when their Java/native contracts are wired.

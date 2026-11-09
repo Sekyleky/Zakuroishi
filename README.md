@@ -8,13 +8,11 @@ game's code is recompiled once on a PC with [3dsrecomp](https://github.com/feark
 **[Download the latest Android release](https://github.com/Sekyleky/Zakuroishi/releases/latest)** ·
 [Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/Zakuroishi/issues/new/choose)
 
-| Choose Zakuroishi if | Choose Azahar if |
+| A good fit if | Not for you yet if |
 | --- | --- |
 | You have a dual-screen handheld like the AYN Thor | You want to install the app and play right away |
-| You want HD texture packs at up to 3x, frame generation, and native recompiled game code | You want broad, tested game compatibility |
+| You want HD texture packs at up to 3x, frame generation, and native recompiled game code | You need broad, tested game compatibility |
 | You're comfortable building each game's native code on a PC once | You don't want to use a PC at all |
-
-Speed hasn't been benchmarked against Azahar yet, so nothing here claims it's faster.
 
 An unofficial community fork, not an official release from the Zakuro developers.
 Previously named Zakuro Android. Existing installs update in place; the Android
@@ -30,8 +28,8 @@ firmware, keys or texture packs.
 
 **This is a developer preview.** Each game needs a native build made on a PC, with Rust and
 the Android NDK installed; the APK does not make one.
-Azahar is simpler to set up. Everything here was tested on one device (an AYN Thor),
-mostly with one game (Pokémon Ultra Moon), and has not been compared with Azahar.
+Everything here was tested on one device (an AYN Thor), mostly with one game
+(Pokémon Ultra Moon).
 See [known issues](docs/known-issues.md) and the [security notes](SECURITY.md): native
 game code and drivers you import run with the app's access.
 
@@ -56,7 +54,7 @@ fastmem generator's own ABI 5 needs a fast-memory context this host lacks.
 | Versioned changes, limitations and integration status | [Changelog](docs/changelog.md) |
 | What is not tested or not working | [Known issues](docs/known-issues.md) |
 | What you trust, what the app checks, how to report | [Security](SECURITY.md) |
-| Controlled Azahar comparison without performance claims | [Benchmark protocol](docs/benchmark.md) |
+| Controlled performance measurement without claims | [Benchmark protocol](docs/benchmark.md) |
 | Desktop Zakuro usage from the pinned upstream baseline | [Upstream desktop reference](docs/upstream-desktop.md) |
 
 ## Current scope
@@ -84,8 +82,8 @@ The [feature matrix](docs/feature-parity.md) maps every audited source setting t
 its actual consumer or an explicit limitation. Pocket Native's GLES-specific
 speed hacks are not automatically equivalent to this Vulkan backend; unsupported
 heuristics are not presented as working controls. This is an experimental test
-build, with [recorded checks and hardware limits](docs/testing.md). A performance
-win over Azahar remains a benchmark goal rather than a measured result.
+build, with [recorded checks and hardware limits](docs/testing.md). No performance
+claim is made beyond what the testing record measures.
 
 ## Verify the signing certificate
 

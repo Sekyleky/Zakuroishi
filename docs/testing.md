@@ -129,7 +129,7 @@ their first row focused and the delete confirm opens on Cancel; Cancel returned 
 
 Not tested: the "A game is open" refusal in Storage, actually deleting from Storage, save editor
 backups in a real editor, the SHA-256 dialogs, a real out-of-space failure, watts while discharging, the
-Azahar benchmark, a long thermal run, the stock driver. A ClusterTune "Medium Underclock" toast appeared
+comparison benchmark, a long thermal run, the stock driver. A ClusterTune "Medium Underclock" toast appeared
 during testing, so a per-app CPU profile may have been active. See [known issues](known-issues.md).
 
 ## Frame generation and the 120 Hz pacing fix (0.3.1, 2026-11-04)
@@ -493,7 +493,7 @@ smoother than 100% at 3x resolution.
   and speed-limit defaults/clamping/intervals. Java settings, callback/JNI contract
   and driver checks passed. ARM64 release build, signing and alignment passed.
 - The 3x-4x target is approached/reached in these samples; a steady 4x across
-  gameplay is not established. No matched Azahar run, other games, long thermal
+  gameplay is not established. No matched comparison run, other games, long thermal
   run or audio time-stretch test. Faster clocks can drop audio queue samples.
 
 ## Unreleased gameplay follow-up (2026-10-31)
@@ -540,8 +540,8 @@ smoother than 100% at 3x resolution.
   approximately 60 ticks/s; the second screen continued updating after resume.
 - Limitations: emulation ticks and presented buffers are not unique rendered game
   frames; this does not establish native 60 FPS animation. No long-session thermal
-  trial, battle/wormhole regression or matched Azahar comparison was performed.
-  Azahar 2126.2-vanilla is installed, but equivalent settings were not established.
+  trial, battle/wormhole regression or matched comparison was performed.
+  Equivalent settings for a comparison were not established.
   One indivisible texture upload can still exceed the nominal 2 ms allowance.
 
 ## 0.1.7 frame pacing, performance and fixes (2026-10-31)
@@ -576,7 +576,7 @@ smoother than 100% at 3x resolution.
   Linux (Docker, symlink cases included) and 87 on Windows; settings, bridge and
   driver host checks pass.
 - Not verified: other games and devices, battery/thermal behaviour of the ADPF
-  hint over long sessions, and a fair comparison with Azahar.
+  hint over long sessions, and a fair comparison benchmark.
 
 ## 0.1.6 save folder hotfix (2026-10-31)
 
@@ -706,7 +706,7 @@ x86_64 emulator. They do not contain or execute the production ARM64 game code.
 No physical-device gameplay, Thor gyro axes/latency, dual-panel Vulkan output,
 custom-driver execution, audio/video correctness or 16 KB device execution was
 verified. Power-loss durability and real cloud/SD providers are not established
-by the local SAF fixture suite. No Azahar performance comparison was measured.
+by the local SAF fixture suite. No comparison benchmark was measured.
 Use [the benchmark protocol](benchmark.md) for that comparison.
 
 The last older 0.1.2 artifact was
