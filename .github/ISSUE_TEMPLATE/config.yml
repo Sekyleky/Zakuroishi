@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup guide
+    url: https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/android.md
+    about: Requirements, importing a game, controls and saves.
+  - name: Native library guide
+    url: https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/native-library.md
+    about: Building or repairing a game's native code (incompatible library errors).
+  - name: Known issues
+    url: https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/known-issues.md
+    about: Check here before reporting; many limits are already listed.

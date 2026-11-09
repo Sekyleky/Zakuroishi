@@ -1,0 +1,54 @@
+name: Bug report
+description: The app crashes, misbehaves or a feature does not work
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not attach ROMs, title.so game libraries, firmware, keys or private save data. Remove personal information from logs. Check the known issues page first."
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      placeholder: AYN Thor
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version
+      placeholder: "13"
+    validations:
+      required: true
+  - type: dropdown
+    id: driver
+    attributes:
+      label: GPU driver
+      options: [Stock, Turnip (custom), Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      placeholder: 0.5.0
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game and title ID
+      description: Leave empty if the bug is not tied to a game.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste the file from Tools > Export diagnostics (or attach it).
+    validations:
+      required: true
