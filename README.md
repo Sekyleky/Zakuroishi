@@ -126,9 +126,7 @@ Zakuro and the upstream Pocket Native work are credited in the source-backed
 [MIT license](LICENSE). Upstream desktop game reports remain in
 [COMPATIBILITY.md](COMPATIBILITY.md); they are not Android device-test results.
 
-<!-- Ko-fi: replace KOFI_NAME, then remove this comment's start and end lines to show the section.
 ## Support the project
 
-Zakuroishi is free. If you want to support it, you can [buy us a coffee on Ko-fi](https://ko-fi.com/KOFI_NAME).
+Zakuroishi is free. If you want to support it, you can [buy us a coffee on Ko-fi](https://ko-fi.com/sekyleky).
 Donations don't buy features or game support, and are never needed to use the app.
--->
