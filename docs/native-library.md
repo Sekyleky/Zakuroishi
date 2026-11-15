@@ -5,6 +5,25 @@ ahead-of-time recompiled game code. A successful APK build does not produce it.
 Use only trusted code built from the game/version you own; it executes inside
 the app's private process and can access the app's files and saves.
 
+## Importing without native code
+
+A game can be imported with just its decrypted ROM (`.3ds`, `.cci` or `.cxi`) and no
+`title.so`. The game then runs in the interpreter, which is slower. Measured once on
+the single test device, one scene each, interpreter only:
+
+| Game | Speed |
+| --- | --- |
+| New Super Mario Bros. 2 | 100% |
+| Super Mario 3D Land | 97-98% |
+| Pokémon Ultra Moon | about 74% |
+
+Other games and scenes will differ. To add native code later, use the game's
+"Replace native game code" action and pick a `title.so` built for this game; it is
+checked exactly like one imported with the game, and with no previous library there
+is nothing to back up. A folder that contains a `title.so` that is the wrong
+architecture, an incompatible ABI, or one of several is still refused; it is never
+imported as ROM-only. Without `code/title.so` the `aot` setting is forced off.
+
 ## Compatibility contract
 
 All of these must agree; filename and ELF machine alone are insufficient:

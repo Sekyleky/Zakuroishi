@@ -11,7 +11,8 @@ final class GameLaunch {
         if (id == null || !id.matches("[0-9A-F]{16}")) throw new java.io.IOException("Invalid game ID");
         File version = GameImport.active(context,id);
         GameSettings settings = GameSettings.load(context,id);
-        if (settings.flag("aot")) try (java.nio.channels.FileChannel code = new FileInputStream(new File(version,"code/title.so")).getChannel()) {
+        // No library: the game runs in the interpreter, so there is nothing to check.
+        if (settings.flag("aot") && new File(version,"code/title.so").isFile()) try (java.nio.channels.FileChannel code = new FileInputStream(new File(version,"code/title.so")).getChannel()) {
             NativeLibrary.inspect(code).requireCompatible();
         }
         Intent intent = new Intent(context,Game.class);

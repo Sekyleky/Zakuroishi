@@ -47,7 +47,7 @@ final class Palette {
 
     private Drawable idle(int fill, int stroke, int r) { return new InsetDrawable(shape(fill, stroke, stroke == 0 ? 0 : 1, r), dp(5)); }
 
-    /** Pressed or focused: lit. Disabled: transparent with a border. Otherwise the fill for the kind. */
+    /** Pressed or focused: lit. Disabled: transparent with a border. Otherwise the fill for the kind. Library game tiles use SECONDARY. */
     Drawable button(int kind) {
         int fill = kind == PRIMARY ? soft : kind == SECONDARY ? raised : 0;
         StateListDrawable s = new StateListDrawable();
@@ -94,9 +94,9 @@ final class Palette {
         for (String part : spec.split(" · ")) {
             String[] p = part.split(" ", 2);
             TextView glyph = new TextView(context);
-            glyph.setText(p[0]); glyph.setTextSize(12); glyph.setTypeface(null, Typeface.BOLD); glyph.setGravity(Gravity.CENTER);
-            glyph.setTextColor(surface); glyph.setBackground(shape(ink, 0, 0, 11)); glyph.setPadding(dp(6), 0, dp(6), 0);
-            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(22));
+            glyph.setText(p[0]); glyph.setTextSize(14); glyph.setTypeface(null, Typeface.BOLD); glyph.setGravity(Gravity.CENTER);
+            glyph.setTextColor(surface); glyph.setBackground(shape(ink, 0, 0, 12)); glyph.setPadding(dp(7), 0, dp(7), 0);
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(24));
             gp.setMargins(0, 0, dp(6), 0);
             chips.addView(glyph, gp);
             TextView text = new TextView(context);

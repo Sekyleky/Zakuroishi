@@ -164,9 +164,11 @@ final class GameImport {
         try {
             copy(source, plan, stage, progress);
             File rom = new File(stage, "game/game.3ds"), executable = new File(stage, "code/title.so");
-            if (!plan.titleId.equals(title(rom)) || !arm64(executable)) throw new IOException("The source changed during import");
-            try (SeekableByteChannel channel = Files.newByteChannel(executable.toPath())) { NativeLibrary.inspect(channel).requireCompatible(); }
-            if (!executable.setReadOnly()) throw new IOException("Cannot secure title.so");
+            if (!plan.titleId.equals(title(rom)) || (plan.code != null && !arm64(executable))) throw new IOException("The source changed during import");
+            if (plan.code != null) {
+                try (SeekableByteChannel channel = Files.newByteChannel(executable.toPath())) { NativeLibrary.inspect(channel).requireCompatible(); }
+                if (!executable.setReadOnly()) throw new IOException("Cannot secure title.so");
+            }
             String name = GameMetadata.romTitle(rom);
             if (name.isEmpty()) name = GameMetadata.choose(plan.rom.name, folderName(context.getContentResolver(), tree), plan.titleId);
             GameMetadata.store(stage, name);
@@ -229,12 +231,16 @@ final class GameImport {
                 File backup = new File(target.getParentFile(), "title.so.previous-" + UUID.randomUUID());
                 boolean committed = false;
                 try {
-                    try (FileInputStream input = new FileInputStream(target); FileOutputStream output = new FileOutputStream(backup)) {
-                        byte[] buffer = new byte[65536]; int n;
-                        while ((n = input.read(buffer)) != -1) output.write(buffer, 0, n);
-                        output.getFD().sync();
+                    mkdir(target.getParentFile());
+                    // A game imported without native code has no library to back up.
+                    if (target.exists()) {
+                        try (FileInputStream input = new FileInputStream(target); FileOutputStream output = new FileOutputStream(backup)) {
+                            byte[] buffer = new byte[65536]; int n;
+                            while ((n = input.read(buffer)) != -1) output.write(buffer, 0, n);
+                            output.getFD().sync();
+                        }
+                        if (!backup.setReadOnly()) throw new IOException("Cannot secure native-code backup");
                     }
-                    if (!backup.setReadOnly()) throw new IOException("Cannot secure native-code backup");
                     Os.rename(code.getAbsolutePath(), target.getAbsolutePath());
                     committed = true;
                 } finally {
@@ -464,7 +470,8 @@ final class GameImport {
         }
         if (!name.matches("[0-9a-f-]{36}")) throw new IOException("Invalid import pointer");
         File version = child(imports, name);
-        if (!new File(version, "game/game.3ds").isFile() || !arm64(new File(version, "code/title.so")))
+        File library = new File(version, "code/title.so");
+        if (!new File(version, "game/game.3ds").isFile() || (library.exists() && !arm64(library)))
             throw new IOException("Imported files are missing; import this game again");
         return version;
     }
