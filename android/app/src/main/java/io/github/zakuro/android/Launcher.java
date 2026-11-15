@@ -290,13 +290,14 @@ public final class Launcher extends Activity {
     /** The header's Menu (also Start). */
     private void tools() {
         chooser("Menu", new String[][]{
+            {"Default settings…", "Settings every game starts with until you change them in that game's Settings."},
             {"Setup help", "What a game folder needs, and how to play."},
             {"Frontends…", "Export launch files so another game frontend can start your games."},
             {"Storage…", "See free space and delete old imports and backups you no longer need."},
             {"Export diagnostics…", "Save a text file with app, device and log details to attach to a bug report. It contains no games, saves or textures."},
             {"Export settings…", "Save every game's settings and controller mapping to a file."},
             {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."}},
-            new Runnable[]{() -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings});
+            new Runnable[]{() -> SettingsDialog.show(this, GameSettings.DEFAULTS, null, "All games", false, this::showLibrary, null, null, null, null), () -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings});
     }
     /** The tile's touch-only ⋯: Settings, Saves, and Pin where the home screen supports it. */
     private void more(String id) {
