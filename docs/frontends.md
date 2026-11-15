@@ -17,7 +17,7 @@ emulation clock limit, independently of the presentation cap, and cannot make
 a device run faster than its CPU/GPU allow. No button is taken over by default.
 
 The same menu maps console buttons, disables physical inputs (**None**) and
-maps the motion gate. A new assignment replaces that physical button's previous
+maps the motion gate. **Quick save**, **Quick load** (asks first), **Swap screens**, **Screenshot** and **Pause menu** act once per press and never reach the game. A new assignment replaces that physical button's previous
 action. Multiple physical buttons can share an action. Hold a row in the menu
 to clear that action's custom assignments; **Reset controller bindings** restores
 the preset. Both remain drafts until the group and root dialogs are saved.

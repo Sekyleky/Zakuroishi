@@ -50,7 +50,8 @@ choice!(
     Interlaced
 );
 choice!(
-    Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward
+    Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward,
+    QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu
 );
 
 impl Binding {
@@ -70,7 +71,18 @@ impl Binding {
             Self::Y => 2048,
             Self::Zl => 1 << 14,
             Self::Zr => 1 << 15,
-            Self::None | Self::MotionGate | Self::FastForward => 0,
+            _ => 0,
+        }
+    }
+    /// The Game.runHotkey name for a key that acts once per press instead of holding a button.
+    pub fn hotkey(self) -> Option<&'static str> {
+        match self {
+            Self::QuickSave => Some("quick_save"),
+            Self::QuickLoad => Some("quick_load"),
+            Self::SwapScreens => Some("swap_screens"),
+            Self::Screenshot => Some("screenshot"),
+            Self::PauseMenu => Some("pause_menu"),
+            _ => Option::None,
         }
     }
 }
@@ -524,6 +536,13 @@ mod tests {
         assert_eq!(settings.binding(96), Some(Binding::MotionGate));
         assert_eq!(settings.presentation_interval(), std::time::Duration::ZERO);
         assert!(Advanced::parse(r#"{"controller_bindings":{"96":"fake"}}"#).is_err());
+        let hotkeys = Advanced::parse(r#"{"controller_bindings":{"1":"quick_save","2":"quick_load","3":"swap_screens","4":"screenshot","5":"pause_menu"}}"#).unwrap();
+        for (code, name) in [(1, "quick_save"), (2, "quick_load"), (3, "swap_screens"), (4, "screenshot"), (5, "pause_menu")] {
+            let binding = hotkeys.binding(code).unwrap();
+            assert_eq!((binding.hotkey(), binding.bits()), (Some(name), 0));
+            assert_eq!(serde_json::to_string(&binding).unwrap(), format!("\"{name}\""));
+        }
+        assert_eq!(Binding::FastForward.hotkey(), None);
         assert_eq!(Advanced::default().binding(96), Some(Binding::A));
         assert_eq!(
             Advanced::default().presentation_interval(),

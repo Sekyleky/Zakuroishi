@@ -103,6 +103,9 @@ public final class GameSettingsCheck {
         GameSettings roundtrip=GameSettings.from(persisted,id);
         require(roundtrip.controllerBindings.get("96").equals("b"));
         require(roundtrip.json().contains("\"controller_bindings\":{\"96\":\"b\"}"));
+        Map<String,Object> hotkeys=new HashMap<>(persisted); // every hotkey target survives a reload, an unknown one is dropped
+        hotkeys.put(id+".advanced.controller_bindings",new HashSet<>(Arrays.asList("1=quick_save","2=quick_load","3=swap_screens","4=screenshot","5=pause_menu","6=teleport")));
+        require(GameSettings.from(hotkeys,id).controllerBindings.keySet().equals(new HashSet<>(Arrays.asList("1","2","3","4","5"))));
         commitOK=false;
         try { original.save(context); throw new AssertionError("Failed commit accepted"); }
         catch(IllegalStateException expected) {}

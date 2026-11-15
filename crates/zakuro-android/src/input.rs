@@ -37,6 +37,31 @@ mod tests {
         assert!(!input.fast_forward(&settings,&virtual_input));
     }
     #[test]
+    fn hotkeys_fire_once_per_press_and_never_reach_the_guest() {
+        // 106 is also the default tilt gate: a hotkey there must not gate stick motion either
+        let settings=Advanced::parse(r#"{"stick_motion":true,"controller_bindings":{"106":"quick_save","104":"pause_menu","99":"screenshot"}}"#).unwrap();
+        let mut input=Input::default();
+        let none=VirtualInput::default();
+        assert!(input.hotkeys(&settings,&none).is_empty());
+        input.keys.insert(106); input.latched.insert(106);
+        input.state.c_stick_x=1.0;
+        assert_eq!(input.hotkeys(&settings,&none),["quick_save"]);
+        let guest=input.configured(&settings,&none,None);
+        assert!(guest.buttons.is_empty());
+        assert_eq!(guest.tilt,[0.0,0.0]);
+        assert!(input.hotkeys(&settings,&none).is_empty()); // still held
+        input.keys.clear();
+        assert!(input.hotkeys(&settings,&none).is_empty());
+        input.axes.insert(104); // a trigger axis
+        assert_eq!(input.hotkeys(&settings,&none),["pause_menu"]);
+        assert!(input.hotkeys(&settings,&none).is_empty());
+        input.axes.clear(); input.hotkeys(&settings,&none);
+        input.latched.insert(99); // down and up between two frames
+        assert_eq!(input.hotkeys(&settings,&none),["screenshot"]);
+        assert!(input.configured(&settings,&none,None).buttons.is_empty());
+        assert!(input.hotkeys(&settings,&none).is_empty());
+    }
+    #[test]
     fn a_press_released_before_the_frame_still_counts_for_that_frame() {
         let settings = Advanced::parse(r#"{"controller_bindings":{"96":"a"}}"#).unwrap();
         let mut input = Input::default();
@@ -198,6 +223,8 @@ pub struct Input {
     pub latched_touch: Option<(u16, u16)>,
     /// Presses that went down and up between two frames, for the benchmark line.
     pub short_presses: u32,
+    /// Hotkeys down at the last `hotkeys` call, so holding one does not repeat it.
+    held_hotkeys: BTreeSet<i32>,
     #[cfg(target_os = "android")]
     pub finger: Option<i32>,
     pub cursor: [f32; 2],
@@ -211,6 +238,7 @@ impl Default for Input {
             latched: BTreeSet::new(),
             latched_touch: None,
             short_presses: 0,
+            held_hotkeys: BTreeSet::new(),
             #[cfg(target_os = "android")]
             finger: None,
             cursor: [160.0, 120.0],
@@ -221,6 +249,16 @@ impl Input {
     pub fn fast_forward(&self, settings: &Advanced, virtual_input: &VirtualInput) -> bool {
         self.keys.union(&virtual_input.keys).chain(&self.axes)
             .any(|code| settings.binding(*code) == Some(Binding::FastForward))
+    }
+    /// Hotkeys that went down since the last call, each once per press however long it is held;
+    /// call before `configured`, which forgets the presses already released.
+    pub fn hotkeys(&mut self, settings: &Advanced, virtual_input: &VirtualInput) -> Vec<&'static str> {
+        let held: BTreeSet<i32> = self.keys.union(&virtual_input.keys).chain(&self.axes)
+            .filter(|code| settings.binding(**code).is_some_and(|b| b.hotkey().is_some())).copied().collect();
+        let fired = held.iter().chain(&self.latched).filter(|code| !self.held_hotkeys.contains(code))
+            .filter_map(|code| settings.binding(*code)?.hotkey()).collect::<BTreeSet<_>>().into_iter().collect();
+        self.held_hotkeys = held;
+        fired
     }
 
     pub fn configured(
@@ -241,7 +279,7 @@ impl Input {
         let mut motion_gate = selected_gate.is_none()
             || (settings.tilt_button.guest_bits() & virtual_input.buttons != 0);
         for code in self.keys.union(&virtual_input.keys).chain(&self.axes).chain(&short) {
-            let gate_key = settings.binding(*code) != Some(Binding::FastForward)
+            let gate_key = settings.binding(*code).is_none_or(|b| b != Binding::FastForward && b.hotkey().is_none())
                 && (selected_gate == Some(*code)
                     || settings.controller_bindings.get(code) == Some(&Binding::MotionGate));
             motion_gate |= gate_key;

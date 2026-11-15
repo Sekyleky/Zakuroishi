@@ -34,7 +34,7 @@ public final class SettingsBridgeCheck {
                     || !Pattern.compile("\\b"+i+"\\s*=>\\s*Command::"+commands[i]+"\\b").matcher(rust).find())
                 throw new AssertionError("Java/Rust command mismatch: "+commands[i]);
         }
-        for(String callback:new String[]{"updateNativeStats","showNativeMessage","showNativeError","showPauseMenu","closeSecondDisplay","showKeyboard"})
+        for(String callback:new String[]{"updateNativeStats","showNativeMessage","showNativeError","showPauseMenu","closeSecondDisplay","showKeyboard","runHotkey"})
             if(!java.contains("void "+callback+"(") || !platform.contains("\""+callback+"\""))
                 throw new AssertionError("Missing callback: "+callback);
         if (!java.contains("String prepareSaves()") || !platform.contains("\"prepareSaves\", \"()Ljava/lang/String;\""))
@@ -47,9 +47,19 @@ public final class SettingsBridgeCheck {
             if(!Pattern.compile("pub\\s+"+setting.key+"\\s*:").matcher(settings).find())
                 throw new AssertionError("No native advanced setting: "+setting.key);
         }
+        // Binding targets: the Java list is exactly the Rust Binding variants, and every hotkey name has a case in Game.runHotkey.
+        Matcher enumMatch=Pattern.compile("choice!\\(\\s*Binding,\\s*None,([^)]*)\\)").matcher(settings);
+        if(!enumMatch.find()) throw new AssertionError("No Rust Binding enum");
+        Set<String> variants=new TreeSet<>();
+        for(String variant:enumMatch.group(1).split(",")) if(!variant.isBlank()) variants.add(variant.trim().replaceAll("([a-z])([A-Z])","$1_$2").toLowerCase(Locale.ROOT));
+        if(!variants.equals(new TreeSet<>(Arrays.asList(GameSettings.BINDING_TARGETS))))
+            throw new AssertionError("Binding targets differ: Java "+new TreeSet<>(Arrays.asList(GameSettings.BINDING_TARGETS))+" Rust "+variants);
+        Matcher hotkey=Pattern.compile("=> Some\\(\"([a-z_]+)\"\\)").matcher(settings); int hotkeys=0;
+        while(hotkey.find()) { hotkeys++; if(!java.contains("case \""+hotkey.group(1)+"\":")) throw new AssertionError("Game.runHotkey does not handle "+hotkey.group(1)); }
+        if(hotkeys!=5) throw new AssertionError("Expected five hotkeys, found "+hotkeys);
         for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch","nativeKeyboard"})
             if(!java.contains("void "+method+"(") || !rust.contains("Game_"+method+"("))
                 throw new AssertionError("Missing JNI export: "+method);
-        System.out.println("Java/native contracts passed: eight command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings.");
+        System.out.println("Java/native contracts passed: eight command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets and hotkeys.");
     }
 }
