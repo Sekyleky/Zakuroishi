@@ -65,6 +65,18 @@ final class SettingsDialog {
     private void show(AlertDialog dialog) { show(dialog, null, false); }
     private void show(AlertDialog dialog, BooleanSupplier dirty) { show(dialog, dirty, false); }
     private void focusCancel(AlertDialog dialog) { Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); cancel.post(cancel::requestFocus); }
+    // The Thor stays in touch mode under a controller: FromTouch leaves it, so the ring shows and A acts at once.
+    private static void focusFirst(ViewGroup content) {
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View child = content.getChildAt(i);
+            if (child.isFocusable() && child.isEnabled() && child.getVisibility() == View.VISIBLE) { child.post(child::requestFocusFromTouch); return; }
+        }
+    }
+    /** Choice lists open on the checked row. */
+    private void choices(AlertDialog dialog, int checked) {
+        show(dialog); ListView list = dialog.getListView();
+        list.post(() -> { list.requestFocusFromTouch(); list.setSelection(Math.max(0, checked)); });
+    }
     private String snapshot(GameSettings s, String name) { return s.json() + "|" + name + "|" + s.resolution + "|" + s.textures + "|" + s.driver; }
     private void confirm(String heading, String message, String yes, String no, Runnable action) {
         AlertDialog ask = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(heading).setMessage(message)
@@ -153,6 +165,7 @@ final class SettingsDialog {
     }
     private void root() {
         LinearLayout content = column();
+        content.addView(legend("A Select · B Back · Start Save · L/R Page"));
         content.addView(text(inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts." : "Settings are saved for this game and apply the next time you play.", true));
         Button firstGroup = null;
         for (String group : GameSettings.GROUPS) {
@@ -223,8 +236,7 @@ final class SettingsDialog {
         rootDialog = root;
         root.setOnDismissListener(d -> { if (!saving && closed != null) closed.run(); });
         show(root, dirty);
-        // the Thor stays in touch mode under a controller; let the first group take focus anyway
-        Button opening = firstGroup; opening.setFocusableInTouchMode(true); opening.post(opening::requestFocus);
+        firstGroup.post(firstGroup::requestFocusFromTouch);
         if (inGame) root.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener(v -> {
             settings.name = name.getText().toString().trim();
             try { settings.save(activity); root.dismiss(); }
@@ -314,7 +326,7 @@ final class SettingsDialog {
                 AlertDialog picker=new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Vulkan driver")
                     .setSingleChoiceItems(names.toArray(new String[0]),ids.indexOf(draft.driver),(d,which) -> {
                         draft.driver=ids.get(which); choose.setText("Driver · "+names.get(which)); d.dismiss();
-                    }).setNegativeButton("Cancel",null).create(); show(picker);
+                    }).setNegativeButton("Cancel",null).create(); choices(picker, ids.indexOf(draft.driver));
             }); addButton(content,choose);
             content.addView(text("Select a driver and enable Use selected custom Vulkan driver. A missing or incompatible driver reports its error when the game starts.",true));
         }
@@ -368,6 +380,7 @@ final class SettingsDialog {
             settings.values.clear(); settings.values.putAll(draft.values); settings.resolution = draft.resolution; settings.textures = draft.textures;
             settings.enhancements.clear(); settings.enhancements.addAll(draft.enhancements);
         }).create(); show(dialog, () -> !start.equals(snapshot(draft, draft.name)));
+        focusFirst(content);
     }
     private String losslessState() {
         return LosslessImport.ready(activity.getFilesDir()) ? "Shaders imported. They apply to every game with Frame generation on." : "Not imported yet. Copy Lossless.dll from your own Lossless Scaling folder to this device and choose it here. It is translated on the device and the app keeps no copy of the file.";
@@ -415,10 +428,11 @@ final class SettingsDialog {
             choose.setOnClickListener(v -> {
                 String[] names = Arrays.stream(setting.choices).map(SettingsDialog::label).toArray(String[]::new), shown = names.clone();
                 for (int i = 0; i < shown.length; i++) if (setting.choices[i].equals(setting.initial)) shown[i] += " (default)";
-                AlertDialog choices = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(setting.label)
-                        .setSingleChoiceItems(shown, Arrays.asList(setting.choices).indexOf(draft.values.get(setting.key)), (d, which) -> {
+                int checked = Arrays.asList(setting.choices).indexOf(draft.values.get(setting.key));
+                AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(setting.label)
+                        .setSingleChoiceItems(shown, checked, (d, which) -> {
                             draft.values.put(setting.key, setting.choices[which]); choose.setText(setting.label + " · " + names[which]); d.dismiss();
-                        }).setNegativeButton("Cancel", null).create(); show(choices);
+                        }).setNegativeButton("Cancel", null).create(); choices(list, checked);
             }); addButton(content, choose);
         } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("speed_limit") || setting.key.equals("fast_forward_speed") || setting.key.equals("region") || setting.key.equals("language") || setting.key.equals("frame_generation_multiplier") || setting.key.equals("frame_generation_flow")) {
             float[] values; String[] names;
@@ -437,7 +451,7 @@ final class SettingsDialog {
             choose.setOnClickListener(v -> numbers(draft, choose, setting, setting.label, values, names)); addButton(content, choose);
         } else {
             float step = setting.max <= 1 ? 0.05f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
-            TextView caption = text(setting.label + " · " + format(draft.number(setting.key)), false); content.addView(caption);
+            TextView caption = text(setting.label + " · " + format(setting, draft.number(setting.key)), false); content.addView(caption);
             SeekBar slider = new SeekBar(activity); slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border));
             slider.setThumbTintList(ColorStateList.valueOf(p.accent)); slider.setMax(Math.round((setting.max - setting.min) / step));
             slider.setProgress(Math.round((draft.number(setting.key) - setting.min) / step)); slider.setKeyProgressIncrement(1);
@@ -445,7 +459,7 @@ final class SettingsDialog {
                 public void onProgressChanged(SeekBar bar, int progress, boolean user) {
                     if (!user) return;
                     float number = Math.min(setting.max, setting.min + progress * step); draft.values.put(setting.key, number);
-                    caption.setText(setting.label + " · " + format(number)); bar.setContentDescription(caption.getText());
+                    caption.setText(setting.label + " · " + format(setting, number)); bar.setContentDescription(caption.getText());
                 }
                 public void onStartTrackingTouch(SeekBar bar) {}
                 public void onStopTrackingTouch(SeekBar bar) {}
@@ -454,18 +468,20 @@ final class SettingsDialog {
         content.addView(text(interpreterOnly(setting) ? "This game has no native code, so it runs in the interpreter. Add native code under Game files to run it at full speed." : setting.help, true));
     }
     private boolean interpreterOnly(GameSettings.Setting setting) { return setting.key.equals("aot") && version != null && !GameSettings.hasNativeCode(version); }
-    private static String format(float value) { return String.format(Locale.getDefault(), "%.2f", value); }
+    private static String format(GameSettings.Setting setting, float value) {
+        return setting.max <= 1 ? Math.round(value * 100) + "%" : String.format(Locale.getDefault(), "%.2f", value);
+    }
     private void numbers(GameSettings draft, Button button, GameSettings.Setting setting, String heading, float[] values, String[] names) {
         float current = setting == null ? draft.resolution : draft.number(setting.key);
         int selected = -1; for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - current) < 0.01f) selected = i;
         float initial = setting == null ? 1 : ((Number) setting.initial).floatValue();
         String[] shown = names.clone();
         for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - initial) < 0.01f) shown[i] += " (default)";
-        AlertDialog choices = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(heading).setSingleChoiceItems(shown, selected, (d, which) -> {
+        AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(heading).setSingleChoiceItems(shown, selected, (d, which) -> {
             if (setting == null) draft.resolution = (int) values[which];
             else draft.values.put(setting.key, setting.normalize(values[which]));
             button.setText(heading + " · " + names[which]); d.dismiss();
-        }).setNegativeButton("Cancel", null).create(); show(choices);
+        }).setNegativeButton("Cancel", null).create(); choices(list, selected);
     }
     private void enhancements(LinearLayout content, GameSettings draft) {
         content.addView(heading("Game enhancements"));
