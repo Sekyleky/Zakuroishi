@@ -25,6 +25,10 @@ with each release. Nothing here has been measured on more than one device, an AY
 
 ## Known problems
 
+- **Slow intro with frame generation:** Ultra Moon's intro ran at 75-80% speed with frame
+  generation at x4 and at 97-100% with it off (one launch each).
+- **Unreleased builds:** Back in a game, or Save state in the pause menu, sometimes dropped to
+  the home screen in testing. Not reproduced from a clean start; cause unknown.
 - **Save slot list in 0.5.0:** press the D-pad once before A; no row is selected when the list
   opens. Fixed for the next release.
 - **Town Map lines** show on the Town Map in Ultra Moon, with the second-display sharing

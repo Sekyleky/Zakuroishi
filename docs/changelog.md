@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+Not released. What was seen on the Thor and what was not is in
+[testing](testing.md#library-settings-and-pause-menu-rework-2026-11-15).
+
+- **Library:** games are tiles with their own icon, most recently played first, with play time.
+  The focused game's details show under the header and, on a second screen, large with Play,
+  Settings and Saves buttons. The header is Add game and Menu (Start); Setup help, Frontends,
+  Storage and the exports are in Menu. A game can be pinned to the home screen.
+- **Settings:** a game's settings open on a short page with a preset (Battery, Balanced, Quality),
+  resolution, the texture pack and twelve common settings; everything else is under
+  All settings. **Default settings** in Menu apply to every game until a game changes them, and
+  changed rows are marked. The comparison switches moved to Advanced. Preset values are a first
+  guess, not measured.
+- **Pause menu:** Save state and Load state each open one list (quick slot, then slots 1-9);
+  X saves and Y loads the quick slot. Cancel or B goes back to the pause menu instead of
+  resuming. New tiles: HUD on/off (clock and battery, no restart) and Screenshot (top screen,
+  saved to Pictures/Zakuroishi).
+- **Games without native code:** a folder with only a decrypted ROM can be imported and runs in
+  the interpreter; native code can be added later from the game's settings. See
+  [native library](native-library.md).
+- **Fixed:** importing your Lossless.dll from the in-game settings closed the game; the button
+  is now only in the library.
+- **Build:** the Windows APK build passes the classes to the dexer as one jar. The class list
+  had outgrown the command line limit.
 - **Save slots:** the slot list now opens with its first row selected. In 0.5.0 nothing was
   selected until the D-pad moved, so A did nothing at first. Checked on the Thor, see
   [testing](testing.md#050-check-on-the-thor-2026-11-15).

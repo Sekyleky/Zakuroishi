@@ -4,6 +4,41 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Library, settings and pause menu rework (2026-11-15)
+
+AYN Thor, unreleased builds of this branch, driven with `adb shell input keyevent` (no touch).
+The Java host checks pass. Screenshots were read on both displays.
+
+| Check | Result |
+| --- | --- |
+| Library tile grid, icons, focus ring, details line | Seen. 10 games visible at once; D-pad moves focus |
+| Details on the second screen | Seen: icon, name, summary, Play / Settings / Saves, legend |
+| Start opens Menu, X opens Saves, dialogs open with a button lit | Seen |
+| Settings simple page, "changed" markers, preset list | Seen |
+| Pause menu layout, Save state list with Quick slot first | Seen |
+| Back from the game, or Save state, dropped to the home screen | Seen in two of four runs, not from a clean start. **Cause not found** |
+| Screenshot tile, HUD tile, live HUD save | Not run |
+| Default settings reaching a game, the one-time settings migration on real data | Not run |
+| Pin to home screen | Not run |
+| Importing a ROM-only folder and adding native code later | Not run (needs the file picker) |
+| Touch on the second-screen buttons, light theme, large font | Not run |
+
+Interpreter only (`aot` off on games that have native code), one launch each, title and first
+scene: New Super Mario Bros. 2 100.4-100.5%, Super Mario 3D Land 97-98%, Ultra Moon 73-75%.
+
+### Speed leads closed without a change
+
+- **Open-area slowdown.** The profile behind "27% of the emulation thread in the CPU vertex
+  path" is from 0.1.9, with battle frames and a cleared cache in it. Steady walking in the same
+  scene has since measured 5.85 ms per frame uncapped. A cache of shaded geometry would miss
+  whenever the camera moves, so it was not built.
+- **Shader warm-up.** An A/B of `warm_before_start` was started and thrown away: the game's saved
+  setting was already on, so both sides ran the same thing. No further warm-up work is planned;
+  the hold costs about 9.6 s per launch for no measured gain.
+- **Slow intro with frame generation.** Ultra Moon's first 20 s, one launch each:
+  frame generation off 97-100% speed, on (x4) 75-80%. The warm-up had finished before the first
+  frame in both. Open.
+
 ## 0.5.0 check on the Thor (2026-11-15)
 
 AYN Thor, Turnip (Balemuni), Ultra Moon 3x + HD, `frame_generation` x4, second display on. The
