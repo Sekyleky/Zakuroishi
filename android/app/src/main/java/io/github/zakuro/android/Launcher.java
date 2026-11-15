@@ -475,7 +475,7 @@ public final class Launcher extends Activity {
         FrameLayout tile = new FrameLayout(this); tile.setTag(id + ".play"); tile.setFocusable(true); tile.setFocusedByDefault(first);
         tile.setBackground(p.button(Palette.SECONDARY)); tile.setContentDescription("Play " + title); tile.setOnClickListener(v -> play(id));
         tile.setOnFocusChangeListener((v, has) -> { if (has && !id.equals(focused)) { focused = id; showDetails(); } });
-        LinearLayout body = column(); body.setGravity(Gravity.CENTER_HORIZONTAL); body.setPadding(dp(8), dp(12), dp(8), dp(8)); // inside the background's own 5dp ring inset
+        LinearLayout body = column(); body.setGravity(Gravity.CENTER_HORIZONTAL); body.setPadding(dp(8), dp(12), dp(8), dp(8)); body.setDuplicateParentStateEnabled(true); // passes the tile's focus to the labels; inside the background's own 5dp ring inset
         body.addView(icon(this, p, id, dp(72)), new LinearLayout.LayoutParams(dp(72), dp(72)));
         TextView name = text(title, 16, p.ink); name.setTextColor(p.label(p.ink)); name.setDuplicateParentStateEnabled(true); name.setGravity(Gravity.CENTER_HORIZONTAL);
         name.setMinLines(2); name.setMaxLines(2); name.setEllipsize(TextUtils.TruncateAt.END); name.setPadding(0, dp(8), 0, dp(2)); body.addView(name, new LinearLayout.LayoutParams(-1, -2));
