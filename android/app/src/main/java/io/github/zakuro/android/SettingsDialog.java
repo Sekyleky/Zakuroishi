@@ -196,11 +196,16 @@ final class SettingsDialog {
         });
     }
     private LinearLayout rootRows;
+    private String presetLabel(boolean pack) { int now = settings.preset(pack); return "Preset · " + (now < 0 ? "Custom" : GameSettings.PRESETS[now]); }
+    /** Keeps the preset row true while its values change on the simple page. */
+    private void syncPreset(GameSettings draft) {
+        Button preset = draft != settings || rootRows == null ? null : rootRows.findViewWithTag("preset");
+        if (preset != null) preset.setText(presetLabel(!defaults && GameSettings.hasTextures(version, settings.id)));
+    }
     /** The simple page: preset, picture, everyday settings, then the way down to everything else. Edits the root draft directly. */
     private void fillRoot(LinearLayout rows) {
         boolean pack = !defaults && GameSettings.hasTextures(version, settings.id);
-        int current = settings.preset(pack);
-        Button preset = button("Preset · " + (current < 0 ? "Custom" : GameSettings.PRESETS[current])); preset.setTag("preset");
+        Button preset = button(presetLabel(pack)); preset.setTag("preset");
         preset.setOnClickListener(v -> {
             String[] shown = {"Battery · 1×, 30 FPS, original textures", "Balanced · 2×, 60 FPS, HD textures", "Quality · 3×, 60 FPS, HD textures"};
             int now = settings.preset(pack);
@@ -318,7 +323,7 @@ final class SettingsDialog {
         boolean pack = GameSettings.hasTextures(version, settings.id);
         Switch use = toggle("HD texture pack (optional)", pack && draft.textures);
         use.setEnabled(pack);
-        use.setOnCheckedChangeListener((button, checked) -> draft.textures = checked); content.addView(use);
+        use.setOnCheckedChangeListener((button, checked) -> { draft.textures = checked; syncPreset(draft); }); content.addView(use);
         content.addView(text(pack ? "Uses the imported pack. Higher resolutions and large textures use more GPU memory." : "No texture pack attached. Original textures are used. Import a pack under Game files if you want one.", true));
     }
     private void group(String group) {
@@ -376,7 +381,7 @@ final class SettingsDialog {
                     JSONObject meta=new JSONObject(new String(java.nio.file.Files.readAllBytes(new File(folder,"meta.json").toPath()),java.nio.charset.StandardCharsets.UTF_8));
                     names.add(meta.optString("name",library)+" · "+folder.getName().substring(0,8));
                 } catch(Exception ignored) {}
-                if(ids.isEmpty()) { Toast.makeText(activity,"Import a Vulkan driver ZIP from Game settings first.",Toast.LENGTH_LONG).show(); return; }
+                if(ids.isEmpty()) { Toast.makeText(activity,"Import a Vulkan driver ZIP under Game files in the library first.",Toast.LENGTH_LONG).show(); return; }
                 AlertDialog picker=new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Vulkan driver")
                     .setSingleChoiceItems(names.toArray(new String[0]),ids.indexOf(draft.driver),(d,which) -> {
                         draft.driver=ids.get(which); choose.setText("Driver · "+names.get(which)); d.dismiss();
@@ -468,12 +473,12 @@ final class SettingsDialog {
             toggle.setTag(setting.key);
             if (interpreterOnly(setting)) toggle.setEnabled(false);
             toggle.setOnCheckedChangeListener((button, checked) -> {
-                draft.values.put(setting.key, checked); toggle.setText(name(draft, setting));
+                draft.values.put(setting.key, checked); toggle.setText(name(draft, setting)); syncPreset(draft);
                 // the two draw in-between pictures in different ways, only one can run
                 String rival = setting.key.equals("frame_generation") ? "interpolate" : setting.key.equals("interpolate") ? "frame_generation" : null;
                 if (checked && rival != null) {
                     draft.values.put(rival, false); Switch other = content.findViewWithTag(rival);
-                    if (other != null) other.setChecked(false);
+                    if (other != null) other.setChecked(false); syncPreset(draft);
                 }
             }); content.addView(toggle);
         } else if (setting.choices != null) {
@@ -533,7 +538,7 @@ final class SettingsDialog {
         AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(heading).setSingleChoiceItems(shown, selected, (d, which) -> {
             if (setting == null) draft.resolution = (int) values[which];
             else draft.values.put(setting.key, setting.normalize(values[which]));
-            button.setText((setting == null ? resolutionLabel(draft) : name(draft, setting)) + " · " + names[which]); d.dismiss();
+            button.setText((setting == null ? resolutionLabel(draft) : name(draft, setting)) + " · " + names[which]); syncPreset(draft); d.dismiss();
         }).setNegativeButton("Cancel", null).create(); choices(list, selected);
     }
     private void enhancements(LinearLayout content, GameSettings draft) {
