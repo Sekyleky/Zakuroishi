@@ -251,6 +251,10 @@ pub fn pause_menu(app: &AndroidApp) {
             .map(|_| ())
     });
 }
+/// a bound hotkey went down: Game.runHotkey acts on its Binding::hotkey name.
+pub fn hotkey(app: &AndroidApp, name: &str) {
+    java_text(app, "runHotkey", name);
+}
 pub fn close_second_display(app: &AndroidApp) {
     let _ = with_activity(app, |env, activity| {
         env.call_method(activity, "closeSecondDisplay", "()V", &[])

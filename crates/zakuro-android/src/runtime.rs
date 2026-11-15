@@ -301,6 +301,8 @@ impl Input {
                         return InputStatus::Unhandled;
                     }
                     match key.action() {
+                        // a hotkey held through a pause would otherwise fire again on its repeats
+                        KeyAction::Down if key.repeat_count() > 0 && settings.binding(code).is_some_and(|b| b.hotkey().is_some()) => {}
                         KeyAction::Down => {
                             self.keys.insert(code);
                             self.latched.insert(code);
@@ -896,6 +898,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             system.set_interpolation(interpolate);
         }
         let virtual_input = bridge::input();
+        // Java runs them: quick load confirms first, saving takes the thumbnail.
+        for hotkey in input.hotkeys(&settings, &virtual_input) {
+            platform::hotkey(app, hotkey);
+        }
         let speed = if input.fast_forward(&settings, &virtual_input) { settings.fast_forward_speed } else { settings.speed_limit };
         if speed != effective_speed {
             effective_speed = speed;

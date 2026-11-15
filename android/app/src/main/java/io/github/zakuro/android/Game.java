@@ -279,7 +279,7 @@ public final class Game extends NativeActivity {
         pauseDialog.setOnKeyListener((d,code,event) -> {
             if(code==KeyEvent.KEYCODE_BUTTON_B) { if(event.getAction()==KeyEvent.ACTION_UP) d.cancel(); return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_X) { if(event.getAction()==KeyEvent.ACTION_UP) { nativeCommand(SAVE); d.dismiss(); } return true; }
-            if(code==KeyEvent.KEYCODE_BUTTON_Y) { if(event.getAction()==KeyEvent.ACTION_UP) confirmLoad(); return true; }
+            if(code==KeyEvent.KEYCODE_BUTTON_Y) { if(event.getAction()==KeyEvent.ACTION_UP) confirmLoad(false); return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_A) {
                 if(event.getAction()==KeyEvent.ACTION_UP) {
                     if(pauseDialog.getCurrentFocus()!=null) pauseDialog.getCurrentFocus().performClick();
@@ -317,12 +317,23 @@ public final class Game extends NativeActivity {
             catch(Exception e) { nativeCommand(RESTART); }
         },this::pauseMenu);
     }
-    /** Y in the pause menu: the quick slot, after asking. */
-    private void confirmLoad() {
-        if(!stateFile(0).isFile()) { showNativeMessage("No quick state yet. Press X in this menu to save one."); return; }
-        menuOpen=false; if(pauseDialog!=null) pauseDialog.dismiss();
-        confirm("Load quick state?","Progress since it was saved is lost.","Load",() -> nativeCommand(LOAD),this::pauseMenu);
+    /** Y in the pause menu, or the Quick load hotkey in game: the quick slot, after asking. Cancel goes back where it came from. */
+    private void confirmLoad(boolean inGame) {
+        if(!stateFile(0).isFile()) { showNativeMessage(inGame ? "No quick state yet" : "No quick state yet. Press X in this menu to save one."); return; }
+        menuOpen=false; if(inGame) nativeCommand(PAUSE); else if(pauseDialog!=null) pauseDialog.dismiss();
+        confirm("Load quick state?","Progress since it was saved is lost.","Load",() -> nativeCommand(LOAD),inGame ? () -> nativeCommand(RESUME) : this::pauseMenu);
     }
+    /** A bound controller hotkey went down. runtime.rs consumes those keys, so they never reach dispatchKeyEvent or the game. */
+    public void runHotkey(String name) { runOnUiThread(() -> {
+        if(menuOpen || errorDialog!=null || isFinishing()) return;
+        switch(name) {
+            case "quick_save": nativeCommand(SAVE); break; // native shows "Saved slot 0"
+            case "quick_load": confirmLoad(true); break;
+            case "swap_screens": nativeCommand(SWAP); break;
+            case "screenshot": screenshot(); break;
+            case "pause_menu": pauseMenu(); break;
+        }
+    }); }
     /** Slot files sit beside the quick state (slot 0), named <n>.state; the native side builds the same path. */
     private java.io.File stateFile(int slot) {
         return new java.io.File(getIntent().getStringExtra("data"),"states/"+getIntent().getStringExtra("game_id")+"/"+slot+".state");

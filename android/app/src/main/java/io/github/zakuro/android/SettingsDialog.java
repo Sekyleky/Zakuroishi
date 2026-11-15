@@ -399,7 +399,7 @@ final class SettingsDialog {
         }
         if (group.equals("Button mapping")) {
             content.addView(heading("Controller bindings" + (draft.changedBindings() ? " · changed" : "")));
-            content.addView(text("Select an action, then press a physical controller button. Back cancels capture. Press X on an action here (or hold it) to clear its custom bindings; while capturing, choose Clear binding. Touch buttons keep their printed actions. Fast-forward restores normal speed when released.", true));
+            content.addView(text("Select an action, then press a physical controller button. Back cancels capture. Press X on an action here (or hold it) to clear its custom bindings; while capturing, choose Clear binding. Touch buttons keep their printed actions. Fast-forward restores normal speed when released. Quick save, Quick load, Swap screens, Screenshot and Pause menu act once per press and never reach the game.", true));
             for (String target : GameSettings.BINDING_TARGETS) {
                 Button bind = button(bindingLabel(draft,target));
                 bind.setOnClickListener(v -> {
