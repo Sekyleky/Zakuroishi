@@ -335,6 +335,7 @@ The app stores files privately beneath Android's app files directory:
 Save state… and Load state… list the quick slot (slot 0, also X and Y in the pause menu) and slots 1-9
 with their save time (file modified time); overwriting and loading ask first, and empty slots cannot be loaded. Deleting an old import
 removes its whole `states` folder, so every slot goes with it.
+Each save also writes a small `N.png` thumbnail beside `N.state` (the game as the pause menu opened, or at the Quick save hotkey), shown in the slot list; states from older builds show a blank tile and load as before.
 **Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game.
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
