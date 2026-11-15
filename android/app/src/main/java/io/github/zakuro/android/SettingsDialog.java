@@ -302,7 +302,7 @@ final class SettingsDialog {
                 case "touch_controls": section = "Touch screen"; break;
                 case "motion_enabled": section = "Device motion"; break;
                 case "stick_motion": section = "Right stick as motion"; break;
-                case "audio_queue_managed": section = "Sound timing"; break;
+                case "vsync_pacing": section = "For testing · leave at defaults"; break;
                 case "hardware_renderer": section = "Core · leave at defaults unless troubleshooting"; break;
                 case "shader_mode": section = "Shaders"; break;
                 case "fast_texture_decode": section = "HD texture loading"; break;
