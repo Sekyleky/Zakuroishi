@@ -175,6 +175,9 @@ final class GameImport {
             File data = new File(stage, "data"); mkdir(data);
             File user = new File(context.getFilesDir(), "savedata/" + plan.titleId + "/user"); mkdir(user);
             Os.symlink(user.getAbsolutePath(), new File(data, "user").getAbsolutePath());
+            // A game's data folder belongs to one import, so its cheat file is carried to the new one (an unreadable old import has none to keep).
+            File before; try { before = cheatsFile(active(context, plan.titleId), plan.titleId); } catch (IOException none) { before = null; }
+            if (before != null && before.isFile()) writeCheats(stage, plan.titleId, Files.readAllBytes(before.toPath()));
             android.util.AtomicFile pointer = new android.util.AtomicFile(new File(imports, plan.titleId + ".active"));
             synchronized (POINTER_LOCK) {
                 FileOutputStream stream = null;
@@ -290,6 +293,129 @@ final class GameImport {
             swapParts(new File(parent, ".none"), parent, MOD_PARTS, true, MOVE, uncertain);
         }
         return id;
+    }
+    /**
+     * Cheats: the text file the core reads from data/cheats/ID.txt (crates/zakuro-core/src/cheats.rs, parse): "[name]" starts a
+     * cheat, "XXXXXXXX YYYYYYYY" lines are its code, other "*" lines are notes and the line below turns the cheat on.
+     * Replacing or removing a mod, texture pack or native code never touches it, and a new import of the game copies it over.
+     */
+    static final int CHEATS_MAX = 1 << 20;
+    private static final String CHEAT_ON = "*citra_enabled";
+    static File cheatsFile(File version, String id) { return new File(version, "data/cheats/" + id + ".txt"); }
+    private static boolean cheatCode(String t) {
+        if (t.length() != 17 || t.charAt(8) != ' ') return false;
+        for (int i = 0; i < 17; i++) if (i != 8 && "0123456789abcdefABCDEF".indexOf(t.charAt(i)) < 0) return false;
+        return true;
+    }
+    private static boolean cheatHeader(String t) { return t.length() >= 2 && t.charAt(0) == '['; }
+    private static String cheatName(String t) { return t.substring(1, t.length() - 1); }
+    /** The file's text if it is a usable cheat file, else an IOException that says what is wrong. */
+    static String cheatText(byte[] bytes) throws IOException {
+        if (bytes.length > CHEATS_MAX) throw new IOException("This file is larger than 1 MiB, so it is not a cheat file.");
+        String text;
+        try { text = java.nio.charset.StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString(); }
+        catch (java.nio.charset.CharacterCodingException e) { throw new IOException("This file is not valid UTF-8 text."); }
+        if (text.indexOf('\0') >= 0) throw new IOException("This file is not a text file.");
+        if (text.startsWith("﻿")) text = text.substring(1);
+        boolean open = false; int codes = 0, n = 0;
+        for (String line : text.split("\n", -1)) {
+            String t = line.trim(); n++;
+            if (t.isEmpty() || t.charAt(0) == '*') continue;
+            if (t.charAt(0) == '[') {
+                if (t.length() < 3 || t.charAt(t.length() - 1) != ']') throw new IOException("Line " + n + " should be a cheat name in square brackets, like [Infinite money].");
+                open = true;
+            } else if (!cheatCode(t)) throw new IOException("Line " + n + " is not a cheat code. Codes look like 0123ABCD 0123ABCD, one per line.");
+            else if (!open) throw new IOException("Line " + n + " is a code before any [cheat name].");
+            else codes++;
+        }
+        if (codes == 0) throw new IOException("No cheats found. A cheat is a [name] line followed by code lines.");
+        return text;
+    }
+    private static List<String> cheatLines(String text) {
+        List<String> lines = new ArrayList<>(); int from = 0, at;
+        while ((at = text.indexOf('\n', from)) >= 0) { lines.add(text.substring(from, at + 1)); from = at + 1; }
+        if (from < text.length()) lines.add(text.substring(from));
+        return lines;
+    }
+    /** The names of the cheats that have code, in file order, without repeats. */
+    static List<String> cheatNames(String text) {
+        Set<String> names = new LinkedHashSet<>(); String name = null;
+        for (String line : cheatLines(text)) {
+            String t = line.trim();
+            if (cheatHeader(t)) name = cheatName(t);
+            else if (name != null && cheatCode(t)) names.add(name);
+        }
+        return new ArrayList<>(names);
+    }
+    static boolean cheatEnabled(String text, String name) {
+        String current = null;
+        for (String line : cheatLines(text)) {
+            String t = line.trim();
+            if (cheatHeader(t)) current = cheatName(t); else if (t.equals(CHEAT_ON) && name.equals(current)) return true;
+        }
+        return false;
+    }
+    /** Turn every cheat called name on or off by adding or removing its marker line; every other line stays as it was. */
+    static String setCheatEnabled(String text, String name, boolean on) {
+        List<String> lines = cheatLines(text); StringBuilder out = new StringBuilder(); boolean mine = false;
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i), t = line.trim();
+            if (cheatHeader(t)) {
+                mine = cheatName(t).equals(name); out.append(line);
+                boolean marked = false;
+                for (int j = i + 1; mine && on && j < lines.size() && !cheatHeader(lines.get(j).trim()); j++) marked |= lines.get(j).trim().equals(CHEAT_ON);
+                if (mine && on && !marked) {
+                    String eol = line.endsWith("\r\n") ? "\r\n" : "\n";
+                    if (!line.endsWith("\n")) out.append(eol);
+                    out.append(CHEAT_ON).append(eol);
+                }
+            } else if (!(mine && !on && t.equals(CHEAT_ON))) out.append(line);
+        }
+        return out.toString();
+    }
+    /** The cheat file's text, or null when the game has none. */
+    static String readCheats(File version, String id) throws IOException {
+        File file = cheatsFile(version, id);
+        return file.isFile() ? new String(Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8) : null;
+    }
+    /** Write the cheat file through a synced temp file and a rename, so a failure leaves the old file as it was. */
+    static void writeCheats(File version, String id, byte[] bytes) throws IOException {
+        File file = cheatsFile(version, id), temp = new File(file.getParentFile(), id + ".txt.tmp-" + UUID.randomUUID());
+        mkdir(file.getParentFile());
+        try {
+            try (FileOutputStream output = new FileOutputStream(temp)) { output.write(bytes); output.getFD().sync(); }
+            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } finally { temp.delete(); }
+    }
+    static String importCheats(android.content.Context context, String id, Uri uri) throws Exception {
+        validId(id); File version = active(context, id); byte[] bytes;
+        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
+            if (input == null) throw new IOException("Cannot read the selected file.");
+            bytes = input.readNBytes(CHEATS_MAX + 1);
+        }
+        byte[] text = cheatText(bytes).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        synchronized (POINTER_LOCK) {
+            if (!active(context, id).equals(version)) throw new IOException("The game changed while importing. Select it again.");
+            writeCheats(version, id, text);
+        }
+        return id;
+    }
+    static void removeCheats(android.content.Context context, String id) throws Exception {
+        validId(id); File version = active(context, id);
+        synchronized (POINTER_LOCK) {
+            if (!active(context, id).equals(version)) throw new IOException("The game changed. Open its settings again.");
+            Files.deleteIfExists(cheatsFile(version, id).toPath());
+        }
+    }
+    /** Switch one cheat in the game's file on or off. */
+    static void switchCheat(android.content.Context context, String id, String name, boolean on) throws Exception {
+        validId(id); File version = active(context, id);
+        synchronized (POINTER_LOCK) {
+            if (!active(context, id).equals(version)) throw new IOException("The game changed. Open its settings again.");
+            String text = readCheats(version, id);
+            if (text == null) throw new IOException("This game has no cheat file any more.");
+            writeCheats(version, id, setCheatEnabled(text, name, on).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
     private static String installMod(android.content.Context context, String id, File version, DocumentsSource source,
             ImportPlan plan, Progress progress, boolean add) throws Exception {

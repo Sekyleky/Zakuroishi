@@ -237,6 +237,33 @@ public final class GameImportCheck {
         java.util.Map<String, Object> wrong = new java.util.LinkedHashMap<>(exported); wrong.put("format", "other");
         try { SettingsTransfer.parse(wrong, fresh); throw new AssertionError(); } catch (IllegalArgumentException expectedRefusal) { }
     }
+    /** Cheat files: what is accepted, switching one cheat touches only its marker line, the write replaces atomically. */
+    static void checkCheats(File dir) throws Exception {
+        String on = "*citra_enabled", a = "[Money]\r\n" + on + "\r\n*note\r\n04000000 00000001\r\n\r\n", b = "[Health]\r\n  0A000000 0000FFFF  \r\n# keep\r\n";
+        String ok = "[Money]\n04000000 00000001\n";
+        require(GameImport.cheatText(ok.getBytes("UTF-8")).equals(ok));
+        require(GameImport.cheatText(("﻿" + ok).getBytes("UTF-8")).equals(ok)); // the core would not see a [name] behind a byte-order mark
+        String[] bad = {"", "[Money]\n", "04000000 00000001\n[Money]\n", "[Money]\n0400000 00000001\n", "[Money]\n04000000-00000001\n", "[Money]\nhello\n", "[Money\n04000000 00000001\n", "[]\n04000000 00000001\n", "[Money]\n04000000 0000000G\n", "[Money]\0\n04000000 00000001\n"};
+        for (String text : bad) { final String t = text; rejects(() -> GameImport.cheatText(t.getBytes("UTF-8"))); }
+        rejects(() -> GameImport.cheatText(new byte[]{'[', 'a', ']', '\n', (byte) 0xff}));
+        rejects(() -> GameImport.cheatText(new byte[GameImport.CHEATS_MAX + 1]));
+        GameImport.cheatText((ok + " ".repeat(GameImport.CHEATS_MAX - ok.length())).getBytes("UTF-8"));
+        String file = a + b;
+        require(GameImport.cheatNames(file).equals(java.util.Arrays.asList("Money", "Health")) && GameImport.cheatNames("[Empty]\n*x\n" + ok).equals(java.util.Arrays.asList("Money")));
+        require(GameImport.cheatEnabled(file, "Money") && !GameImport.cheatEnabled(file, "Health"));
+        String both = GameImport.setCheatEnabled(file, "Health", true);
+        require(both.equals(a + "[Health]\r\n" + on + "\r\n  0A000000 0000FFFF  \r\n# keep\r\n") && GameImport.cheatEnabled(both, "Health"));
+        require(GameImport.setCheatEnabled(both, "Health", true).equals(both) && GameImport.setCheatEnabled(both, "Health", false).equals(file));
+        require(GameImport.setCheatEnabled(file, "Money", false).equals(file.replace(on + "\r\n", "")) && GameImport.setCheatEnabled(file, "Nope", true).equals(file));
+        require(GameImport.setCheatEnabled("[A]\n04000000 00000001", "A", true).equals("[A]\n" + on + "\n04000000 00000001"));
+        File version = new File(dir, "cheat-version"); String id = "00040000001B0000";
+        require(GameImport.readCheats(version, id) == null && GameImport.cheatsFile(version, id).getPath().replace('\\', '/').endsWith("data/cheats/" + id + ".txt"));
+        GameImport.writeCheats(version, id, a.getBytes("UTF-8")); GameImport.writeCheats(version, id, file.getBytes("UTF-8"));
+        require(GameImport.readCheats(version, id).equals(file) && GameImport.cheatsFile(version, id).getParentFile().list().length == 1); // replaced, no temp file left
+        File carried = new File(dir, "cheat-new-import"); // what install does for a re-import: the old bytes go into the new data folder
+        GameImport.writeCheats(carried, id, Files.readAllBytes(GameImport.cheatsFile(version, id).toPath()));
+        require(GameImport.readCheats(carried, id).equals(file));
+    }
     /** B1/B3/B4, C2, J3, J7. */
     static void checkSmallThings(File dir) throws Exception {
         require(GameImport.margin(0) == 256L << 20 && GameImport.margin(4L << 30) == 256L << 20 && GameImport.margin(10L << 30) == (10L << 30) / 20 && GameImport.margin(100L << 20) == 256L << 20);
@@ -321,7 +348,7 @@ public final class GameImportCheck {
             // A normal directory named user must not prevent staging cleanup.
             new File(stage, "user").mkdir();
             GameImport.remove(stage); require(!stage.exists()); require(new File(saves, "keep").exists());
-            checkSwap(dir); checkAddMods(dir); checkStorage(dir); checkSettings(); checkSmallThings(dir);
+            checkSwap(dir); checkAddMods(dir); checkStorage(dir); checkSettings(); checkCheats(dir); checkSmallThings(dir);
             System.out.println("Import boundary checks passed (swap rollback, storage selection, settings round trip, margin, hashes)");
         } finally { GameImport.remove(dir); }
     }

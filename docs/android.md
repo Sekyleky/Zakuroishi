@@ -85,6 +85,22 @@ folder holding `mods/TITLE_ID/` as `zakuro-build-title`'s fourth argument and im
 the result with **Replace native game code**. With a `title.so` built without them,
 the functions they change run in the interpreter, and an ABI 4 library is refused.
 
+## Cheats
+
+Open a game's **Settings → Game files** and choose **Import cheats…**, then select one
+text file in the common text cheat format: a `[name]` line for each cheat followed by its
+code lines (`XXXXXXXX YYYYYYYY`), with optional `*` note lines. The file must be at most
+1 MiB, valid UTF-8, and have at least one cheat with at least one code line; otherwise
+nothing is changed and the message says what is wrong. Importing replaces the cheats
+imported before. Once a game has cheats, **Game files** also shows **Cheats…**, a list
+with a switch for each cheat, and **Remove cheats**. A switch changes the file at once and
+applies the next time the game starts. Cheats are kept when the game is added again or
+its native code, mods or texture pack are replaced. They cannot be changed while a game
+is open or an import is running.
+
+Cheats change the game's memory while it plays and can damage a save. Back the save up
+first (**Saves**), and keep the backup until you are sure the cheat is safe.
+
 ## Fix an existing native-library error
 
 Open the affected game's **Settings**, choose **Replace native game code**, and
@@ -329,6 +345,7 @@ The app stores files privately beneath Android's app files directory:
 | `imports/UUID/code/title.so` | Read-only native game library |
 | `imports/UUID/data/mods/TITLE_ID/textures/` | Optional replacement pack |
 | `imports/UUID/data/mods/TITLE_ID/romfs/`, `romfs_ext/` | Optional mod (also `code.ips`, `code.bps`, `code.bin`, `exheader.bin`) |
+| `imports/UUID/data/cheats/TITLE_ID.txt` | Optional imported cheat file (copied to a new import of the game) |
 | `imports/UUID/data/states/TITLE_ID/0.state` | Quick-save slot for this import |
 | `imports/UUID/data/states/TITLE_ID/1.state` to `9.state` | Numbered state slots (pause menu: Save state… / Load state…) |
 

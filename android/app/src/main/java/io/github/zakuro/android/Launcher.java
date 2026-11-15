@@ -20,10 +20,10 @@ import java.util.*;
 
 /** Native widgets retain touch, D-pad, font scaling and accessibility behavior. */
 public final class Launcher extends Activity {
-    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10, IMPORT_LOSSLESS = 11, EXPORT_DIAGNOSTICS = 12, EXPORT_SETTINGS = 13, IMPORT_SETTINGS = 14;
+    private static final int IMPORT = 1, REPLACE_CODE = 2, REPLACE_TEXTURES = 3, IMPORT_DRIVER = 4, EXPORT_SAVE = 5, RESTORE_SAVE = 6, EXPORT_FRONTEND = 7, READ_IISU = 8, WRITE_IISU = 9, REPLACE_MODS = 10, IMPORT_LOSSLESS = 11, EXPORT_DIAGNOSTICS = 12, EXPORT_SETTINGS = 13, IMPORT_SETTINGS = 14, IMPORT_CHEATS = 15;
     private String pendingSaveId;
     private Uri pendingIisu;
-    private String pendingCodeId, pendingTextureId, pendingModId, pendingDriverId;
+    private String pendingCodeId, pendingTextureId, pendingModId, pendingDriverId, pendingCheatId;
     private boolean pendingIncludeTextures;
     private LinearLayout list;
     private ScrollView library;
@@ -55,7 +55,7 @@ public final class Launcher extends Activity {
         super.onCreate(state);
         if (state != null) {
             String iisu=state.getString("pendingIisu"); if(iisu!=null) pendingIisu=Uri.parse(iisu);
-            pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId"); pendingModId = state.getString("pendingModId");
+            pendingCodeId = state.getString("pendingCodeId"); pendingTextureId = state.getString("pendingTextureId"); pendingModId = state.getString("pendingModId"); pendingCheatId = state.getString("pendingCheatId");
             pendingDriverId = state.getString("pendingDriverId");
             pendingSaveId = state.getString("pendingSaveId");
             pendingIncludeTextures = state.getBoolean("pendingIncludeTextures", false);
@@ -252,6 +252,11 @@ public final class Launcher extends Activity {
             if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
                 task.replaceMods(getApplicationContext(), id, intent.getData());
         }
+        if (request == IMPORT_CHEATS) {
+            String id = pendingCheatId; pendingCheatId = null;
+            if (result == RESULT_OK && id != null && intent != null && intent.getData() != null)
+                task.importCheats(getApplicationContext(), id, intent.getData());
+        }
     }
     @Override protected void onSaveInstanceState(Bundle state) {
         if(pendingIisu!=null) state.putString("pendingIisu",pendingIisu.toString());
@@ -260,6 +265,7 @@ public final class Launcher extends Activity {
         if (pendingCodeId != null) state.putString("pendingCodeId", pendingCodeId);
         if (pendingTextureId != null) state.putString("pendingTextureId", pendingTextureId);
         if (pendingModId != null) state.putString("pendingModId", pendingModId);
+        if (pendingCheatId != null) state.putString("pendingCheatId", pendingCheatId);
         state.putBoolean("pendingIncludeTextures", pendingIncludeTextures);
         super.onSaveInstanceState(state);
     }
@@ -378,6 +384,14 @@ public final class Launcher extends Activity {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(intent, REPLACE_TEXTURES);
+    }
+    void importCheats(String id) {
+        if (task.busy) return;
+        pendingCheatId = id;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try { startActivityForResult(intent, IMPORT_CHEATS); }
+        catch (ActivityNotFoundException e) { pendingCheatId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
     }
     private void replaceMods(String id) {
         if (task.busy) return;
@@ -681,6 +695,7 @@ public final class Launcher extends Activity {
         void replaceTextures(Context context, String id, Uri uri) { run(context, id, uri, 2, true); }
         void replaceMods(Context context, String id, Uri uri) { run(context, id, uri, 6, false); }
         void importLossless(Context context, Uri uri) { run(context, null, uri, 7, false); }
+        void importCheats(Context context, String id, Uri uri) { run(context, id, uri, 8, false); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
         interface Job { String run() throws Exception; }
         /** Runs a short job off the main thread; the job returns the status line for success. */
@@ -756,7 +771,7 @@ public final class Launcher extends Activity {
         }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
-            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing mod" : operation == 7 ? "Importing Lossless.dll" : "Restoring saves";
+            String action = operation == 0 ? "Adding game" : operation == 1 ? "Replacing code" : operation == 2 ? "Importing texture pack" : operation == 3 ? "Importing Vulkan driver" : operation == 4 ? "Exporting saves" : operation == 6 ? "Importing mod" : operation == 7 ? "Importing Lossless.dll" : operation == 8 ? "Importing cheats" : "Restoring saves";
             errorTitle = action + " failed";
             message = operation == 0 ? "Checking game folder… No files copied yet." : "Checking selected files…"; refresh(true);
             new Thread(() -> {
@@ -771,6 +786,7 @@ public final class Launcher extends Activity {
                     else if (operation == 3) detail = installDriver(context, id, uri);
                     else if (operation == 6) GameImport.replaceRomfs(context, id, uri, callback);
                     else if (operation == 7) LosslessImport.install(context, uri);
+                    else if (operation == 8) GameImport.importCheats(context, id, uri);
                     else {
                         main.post(() -> { message = action + "…"; refresh(false); });
                         try (SaveArchive.Guard ignored = SaveArchive.lock(context.getFilesDir(), id)) {
@@ -796,7 +812,7 @@ public final class Launcher extends Activity {
                     if (outcome == null && report != null) { errorTitle = operation == 0 ? "Game added" : operation == 1 ? "Native game code replaced" : "Vulkan driver imported"; error = report; }
                     // settings stay open over the status line, so the result needs its own dialog
                     if (outcome == null && operation == 7) { errorTitle = "Lossless.dll imported"; error = LosslessImport.DONE; }
-                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : operation == 7 ? LosslessImport.DONE : "Saves restored. Start the game normally; do not load an old quick save state.")
+                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : operation == 7 ? LosslessImport.DONE : operation == 8 ? "Cheats imported. Open Game files again to switch them on. They apply the next time the game starts." : "Saves restored. Start the game normally; do not load an old quick save state.")
                             : action + " failed. See the error for recovery details."; refresh(true); });
             }, "game-import").start();
         }

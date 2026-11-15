@@ -163,6 +163,49 @@ final class SettingsDialog {
             }, "remove-mods").start();
         });
     }
+    /** Cheats change a file the game reads at start, so not while an import or a game is running (the same wait as the storage screen). */
+    private boolean cheatsBlocked() {
+        String why = activity instanceof Launcher && ((Launcher) activity).busy() ? "An import is running. Wait for it to finish, then try again."
+                : StorageDialog.gameRunning(activity) ? "A game is open. Exit it to the library (not just Home), then try again." : null;
+        if (why != null) Toast.makeText(activity, why, Toast.LENGTH_LONG).show();
+        return why != null;
+    }
+    private void removeCheats() {
+        if (cheatsBlocked()) return;
+        confirm("Remove cheats for " + title + "?", "Deletes the cheat file imported for this game. Its mods, texture pack, ROM and saves are kept. What a cheat already changed in a save stays there.", "Remove", "Cancel", () -> {
+            String id = settings.id;
+            new Thread(() -> {
+                String failure = null;
+                try { GameImport.removeCheats(activity, id); }
+                catch (Exception e) { failure = e.getMessage() == null ? "Could not remove the cheats." : e.getMessage(); }
+                String result = failure;
+                activity.runOnUiThread(() -> {
+                    Toast.makeText(activity, result == null ? "Cheats removed." : result, Toast.LENGTH_LONG).show();
+                    if (result == null && rootDialog != null) closeAll();
+                });
+            }, "remove-cheats").start();
+        });
+    }
+    /** One switch per cheat in the game's file; each change rewrites its marker line at once. */
+    private void cheats() {
+        if (cheatsBlocked()) return;
+        String text; try { text = GameImport.readCheats(version, settings.id); } catch (IOException e) { text = null; }
+        if (text == null) { Toast.makeText(activity, "This game has no readable cheat file.", Toast.LENGTH_LONG).show(); return; }
+        LinearLayout content = column(); content.addView(legend("A Switch · B Back · L/R Page"));
+        content.addView(text("Cheats change the game's memory and can damage a save. Back up the save first. Changes apply the next time the game starts.", true));
+        List<String> names = GameImport.cheatNames(text);
+        AlertDialog[] list = new AlertDialog[1];
+        for (String name : names.subList(0, Math.min(names.size(), 200))) { // ponytail: 200 rows, real files have dozens; a huge list would stall the screen
+            Switch use = toggle(name, GameImport.cheatEnabled(text, name));
+            use.setOnCheckedChangeListener((button, checked) -> {
+                try { GameImport.switchCheat(activity, settings.id, name, checked); }
+                catch (Exception e) { Toast.makeText(activity, e.getMessage() == null ? "Could not save the cheat." : e.getMessage(), Toast.LENGTH_LONG).show(); list[0].dismiss(); }
+            });
+            content.addView(use);
+        }
+        if (names.size() > 200) content.addView(text("Showing the first 200 of " + names.size() + " cheats.", true));
+        list[0] = dialog("Cheats · " + title, content).setNegativeButton("Back", null).create(); show(list[0]); focusFirst(content);
+    }
     private void root() {
         LinearLayout content = column();
         content.addView(legend("A Select · B Back · Start Save · L/R Page"));
@@ -259,6 +302,16 @@ final class SettingsDialog {
                 if (GameImport.hasMods(version, settings.id)) {
                     Button remove = button("Remove mods"); remove.setOnClickListener(v -> removeMods()); addButton(content, remove);
                     content.addView(text("Removes this game's mods. Its texture pack, ROM and saves stay.", true));
+                }
+            }
+            if (activity instanceof Launcher) {
+                Button cheats = button("Import cheats…"); cheats.setOnClickListener(v -> { if (!cheatsBlocked()) ((Launcher) activity).importCheats(settings.id); }); addButton(content, cheats);
+                content.addView(text("Optional. Choose one text file of cheats in the common text cheat format. It replaces the cheats imported before, and is kept when the game is imported again. Cheats change game memory and can break a save: back it up first.", true));
+                if (GameImport.cheatsFile(version, settings.id).isFile()) {
+                    Button list = button("Cheats…"); list.setOnClickListener(v -> cheats()); addButton(content, list);
+                    content.addView(text("Switch the imported cheats on or off.", true));
+                    Button remove = button("Remove cheats"); remove.setOnClickListener(v -> removeCheats()); addButton(content, remove);
+                    content.addView(text("Deletes the imported cheat file. Its mods, texture pack, ROM and saves stay.", true));
                 }
             }
             if (repair != null) {
