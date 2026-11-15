@@ -166,7 +166,7 @@ final class SettingsDialog {
     private void root() {
         LinearLayout content = column();
         content.addView(legend("A Select · B Back · Start Save · L/R Page"));
-        content.addView(text(defaults ? "Every game uses these unless its own settings change them." : inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts." : "Settings are saved for this game and apply the next time you play. Settings marked changed differ from All games.", true));
+        content.addView(text(defaults ? "Every game uses these unless its own settings change them." : inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts. Clock and battery switch without a restart." : "Settings are saved for this game and apply the next time you play. Settings marked changed differ from All games.", true));
         Button firstGroup = null;
         for (String group : GameSettings.GROUPS) {
             Button button = button(group); button.setContentDescription(group + " settings for " + title);

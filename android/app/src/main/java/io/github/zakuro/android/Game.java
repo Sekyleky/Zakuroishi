@@ -178,6 +178,11 @@ public final class Game extends NativeActivity {
         if (last >= 1) builder.setNegativeButton(labels[0], (d, w) -> nativeKeyboard(edit.getText().toString(), 0));
         if (last >= 2) builder.setNeutralButton(labels[1], (d, w) -> nativeKeyboard(edit.getText().toString(), 1));
         AlertDialog dialog = builder.create();
+        dialog.setOnKeyListener((d, code, event) -> { // Start confirms, as in settings
+            if (code != KeyEvent.KEYCODE_BUTTON_START) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP) dialog.getButton(DialogInterface.BUTTON_POSITIVE).performClick();
+            return true;
+        });
         if (dialog.getWindow() != null) dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
         dialog.show();
         edit.requestFocus();
@@ -243,9 +248,8 @@ public final class Game extends NativeActivity {
     private void pauseMenu() {
         if(menuOpen || errorDialog!=null || isFinishing()) return;
         menuOpen=true; nativeCommand(PAUSE);
-        // Grid order (index = switch case below): Resume|Save, Load|Swap, Save slot|Load slot, Recalibrate|Settings, Restart|Exit.
-        String[] entries={"Resume","Save state","Load state","Restart game","Swap screens","Recalibrate motion","Settings…","Exit to library","Save to slot…","Load from slot…"};
-        int[] grid={0,1,2,4,8,9,5,6,3,7};
+        // Two per row in reading order; the index is the case in pauseAction.
+        String[] entries={"Resume","Settings…","Save state…","Load state…","Swap screens","Recalibrate motion",hudLabel(),"Screenshot","Restart game","Exit to library"};
         Palette p=palette;
         android.widget.LinearLayout card=new android.widget.LinearLayout(this);
         card.setOrientation(android.widget.LinearLayout.VERTICAL); card.setPadding(p.dp(24),p.dp(22),p.dp(24),p.dp(22));
@@ -258,22 +262,24 @@ public final class Game extends NativeActivity {
         android.widget.Button first=null;
         android.widget.LinearLayout line=null;
         pauseDialog=new AlertDialog.Builder(this,p.dialogTheme()).setView(card).create();
-        for(int i=0;i<grid.length;i++) {
-            final int which=grid[i];
+        for(int i=0;i<entries.length;i++) {
+            final int which=i;
             if(i%2==0) { line=new android.widget.LinearLayout(this); card.addView(line,new android.widget.LinearLayout.LayoutParams(-1,-2)); }
             android.widget.Button tile=new android.widget.Button(this);
             tile.setText(entries[which]); tile.setAllCaps(false); tile.setTextSize(17); tile.setStateListAnimator(null);
             tile.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
             tile.setMinHeight(p.dp(66)); tile.setBackground(p.button(Palette.SECONDARY)); tile.setPadding(p.dp(23),0,p.dp(18),0); // after the background: its inset would replace the padding
-            tile.setTextColor(p.label(which==3 || which==7 ? p.danger : p.ink));
-            tile.setOnClickListener(v -> { pauseAction(which); pauseDialog.dismiss(); });
+            tile.setTextColor(p.label(which==8 || which==9 ? p.danger : p.ink));
+            tile.setOnClickListener(v -> { if(pauseAction(which,tile) && pauseDialog!=null) pauseDialog.dismiss(); });
             line.addView(tile,new android.widget.LinearLayout.LayoutParams(0,-2,1));
             if(first==null) first=tile;
         }
-        card.addView(p.legend("A Select · B Resume · ✚ Move"));
+        card.addView(p.legend("A Select · B Resume · X Quick save · Y Quick load"));
         pauseDialog.setOnDismissListener(d -> { pauseDialog=null; if(!menuOpen) return; menuOpen=false; nativeCommand(RESUME); });
         pauseDialog.setOnKeyListener((d,code,event) -> {
             if(code==KeyEvent.KEYCODE_BUTTON_B) { if(event.getAction()==KeyEvent.ACTION_UP) d.cancel(); return true; }
+            if(code==KeyEvent.KEYCODE_BUTTON_X) { if(event.getAction()==KeyEvent.ACTION_UP) { nativeCommand(SAVE); d.dismiss(); } return true; }
+            if(code==KeyEvent.KEYCODE_BUTTON_Y) { if(event.getAction()==KeyEvent.ACTION_UP) confirmLoad(); return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_A) {
                 if(event.getAction()==KeyEvent.ACTION_UP) {
                     if(pauseDialog.getCurrentFocus()!=null) pauseDialog.getCurrentFocus().performClick();
@@ -283,89 +289,102 @@ public final class Game extends NativeActivity {
             return false;
         });
         pauseDialog.show();
-        p.dialog(pauseDialog,false); pauseDialog.getWindow().setLayout(p.dp(560),-2); android.widget.Button focus=first; focus.setFocusableInTouchMode(true); focus.post(focus::requestFocus); // lit on open even in touch mode, once the window is shown
+        p.dialog(pauseDialog,false); pauseDialog.getWindow().setLayout(Math.min(p.dp(560),getResources().getDisplayMetrics().widthPixels-p.dp(32)),-2);
+        android.widget.Button focus=first; focus.post(focus::requestFocusFromTouch); // lit on open even in touch mode, once the window is shown
     }
-    private void pauseAction(int which) {
+    /** Runs a tile; true when the menu should close and the game resume. */
+    private boolean pauseAction(int which, android.widget.Button tile) {
         switch(which) {
-            case 1: nativeCommand(SAVE); break;
-            case 2: confirmLoad(); break;
-            case 3: confirmRestart(); break;
+            case 1: openSettings(); break;
+            case 2: slotMenu(true); break;
+            case 3: slotMenu(false); break;
             case 4: nativeCommand(SWAP); break;
             case 5: nativeCommand(RECALIBRATE); break;
-            case 6: openSettings(); break;
-            case 7: confirmExit(); break;
-            case 8: slotMenu(true); break;
-            case 9: slotMenu(false); break;
+            case 6: toggleHud(); tile.setText(hudLabel()); return false;
+            case 7: hud.postDelayed(this::screenshot,250); break; // once the menu is gone
+            case 8: confirmRestart(); break;
+            case 9: confirmExit(); break;
         }
+        return true;
     }
     private void confirmRestart() {
         menuOpen=false;
-        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Restart game?").setMessage("Unsaved progress will be lost. Saved states and in-game saves are kept.")
-                // Relaunch from saved settings: a core-only restart would keep this launch's options (e.g. HD textures).
-                .setPositiveButton("Restart",(d,w) -> {
-                    String id=getIntent().getStringExtra("game_id");
-                    android.content.Intent next=new android.content.Intent(getIntent());
-                    try { GameSettings.load(this,id).apply(next,GameImport.active(this,id)); pendingRestart=next; finish(); }
-                    catch(Exception e) { nativeCommand(RESTART); }
-                }).setNegativeButton("Cancel",null)
-                .setOnDismissListener(d -> nativeCommand(RESUME)));
+        // Relaunch from saved settings: a core-only restart would keep this launch's options (e.g. HD textures).
+        confirm("Restart game?","Unsaved progress will be lost. Saved states and in-game saves are kept.","Restart",() -> {
+            String id=getIntent().getStringExtra("game_id");
+            android.content.Intent next=new android.content.Intent(getIntent());
+            try { GameSettings.load(this,id).apply(next,GameImport.active(this,id)); pendingRestart=next; finish(); }
+            catch(Exception e) { nativeCommand(RESTART); }
+        },this::pauseMenu);
     }
+    /** Y in the pause menu: the quick slot, after asking. */
     private void confirmLoad() {
-        menuOpen=false;
-        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Load quick state?").setMessage("Progress since it was saved is lost.")
-                .setPositiveButton("Load",(d,w) -> nativeCommand(LOAD)).setNegativeButton("Cancel",null)
-                .setOnDismissListener(d -> nativeCommand(RESUME)));
+        if(!stateFile(0).isFile()) { showNativeMessage("No quick state yet. Press X in this menu to save one."); return; }
+        menuOpen=false; if(pauseDialog!=null) pauseDialog.dismiss();
+        confirm("Load quick state?","Progress since it was saved is lost.","Load",() -> nativeCommand(LOAD),this::pauseMenu);
     }
     /** Slot files sit beside the quick state (slot 0), named <n>.state; the native side builds the same path. */
     private java.io.File stateFile(int slot) {
         return new java.io.File(getIntent().getStringExtra("data"),"states/"+getIntent().getStringExtra("game_id")+"/"+slot+".state");
     }
-    /** Lists slots 1-9 with their save time (load: only filled ones). D-pad moves, A picks, B closes. Overwrite and load ask first. */
+    /** Quick slot (0) then slots 1-9 with their save time (load: only filled ones). A picks, B goes back to the pause menu. Overwrite and load ask first. */
     private void slotMenu(boolean save) {
         menuOpen=false;
+        Palette p=palette;
         java.text.DateFormat when=java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM,java.text.DateFormat.SHORT);
-        java.util.List<String> rows=new java.util.ArrayList<>(); java.util.List<Integer> slots=new java.util.ArrayList<>(); java.util.List<String> dates=new java.util.ArrayList<>();
-        for(int n=1;n<=9;n++) {
+        java.util.List<Integer> slots=new java.util.ArrayList<>(); java.util.List<String> dates=new java.util.ArrayList<>();
+        for(int n=0;n<=9;n++) {
             java.io.File f=stateFile(n); boolean used=f.isFile();
             if(!save && !used) continue;
-            String date=used ? when.format(new java.util.Date(f.lastModified())) : null;
-            rows.add("Slot "+n+"   "+(used ? date : "Empty")); slots.add(n); dates.add(date);
+            slots.add(n); dates.add(used ? when.format(new java.util.Date(f.lastModified())) : null);
         }
-        if(rows.isEmpty()) { showNativeMessage("No saved slots yet"); nativeCommand(RESUME); return; }
-        boolean[] chained={false}; // a confirm took over: it resumes the game, not this list
-        AlertDialog d=new AlertDialog.Builder(this,palette.dialogTheme()).setTitle(save ? "Save to slot" : "Load from slot")
-            .setItems(rows.toArray(new String[0]),(dd,i) -> {
+        if(slots.isEmpty()) { showNativeMessage("No saved states yet"); pauseMenu(); return; }
+        android.widget.ArrayAdapter<Integer> rows=new android.widget.ArrayAdapter<Integer>(this,0,slots) {
+            @Override public android.view.View getView(int i,android.view.View old,android.view.ViewGroup parent) {
+                android.widget.LinearLayout row=new android.widget.LinearLayout(Game.this); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                row.setPadding(p.dp(24),p.dp(12),p.dp(24),p.dp(12)); row.setMinimumHeight(p.dp(56));
+                android.widget.TextView name=new android.widget.TextView(Game.this); name.setText(slotName(slots.get(i),true)); name.setTextSize(17); name.setTextColor(p.ink);
+                android.widget.TextView date=new android.widget.TextView(Game.this); date.setText(dates.get(i)==null ? "Empty" : dates.get(i)); date.setTextSize(15); date.setTextColor(p.muted);
+                row.addView(name,new android.widget.LinearLayout.LayoutParams(0,-2,1)); row.addView(date);
+                return row;
+            }
+        };
+        boolean[] chained={false}, ran={false}; // chained: a confirm took over and decides what follows
+        AlertDialog d=new AlertDialog.Builder(this,p.dialogTheme()).setTitle(save ? "Save state" : "Load state")
+            .setAdapter(rows,(dd,i) -> {
                 int n=slots.get(i); String date=dates.get(i);
                 int command=(save ? SAVE : LOAD) | n<<4;
-                if(save && date==null) { nativeCommand(command); return; }
+                if(save && date==null) { ran[0]=true; nativeCommand(command); return; }
                 chained[0]=true;
-                confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle((save ? "Overwrite slot " : "Load slot ")+n+"?")
-                    .setMessage(save ? "It holds the state saved "+date+"." : "Progress since it was saved ("+date+") is lost.")
-                    .setPositiveButton(save ? "Overwrite" : "Load",(c,w) -> nativeCommand(command)).setNegativeButton("Cancel",null)
-                    .setOnDismissListener(c -> nativeCommand(RESUME)));
-            }).setNegativeButton("Cancel",null).create();
-        d.setOnDismissListener(dd -> { if(!chained[0]) nativeCommand(RESUME); });
+                confirm((save ? "Overwrite " : "Load ")+slotName(n,false)+"?",save ? "It holds the state saved "+date+"." : "Progress since it was saved ("+date+") is lost.",
+                    save ? "Overwrite" : "Load",() -> nativeCommand(command),() -> slotMenu(save));
+            }).setNegativeButton("Back",null).create();
+        android.view.View legend=p.legend((save ? "A Save" : "A Load")+" · B Back · ✚ Move"); legend.setPadding(p.dp(24),p.dp(8),p.dp(24),p.dp(4));
+        d.getListView().addFooterView(legend,null,false);
+        d.setOnDismissListener(dd -> { if(chained[0]) return; if(ran[0]) nativeCommand(RESUME); else pauseMenu(); });
         d.setOnKeyListener((dd,code,event) -> {
             if(code!=KeyEvent.KEYCODE_BUTTON_A && code!=KeyEvent.KEYCODE_BUTTON_B) return false;
             if(event.getAction()==KeyEvent.ACTION_UP) {
                 android.widget.ListView list=d.getListView(); int at=list.getSelectedItemPosition();
                 if(code==KeyEvent.KEYCODE_BUTTON_B) d.cancel();
-                else if(at>=0) list.performItemClick(list.getSelectedView(),at,list.getItemIdAtPosition(at));
+                else if(at>=0 && at<slots.size()) list.performItemClick(list.getSelectedView(),at,list.getItemIdAtPosition(at));
             }
             return true;
         });
-        d.show(); palette.dialog(d,false);
-        android.widget.ListView list=d.getListView(); list.setItemsCanFocus(false); list.setFocusableInTouchMode(true); list.post(() -> { list.requestFocusFromTouch(); list.setSelection(0); }); // FromTouch: in touch mode a plain requestFocus leaves no row selected, so A did nothing until the D-pad moved
+        d.show(); p.dialog(d,false);
+        android.widget.ListView list=d.getListView(); list.setSelector(p.row()); list.setItemsCanFocus(false); list.setFocusableInTouchMode(true); list.post(() -> { list.requestFocusFromTouch(); list.setSelection(0); }); // FromTouch: in touch mode a plain requestFocus leaves no row selected, so A did nothing until the D-pad moved
     }
+    private static String slotName(int n, boolean title) { return n==0 ? (title ? "Quick slot" : "the quick slot") : (title ? "Slot " : "slot ")+n; }
     private void confirmExit() {
         menuOpen=false;
-        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Exit to library?").setMessage("Unsaved progress is lost. In-game saves are kept.")
-                .setPositiveButton("Exit",(d,w) -> { nativeCommand(EXIT); finish(); }).setNegativeButton("Cancel",null)
-                .setOnDismissListener(d -> nativeCommand(RESUME)));
+        confirm("Exit to library?","Unsaved progress is lost. In-game saves are kept.","Exit",() -> { nativeCommand(EXIT); finish(); },this::pauseMenu);
     }
-    /** Shows a confirmation with Cancel focused; A clicks the focused button, B cancels. */
-    private void confirm(AlertDialog.Builder b) {
-        AlertDialog d=b.create();
+    /** A confirmation with Cancel focused; A clicks the focused button, B cancels. Yes runs the action and resumes the game, cancel runs back. */
+    private void confirm(String title, String message, String yes, Runnable action, Runnable back) {
+        boolean[] ran={false};
+        AlertDialog d=new AlertDialog.Builder(this,palette.dialogTheme()).setTitle(title).setMessage(message)
+            .setPositiveButton(yes,(dd,w) -> { ran[0]=true; action.run(); }).setNegativeButton("Cancel",null).create();
+        d.setOnDismissListener(dd -> { if(ran[0]) nativeCommand(RESUME); else back.run(); });
         d.setOnKeyListener((dd,code,event) -> {
             if(code!=KeyEvent.KEYCODE_BUTTON_A && code!=KeyEvent.KEYCODE_BUTTON_B) return false;
             if(event.getAction()==KeyEvent.ACTION_UP) {
@@ -374,16 +393,81 @@ public final class Game extends NativeActivity {
             }
             return true;
         });
-        d.show(); palette.dialog(d,true); android.widget.Button cancel=d.getButton(AlertDialog.BUTTON_NEGATIVE); cancel.setFocusableInTouchMode(true); cancel.post(cancel::requestFocus);
+        d.show(); palette.dialog(d,true); android.widget.Button cancel=d.getButton(AlertDialog.BUTTON_NEGATIVE); cancel.post(cancel::requestFocusFromTouch);
+    }
+    private String hudLabel() { return "HUD · "+(settings!=null && (settings.flag("show_clock") || settings.flag("show_battery")) ? "On" : "Off"); }
+    /** Clock and battery are drawn here, not by the native side, so they switch at once; the choice is stored for this game. */
+    private void toggleHud() {
+        if(settings==null) return;
+        boolean on=!(settings.flag("show_clock") || settings.flag("show_battery"));
+        try {
+            GameSettings stored=GameSettings.load(this,settings.id);
+            stored.values.put("show_clock",on); stored.values.put("show_battery",on); stored.save(this);
+        } catch(RuntimeException e) { showNativeMessage("The HUD setting could not be saved."); return; }
+        settings.values.put("show_clock",on); settings.values.put("show_battery",on); liveHud();
+    }
+    private void liveHud() {
+        if(settings.flag("show_battery") && !batteryRegistered) {
+            registerReceiver(batteryReceiver,new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)); batteryRegistered=true;
+        }
+        hud.removeCallbacks(clock); hud.post(clock);
+    }
+    /** True when the stored settings differ from the running ones only in what the Java HUD draws. */
+    private static boolean onlyHudChanged(GameSettings running, GameSettings stored) {
+        GameSettings same=running.copy();
+        same.values.put("show_clock",stored.values.get("show_clock")); same.values.put("show_battery",stored.values.get("show_battery"));
+        return same.json().equals(stored.json()) && same.resolution==stored.resolution && same.textures==stored.textures && same.driver.equals(stored.driver);
+    }
+    private android.view.SurfaceHolder gameSurface;
+    private int surfaceWidth, surfaceHeight;
+    @Override public void surfaceChanged(android.view.SurfaceHolder holder,int format,int width,int height) {
+        super.surfaceChanged(holder,format,width,height); gameSurface=holder; surfaceWidth=width; surfaceHeight=height;
+    }
+    @Override public void surfaceDestroyed(android.view.SurfaceHolder holder) { gameSurface=null; super.surfaceDestroyed(holder); }
+    /**
+     * Copies the game picture on this display to Pictures/Zakuroishi.
+     * ponytail: this display's surface only (the top screen, or both screens when the layout shows both here); the second
+     * display is a separate surface and is not in the picture. Capture both if anyone asks for a bottom-screen shot.
+     */
+    private void screenshot() {
+        android.view.SurfaceHolder holder=gameSurface;
+        if(holder==null || surfaceWidth<=0 || surfaceHeight<=0 || isFinishing()) { showNativeMessage("Screenshot failed: the game picture is not ready."); return; }
+        android.graphics.Bitmap shot=android.graphics.Bitmap.createBitmap(surfaceWidth,surfaceHeight,android.graphics.Bitmap.Config.ARGB_8888);
+        try {
+            android.view.PixelCopy.request(holder.getSurface(),shot,result -> {
+                if(result!=android.view.PixelCopy.SUCCESS) { shot.recycle(); showNativeMessage("Screenshot failed: the picture could not be copied (error "+result+")."); return; }
+                new Thread(() -> showNativeMessage(storeScreenshot(shot)),"screenshot").start();
+            },hud);
+        } catch(RuntimeException e) { shot.recycle(); showNativeMessage("Screenshot failed: "+e.getMessage()); }
+    }
+    /** MediaStore needs no permission on API 30+ for the app's own pictures. Returns the message to show. */
+    private String storeScreenshot(android.graphics.Bitmap shot) {
+        android.content.ContentResolver resolver=getContentResolver();
+        android.content.ContentValues values=new android.content.ContentValues();
+        values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME,"Zakuroishi_"+new java.text.SimpleDateFormat("yyyyMMdd_HHmmss",java.util.Locale.ROOT).format(new java.util.Date())+".png");
+        values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE,"image/png");
+        values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,android.os.Environment.DIRECTORY_PICTURES+"/Zakuroishi");
+        values.put(android.provider.MediaStore.MediaColumns.IS_PENDING,1);
+        android.net.Uri uri=null;
+        try {
+            uri=resolver.insert(android.provider.MediaStore.Images.Media.getContentUri(android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY),values);
+            if(uri==null) throw new java.io.IOException("no room in the picture library");
+            try(java.io.OutputStream out=resolver.openOutputStream(uri)) {
+                if(out==null || !shot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out)) throw new java.io.IOException("the picture could not be written");
+            }
+            values.clear(); values.put(android.provider.MediaStore.MediaColumns.IS_PENDING,0); resolver.update(uri,values,null,null);
+            return "Screenshot saved to Pictures/Zakuroishi";
+        } catch(Exception e) {
+            if(uri!=null) try { resolver.delete(uri,null,null); } catch(RuntimeException ignored) {}
+            return "Screenshot failed: "+e.getMessage();
+        } finally { shot.recycle(); }
     }
     @Override protected void onNewIntent(android.content.Intent next) {
         super.onNewIntent(next);
         if (java.util.Objects.equals(getIntent().getStringExtra("game_id"),next.getStringExtra("game_id"))) return;
         nativeCommand(PAUSE);
-        confirm(new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Switch games?")
-            .setMessage("Unsaved progress in the current game will be lost. In-game saves are kept.")
-            .setPositiveButton("Switch",(d,w)->{ pendingRestart=next; finish(); })
-            .setNegativeButton("Cancel",null).setOnDismissListener(d->nativeCommand(RESUME)));
+        confirm("Switch games?","Unsaved progress in the current game will be lost. In-game saves are kept.","Switch",
+            () -> { pendingRestart=next; finish(); },() -> nativeCommand(RESUME));
     }
     private void openSettings() {
         menuOpen=false;
@@ -392,11 +476,18 @@ public final class Game extends NativeActivity {
             SettingsDialog.show(this,id,GameImport.active(this,id),getIntent().getStringExtra("game_name"),true,
                 () -> {
                     android.content.Intent next=new android.content.Intent(getIntent());
-                    try { GameSettings.load(this,id).apply(next,GameImport.active(this,id)); }
+                    try {
+                        GameSettings stored=GameSettings.load(this,id);
+                        if(settings!=null && onlyHudChanged(settings,stored)) { // clock and battery switch live, no restart
+                            if(!stored.name.isEmpty()) getIntent().putExtra("game_name",stored.name);
+                            settings=stored; liveHud(); nativeCommand(RESUME); return;
+                        }
+                        stored.apply(next,GameImport.active(this,id));
+                    }
                     catch(Exception e) { showNativeMessage(e.getMessage()); nativeCommand(RESUME); return; }
                     pendingRestart = next; finish();
-                }, () -> nativeCommand(RESUME),null,null,null);
-        } catch(Exception e) { showNativeMessage(e.getMessage()); nativeCommand(RESUME); }
+                }, this::pauseMenu,null,null,null);
+        } catch(Exception e) { showNativeMessage(e.getMessage()); pauseMenu(); }
     }
     private String runtimeError;
     private volatile SaveArchive.Guard saveGuard;
