@@ -352,8 +352,8 @@ public final class Game extends NativeActivity {
      * ponytail: written when the save is asked for, not when it succeeds, so a failed save leaves the new picture beside the old state. Report the native result to Java if that shows up.
      */
     private void saveThumbnail(int slot, android.graphics.Bitmap shot) {
-        if(shot==null) return;
         java.io.File file=thumbnailFile(slot);
+        if(shot==null) { file.delete(); return; } // no picture beats the previous state's picture
         new Thread(() -> {
             file.getParentFile().mkdirs();
             try(java.io.FileOutputStream out=new java.io.FileOutputStream(file)) { if(!shot.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out)) throw new java.io.IOException(); }

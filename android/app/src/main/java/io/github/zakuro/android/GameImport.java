@@ -177,7 +177,8 @@ final class GameImport {
             Os.symlink(user.getAbsolutePath(), new File(data, "user").getAbsolutePath());
             // A game's data folder belongs to one import, so its cheat file is carried to the new one (an unreadable old import has none to keep).
             File before; try { before = cheatsFile(active(context, plan.titleId), plan.titleId); } catch (IOException none) { before = null; }
-            if (before != null && before.isFile()) writeCheats(stage, plan.titleId, Files.readAllBytes(before.toPath()));
+            if (before != null && before.isFile() && before.length() <= CHEATS_MAX)
+                try { writeCheats(stage, plan.titleId, Files.readAllBytes(before.toPath())); } catch (IOException lost) { } // cheats can be imported again; the game import must not fail over them
             android.util.AtomicFile pointer = new android.util.AtomicFile(new File(imports, plan.titleId + ".active"));
             synchronized (POINTER_LOCK) {
                 FileOutputStream stream = null;

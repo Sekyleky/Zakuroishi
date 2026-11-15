@@ -204,7 +204,7 @@ final class GameSettings {
     }
     /**
      * Keys the one-time migration removes: before defaults existed every save wrote every value, so a stored value equal to
-     * its initial (resolution 1, no bindings) is not a choice and must not hide the defaults. Nothing changes at that moment.
+     * its initial (or an empty bindings set) is not a choice and must not hide the defaults. Nothing changes at that moment.
      */
     static List<String> stale(Map<String, ?> prefs) {
         List<String> keys = new ArrayList<>();
@@ -212,8 +212,8 @@ final class GameSettings {
             String key = entry.getKey(); Object value = entry.getValue();
             if (key.length() < 18 || !key.substring(0, 16).matches("[0-9A-Fa-f]{16}") || key.startsWith(DEFAULTS)) continue;
             String rest = key.substring(16);
-            if (rest.equals(".resolution") && Integer.valueOf(1).equals(value)) keys.add(key);
-            else if (rest.equals(".advanced.controller_bindings") && value instanceof Set<?> && ((Set<?>) value).isEmpty()) keys.add(key);
+            // A stored resolution stays: 1× may be a choice (battery), and following All games would silently make an old game heavier.
+            if (rest.equals(".advanced.controller_bindings") && value instanceof Set<?> && ((Set<?>) value).isEmpty()) keys.add(key);
             else for (Setting setting : ALL)
                 if (rest.equals(".advanced." + setting.key) && value != null && setting.normalize(value).equals(setting.initial)) keys.add(key);
         }

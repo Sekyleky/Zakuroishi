@@ -143,7 +143,7 @@ public final class GameSettingsCheck {
         persisted.put(other+".advanced.controller_bindings",new HashSet<String>()); persisted.put(other+".name","Kept"); persisted.put(other+".textures",true);
         persisted.put(D+".advanced.frame_cap",60);
         GameSettings migrated=GameSettings.load(context,other);
-        require(!persisted.containsKey(other+".resolution") && !persisted.containsKey(other+".advanced.volume") && !persisted.containsKey(other+".advanced.controller_bindings"));
+        require(persisted.get(other+".resolution").equals(1) && !persisted.containsKey(other+".advanced.volume") && !persisted.containsKey(other+".advanced.controller_bindings"));
         require(persisted.get(other+".advanced.frame_cap").equals(30) && persisted.get(other+".name").equals("Kept") && persisted.containsKey(other+".textures"));
         require(persisted.get(D+".advanced.frame_cap").equals(60) && migrated.values.get("frame_cap").equals(30));
         persisted.put(other+".advanced.volume",1f); GameSettings.load(context,other);
