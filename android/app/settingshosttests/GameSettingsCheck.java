@@ -7,6 +7,7 @@ import java.util.*;
 /** Pure host checks: no Android runtime or test framework required. */
 public final class GameSettingsCheck {
     private static void require(boolean value) { if (!value) throw new AssertionError(); }
+    private static Set<String> keysOf() { Set<String> keys=new HashSet<>(); for(GameSettings.Setting s:GameSettings.ALL) keys.add(s.key); return keys; }
     static Map<String,Object> persisted;
     static boolean commitOK = true;
     public static final class HostContext extends android.content.ContextWrapper {
@@ -124,6 +125,13 @@ public final class GameSettingsCheck {
         require(GameSettings.load(context,other).values.get("layout").equals("top_only")); // defaults still reach the game
         game.useDefaults(); require(game.values.get("frame_cap").equals(30) && !game.changed(cap)); game.save(context);
         require(!persisted.containsKey(other+".advanced.frame_cap"));
+        // presets: one-shot edits of the draft, matched back by value
+        require(GameSettings.SIMPLE.size()==12 && keysOf().containsAll(GameSettings.SIMPLE));
+        GameSettings tuned=game.copy();
+        for(int i=0;i<GameSettings.PRESETS.length;i++) { tuned.preset(i); require(tuned.preset(true)==i && tuned.preset(false)==i); }
+        tuned.preset(0); require(tuned.resolution==1 && !tuned.textures && tuned.values.get("frame_cap").equals(30));
+        tuned.textures=true; require(tuned.preset(true)==-1 && tuned.preset(false)==0);
+        tuned.values.put("interpolate",true); require(tuned.preset(false)==-1);
         // custom_driver stays per game
         all.values.put("custom_driver",true); all.save(context); require(!GameSettings.load(context,other).flag("custom_driver"));
         // migration: old saves wrote every value; ones equal to their initial are dropped once, real choices stay
@@ -170,6 +178,6 @@ public final class GameSettingsCheck {
         new File(version,"data").delete(); version.delete();
         try { GameSettings.from(prefs,"../bad"); throw new AssertionError(); }
         catch(IllegalArgumentException expected) {}
-        System.out.println("GameSettings host checks passed: legacy preferences, draft isolation/cancel, types, JSON, optional pack, eight shader settings round-trip.");
+        System.out.println("GameSettings host checks passed: legacy preferences, draft isolation/cancel, types, JSON, optional pack, eight shader settings round-trip, all-games defaults (inherit, override, reset, migration, diff-only save), presets, ROM-only aot.");
     }
 }

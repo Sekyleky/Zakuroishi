@@ -121,6 +121,26 @@ final class GameSettings {
         flag("Advanced", "gpu_readback", "GPU screen readback", false, "Troubleshooting: copy the GPU screens back before presenting instead of sharing GPU images. Can reduce performance."),
         flag("Advanced", "turnip_sysmem", "Turnip: render in system memory", false, "Custom Mesa/Turnip drivers only (TU_DEBUG=sysmem). Testing option for a black block in a screen corner; may cost performance. Requires restart."),
     };
+    /** The everyday keys on the first settings page; the rest are under All settings. */
+    static final Set<String> SIMPLE = new LinkedHashSet<>(Arrays.asList("dual_display", "layout", "swap_screens", "show_fps", "show_battery",
+        "speed_limit", "interpolate", "button_mapping", "right_stick", "motion_enabled", "volume", "language"));
+    static final String[] PRESETS = {"Battery", "Balanced", "Quality"};
+    // resolution, HD textures, frame_cap, interpolate, frame_generation. A preset is a one-shot edit of the draft; nothing records it.
+    // ponytail: proposals, not yet measured on a device; tune once battery drain and frame times are measured on the Thor.
+    static final int[][] PRESET_VALUES = {{1, 0, 30, 0, 0}, {2, 1, 60, 0, 0}, {3, 1, 60, 0, 0}};
+    void preset(int which) {
+        int[] v = PRESET_VALUES[which];
+        resolution = v[0]; textures = v[1] == 1; values.put("frame_cap", v[2]); values.put("interpolate", v[3] == 1); values.put("frame_generation", v[4] == 1);
+    }
+    /** The preset these values match, or -1 for Custom. The texture switch counts only when the game has a pack. */
+    int preset(boolean pack) {
+        for (int i = 0; i < PRESET_VALUES.length; i++) {
+            int[] v = PRESET_VALUES[i];
+            if (resolution == v[0] && (!pack || textures == (v[1] == 1)) && values.get("frame_cap").equals(v[2])
+                    && flag("interpolate") == (v[3] == 1) && flag("frame_generation") == (v[4] == 1)) return i;
+        }
+        return -1;
+    }
     static final String[] BINDING_TARGETS = {"fast_forward","a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate"};
     final String id;
     String name;

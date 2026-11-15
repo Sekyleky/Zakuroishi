@@ -158,7 +158,7 @@ final class SettingsDialog {
                 String result = failure;
                 activity.runOnUiThread(() -> {
                     Toast.makeText(activity, result == null ? "Mods removed." : result, Toast.LENGTH_LONG).show();
-                    if (result == null && rootDialog != null) rootDialog.dismiss();
+                    if (result == null && rootDialog != null) closeAll();
                 });
             }, "remove-mods").start();
         });
@@ -167,19 +167,83 @@ final class SettingsDialog {
         LinearLayout content = column();
         content.addView(legend("A Select · B Back · Start Save · L/R Page"));
         content.addView(text(defaults ? "Every game uses these unless its own settings change them." : inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts. Clock and battery switch without a restart." : "Settings are saved for this game and apply the next time you play. Settings marked changed differ from All games.", true));
-        Button firstGroup = null;
+        rootRows = new LinearLayout(activity); rootRows.setOrientation(LinearLayout.VERTICAL); content.addView(rootRows);
+        fillRoot(rootRows);
+        EditText name = new EditText(activity); name.setText(settings.name.isEmpty() && !defaults ? title : settings.name);
+        name.setSingleLine(true); name.setTextColor(p.ink); name.setMinHeight(dp(48)); name.setTextSize(17);
+        name.setContentDescription("Game name"); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)});
+        if (!defaults) { content.addView(text("Game name", true)); content.addView(name); content.addView(text("Game ID: " + settings.id, true)); }
+        String start = snapshot(settings, name.getText().toString().trim());
+        BooleanSupplier dirty = () -> !start.equals(snapshot(settings, name.getText().toString().trim()));
+        AlertDialog.Builder builder = dialog(defaults ? title : "Game settings", content).setNegativeButton("Cancel", null);
+        if (inGame) builder.setNeutralButton("Save for next start", null);
+        AlertDialog root = builder
+                .setPositiveButton(inGame ? "Save & restart" : "Save", null).create();
+        rootDialog = root;
+        root.setOnDismissListener(d -> { if (!saving && closed != null) closed.run(); });
+        show(root, dirty);
+        focusFirst(rootRows);
+        if (inGame) root.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            settings.name = name.getText().toString().trim();
+            try { settings.save(activity); root.dismiss(); }
+            catch (RuntimeException e) { Toast.makeText(activity, "Settings could not be saved. Please try again.", Toast.LENGTH_LONG).show(); }
+        });
+        root.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
+            settings.name = name.getText().toString().trim();
+            try {
+                settings.save(activity); saving = true; root.dismiss(); if (saved != null) saved.run();
+            } catch (RuntimeException e) { Toast.makeText(activity, "Settings could not be saved. Please try again.", Toast.LENGTH_LONG).show(); }
+        });
+    }
+    private LinearLayout rootRows;
+    /** The simple page: preset, picture, everyday settings, then the way down to everything else. Edits the root draft directly. */
+    private void fillRoot(LinearLayout rows) {
+        boolean pack = !defaults && GameSettings.hasTextures(version, settings.id);
+        int current = settings.preset(pack);
+        Button preset = button("Preset · " + (current < 0 ? "Custom" : GameSettings.PRESETS[current])); preset.setTag("preset");
+        preset.setOnClickListener(v -> {
+            String[] shown = {"Battery · 1×, 30 FPS, original textures", "Balanced · 2×, 60 FPS, HD textures", "Quality · 3×, 60 FPS, HD textures"};
+            int now = settings.preset(pack);
+            AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Preset").setSingleChoiceItems(shown, now, (d, which) -> {
+                settings.preset(which); d.dismiss(); refreshRoot();
+            }).setNegativeButton("Cancel", null).create(); choices(list, now);
+        }); addButton(rows, preset);
+        rows.addView(text("Sets resolution, HD textures, frame rate cap and in-between pictures at once. Change any of them afterwards.", true));
+        picture(rows, settings);
+        for (GameSettings.Setting setting : GameSettings.ALL) if (GameSettings.SIMPLE.contains(setting.key)) control(rows, settings, setting);
+        Button all = button("All settings…"); all.setTag("all"); all.setOnClickListener(v -> groups()); addButton(rows, all);
+        Button mapping = button("Button mapping…"); mapping.setTag("mapping"); mapping.setOnClickListener(v -> group("Button mapping")); addButton(rows, mapping);
+        if (!inGame && !defaults) { Button files = button("Game files…"); files.setTag("files"); files.setOnClickListener(v -> files()); addButton(rows, files); }
+        if (!defaults) {
+            Button reset = button("Use defaults for this game"); reset.setTag("reset");
+            reset.setOnClickListener(v -> { settings.useDefaults(); refreshRoot(); Toast.makeText(activity, "This game now follows All games. Save to keep it.", Toast.LENGTH_LONG).show(); });
+            addButton(rows, reset);
+            rows.addView(text("Drops this game's own choices, marked changed, so it follows the settings for all games. Name, texture pack, driver and enhancements stay.", true));
+        }
+    }
+    /** Rebuilds the simple page after the draft changed elsewhere, keeping the focus where it was when possible. */
+    private void refreshRoot() {
+        if (rootRows == null) return;
+        View focused = rootDialog == null ? null : rootDialog.getCurrentFocus();
+        Object tag = focused == null ? null : focused.getTag();
+        rootRows.removeAllViews(); fillRoot(rootRows);
+        View again = tag == null ? null : rootRows.findViewWithTag(tag);
+        if (again != null) again.post(again::requestFocusFromTouch); else focusFirst(rootRows);
+    }
+    private void groups() {
+        LinearLayout content = column(); content.addView(legend("A Open · B Back · L/R Page"));
         for (String group : GameSettings.GROUPS) {
             Button button = button(group); button.setContentDescription(group + " settings for " + title);
             button.setOnClickListener(v -> group(group)); addButton(content, button);
-            if (firstGroup == null) firstGroup = button;
         }
-        if (!defaults) {
-            Button reset = button("Use defaults for this game");
-            reset.setOnClickListener(v -> { settings.useDefaults(); Toast.makeText(activity, "This game now follows All games. Save to keep it.", Toast.LENGTH_LONG).show(); });
-            addButton(content, reset);
-            content.addView(text("Drops this game's own choices, marked changed, so it follows the settings for all games. Name, texture pack, driver and enhancements stay.", true));
-        }
-        if (!inGame && !defaults) {
+        AlertDialog list = dialog("All settings", content).setNegativeButton("Back", null).create(); show(list); focusFirst(content);
+    }
+    private AlertDialog filesDialog;
+    private void closeAll() { if (filesDialog != null) filesDialog.dismiss(); rootDialog.dismiss(); }
+    /** Texture pack, mods, native code, saves, shader cache and driver: library only, one level below the simple page. */
+    private void files() {
+        LinearLayout content = column(); content.addView(legend("A Open · B Back · L/R Page"));
+        if (version != null) {
             if (textures != null) {
                 Button attach = button("Import texture pack…"); attach.setOnClickListener(v -> textures.run()); addButton(content, attach);
                 content.addView(text("Optional. Attach a pack without copying your game again.", true));
@@ -193,13 +257,13 @@ final class SettingsDialog {
                 }
             }
             if (repair != null) {
-                Button replace = button("Replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);
+                Button replace = button("Add or replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);
                 content.addView(text("Choose a trusted Android ABI 5 title.so (ABI 4 still runs). The ROM, textures and saves stay in place.", true));
             }
         }
-        if (!inGame && !defaults && activity instanceof Launcher) {
+        if (activity instanceof Launcher) {
             Button saves = button("Manage saves…");
-            saves.setOnClickListener(v -> { rootDialog.dismiss(); ((Launcher)activity).saves(settings.id); }); addButton(content, saves);
+            saves.setOnClickListener(v -> { closeAll(); ((Launcher)activity).saves(settings.id); }); addButton(content, saves);
             Button shaders = button("Clear shader cache");
             shaders.setOnClickListener(v -> {
                 AlertDialog confirm = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Clear shader cache for " + title + "?")
@@ -222,37 +286,15 @@ final class SettingsDialog {
             driver.setOnClickListener(v -> {
                 AlertDialog trust=new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Import a trusted driver for " + title + "?")
                     .setMessage("A custom Vulkan driver runs native code inside this app and can access its games and saves. Only choose a ZIP from a source you trust.")
-                    .setPositiveButton("Choose ZIP",(d,w) -> { rootDialog.dismiss(); ((Launcher)activity).importDriver(settings.id); })
+                    .setPositiveButton("Choose ZIP",(d,w) -> { closeAll(); ((Launcher)activity).importDriver(settings.id); })
                     .setNegativeButton("Cancel",null).create(); show(trust);
                 focusCancel(trust);
             }); addButton(content,driver);
             content.addView(text("Only import drivers you trust: they run native code inside this app. Driver support must be included in the app build.",true));
         }
-        EditText name = new EditText(activity); name.setText(settings.name.isEmpty() && !defaults ? title : settings.name);
-        name.setSingleLine(true); name.setTextColor(p.ink); name.setMinHeight(dp(48)); name.setTextSize(17);
-        name.setContentDescription("Game name"); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)});
-        if (!defaults) { content.addView(text("Game name", true)); content.addView(name); content.addView(text("Game ID: " + settings.id, true)); }
-        String start = snapshot(settings, name.getText().toString().trim());
-        BooleanSupplier dirty = () -> !start.equals(snapshot(settings, name.getText().toString().trim()));
-        AlertDialog.Builder builder = dialog(defaults ? title : "Game settings", content).setNegativeButton("Cancel", null);
-        if (inGame) builder.setNeutralButton("Save for next start", null);
-        AlertDialog root = builder
-                .setPositiveButton(inGame ? "Save & restart" : "Save", null).create();
-        rootDialog = root;
-        root.setOnDismissListener(d -> { if (!saving && closed != null) closed.run(); });
-        show(root, dirty);
-        firstGroup.post(firstGroup::requestFocusFromTouch);
-        if (inGame) root.getButton(DialogInterface.BUTTON_NEUTRAL).setOnClickListener(v -> {
-            settings.name = name.getText().toString().trim();
-            try { settings.save(activity); root.dismiss(); }
-            catch (RuntimeException e) { Toast.makeText(activity, "Settings could not be saved. Please try again.", Toast.LENGTH_LONG).show(); }
-        });
-        root.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
-            settings.name = name.getText().toString().trim();
-            try {
-                settings.save(activity); saving = true; root.dismiss(); if (saved != null) saved.run();
-            } catch (RuntimeException e) { Toast.makeText(activity, "Settings could not be saved. Please try again.", Toast.LENGTH_LONG).show(); }
-        });
+        filesDialog = dialog("Game files", content).setNegativeButton("Back", null).create();
+        filesDialog.setOnDismissListener(d -> filesDialog = null);
+        show(filesDialog); focusFirst(content);
     }
     private String bindingLabel(GameSettings draft, String target) {
         List<String> keys=new ArrayList<>();
@@ -269,7 +311,7 @@ final class SettingsDialog {
     private static String resolutionLabel(GameSettings draft) { return "Rendering resolution" + (draft.changedResolution() ? " · changed" : ""); }
     /** Resolution and the HD pack switch; the pack is per game, so All games has no switch. */
     private void picture(LinearLayout content, GameSettings draft) {
-        Button resolution = button(resolutionLabel(draft) + " · " + draft.resolution + "×");
+        Button resolution = button(resolutionLabel(draft) + " · " + draft.resolution + "×"); resolution.setTag("resolution");
         resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail"}));
         addButton(content, resolution);
         if (defaults) return;
@@ -384,6 +426,7 @@ final class SettingsDialog {
             settings.controllerBindings.clear(); settings.controllerBindings.putAll(draft.controllerBindings);
             settings.values.clear(); settings.values.putAll(draft.values); settings.resolution = draft.resolution; settings.textures = draft.textures;
             settings.enhancements.clear(); settings.enhancements.addAll(draft.enhancements);
+            refreshRoot();
         }).create(); show(dialog, () -> !start.equals(snapshot(draft, draft.name)));
         focusFirst(content);
     }
@@ -434,7 +477,7 @@ final class SettingsDialog {
                 }
             }); content.addView(toggle);
         } else if (setting.choices != null) {
-            Button choose = button(name(draft, setting) + " · " + label((String) value));
+            Button choose = button(name(draft, setting) + " · " + label((String) value)); choose.setTag(setting.key);
             choose.setOnClickListener(v -> {
                 String[] names = Arrays.stream(setting.choices).map(SettingsDialog::label).toArray(String[]::new), shown = names.clone();
                 for (int i = 0; i < shown.length; i++) if (setting.choices[i].equals(draft.inherited(setting))) shown[i] += " (default)";
@@ -457,12 +500,12 @@ final class SettingsDialog {
                 default: values = new float[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; names = new String[]{"Japanese", "English", "French", "German", "Italian", "Spanish", "Chinese (Simplified)", "Korean", "Dutch", "Portuguese", "Russian", "Chinese (Traditional)"};
             }
             int index = -1; for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - draft.number(setting.key)) < 0.01f) index = i;
-            Button choose = button(name(draft, setting) + " · " + (index >= 0 ? names[index] : draft.values.get(setting.key)));
+            Button choose = button(name(draft, setting) + " · " + (index >= 0 ? names[index] : draft.values.get(setting.key))); choose.setTag(setting.key);
             choose.setOnClickListener(v -> numbers(draft, choose, setting, setting.label, values, names)); addButton(content, choose);
         } else {
             float step = setting.max <= 1 ? 0.05f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
             TextView caption = text(name(draft, setting) + " · " + format(setting, draft.number(setting.key)), false); content.addView(caption);
-            SeekBar slider = new SeekBar(activity); slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border));
+            SeekBar slider = new SeekBar(activity); slider.setTag(setting.key); slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border));
             slider.setThumbTintList(ColorStateList.valueOf(p.accent)); slider.setMax(Math.round((setting.max - setting.min) / step));
             slider.setProgress(Math.round((draft.number(setting.key) - setting.min) / step)); slider.setKeyProgressIncrement(1);
             slider.setContentDescription(caption.getText()); slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
