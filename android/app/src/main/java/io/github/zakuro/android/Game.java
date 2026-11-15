@@ -248,7 +248,6 @@ public final class Game extends NativeActivity {
     private void pauseMenu() {
         if(menuOpen || errorDialog!=null || isFinishing()) return;
         menuOpen=true; nativeCommand(PAUSE);
-        menuShot=null; thumbnail(shot -> menuShot=shot); // the paused picture, for a state saved from this menu
         // Two per row in reading order; the index is the case in pauseAction.
         String[] entries={"Resume","Settings…","Save state…","Load state…","Swap screens","Recalibrate motion",hudLabel(),"Screenshot","Restart game","Exit to library"};
         Palette p=palette;
@@ -279,7 +278,7 @@ public final class Game extends NativeActivity {
         pauseDialog.setOnDismissListener(d -> { pauseDialog=null; if(!menuOpen) return; menuOpen=false; nativeCommand(RESUME); });
         pauseDialog.setOnKeyListener((d,code,event) -> {
             if(code==KeyEvent.KEYCODE_BUTTON_B) { if(event.getAction()==KeyEvent.ACTION_UP) d.cancel(); return true; }
-            if(code==KeyEvent.KEYCODE_BUTTON_X) { if(event.getAction()==KeyEvent.ACTION_UP) { saveState(0,menuShot); d.dismiss(); } return true; }
+            if(code==KeyEvent.KEYCODE_BUTTON_X) { if(event.getAction()==KeyEvent.ACTION_UP) { saveState(0); d.dismiss(); } return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_Y) { if(event.getAction()==KeyEvent.ACTION_UP) confirmLoad(false); return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_A) {
                 if(event.getAction()==KeyEvent.ACTION_UP) {
@@ -336,8 +335,8 @@ public final class Game extends NativeActivity {
         }
     }); }
     /** The game as the pause menu opened, taken before any dialog dims it, for the thumbnail of a state saved from the menu. */
-    private android.graphics.Bitmap menuShot;
-    private void saveState(int slot, android.graphics.Bitmap shot) { nativeCommand(SAVE | slot<<4); saveThumbnail(slot,shot); }
+    // The picture is taken at the save, not when the menu opens: on Android 13 and older the copy blocks the UI thread, and Back must stay cheap.
+    private void saveState(int slot) { nativeCommand(SAVE | slot<<4); thumbnail(shot -> saveThumbnail(slot,shot)); }
     private java.io.File thumbnailFile(int slot) { return new java.io.File(stateFile(slot).getParentFile(),slot+".png"); }
     /** A copy of the game surface about 160 px wide, or null. Dialogs are separate windows, so they are never in it. */
     private void thumbnail(java.util.function.Consumer<android.graphics.Bitmap> done) {
@@ -395,7 +394,7 @@ public final class Game extends NativeActivity {
         AlertDialog d=new AlertDialog.Builder(this,p.dialogTheme()).setTitle(save ? "Save state" : "Load state")
             .setAdapter(rows,(dd,i) -> {
                 int n=slots.get(i); String date=dates.get(i);
-                Runnable command=save ? () -> saveState(n,menuShot) : () -> nativeCommand(LOAD | n<<4);
+                Runnable command=save ? () -> saveState(n) : () -> nativeCommand(LOAD | n<<4);
                 if(save && date==null) { ran[0]=true; command.run(); return; }
                 chained[0]=true;
                 confirm((save ? "Overwrite " : "Load ")+slotName(n,false)+"?",save ? "It holds the state saved "+date+"." : "Progress since it was saved ("+date+") is lost.",
