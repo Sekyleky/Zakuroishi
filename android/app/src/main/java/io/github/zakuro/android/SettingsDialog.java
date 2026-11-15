@@ -290,8 +290,11 @@ final class SettingsDialog {
             }
             control(content, draft, setting);
             if (setting.key.equals("frame_generation_flow")) {
-                Button lossless = button("Import your Lossless.dll…");
-                lossless.setOnClickListener(v -> ((Launcher) activity).importLossless()); addButton(content, lossless);
+                // in-game the activity is Game: casting it would end the running game
+                if (activity instanceof Launcher) {
+                    Button lossless = button("Import your Lossless.dll…");
+                    lossless.setOnClickListener(v -> ((Launcher) activity).importLossless()); addButton(content, lossless);
+                } else content.addView(text("Import Lossless.dll from the game's Settings in the library.", true));
                 TextView state = text(losslessState(), true); content.addView(state);
                 state.getViewTreeObserver().addOnWindowFocusChangeListener(focused -> state.setText(losslessState()));
             }
@@ -400,6 +403,7 @@ final class SettingsDialog {
         if (value instanceof Boolean) {
             Switch toggle = toggle(setting.label, (Boolean) value);
             toggle.setTag(setting.key);
+            if (interpreterOnly(setting)) toggle.setEnabled(false);
             toggle.setOnCheckedChangeListener((button, checked) -> {
                 draft.values.put(setting.key, checked);
                 // the two draw in-between pictures in different ways, only one can run
@@ -447,8 +451,9 @@ final class SettingsDialog {
                 public void onStopTrackingTouch(SeekBar bar) {}
             }); content.addView(slider, new LinearLayout.LayoutParams(-1, -2));
         }
-        content.addView(text(setting.help, true));
+        content.addView(text(interpreterOnly(setting) ? "This game has no native code, so it runs in the interpreter. Add native code under Game files to run it at full speed." : setting.help, true));
     }
+    private boolean interpreterOnly(GameSettings.Setting setting) { return setting.key.equals("aot") && version != null && !GameSettings.hasNativeCode(version); }
     private static String format(float value) { return String.format(Locale.getDefault(), "%.2f", value); }
     private void numbers(GameSettings draft, Button button, GameSettings.Setting setting, String heading, float[] values, String[] names) {
         float current = setting == null ? draft.resolution : draft.number(setting.key);

@@ -112,6 +112,8 @@ public final class GameSettingsCheck {
         String json=bounded.json();
         require(json.contains("\"aot\":true") && json.contains("\"frame_cap\":60"));
         require(json.contains("Quoted \\\"name\\\"\\u000a"));
+        // ROM-only import: no title.so, so native always gets the interpreter
+        require(bounded.flag("aot") && bounded.json(false).contains("\"aot\":false") && bounded.json(true).contains("\"aot\":true"));
         Set<String> groups=new HashSet<>(Arrays.asList(GameSettings.GROUPS));
         Set<String> keys=new HashSet<>();
         for(GameSettings.Setting setting:GameSettings.ALL) {
@@ -122,6 +124,9 @@ public final class GameSettingsCheck {
         File pack=new File(version,"data/mods/"+id+"/textures");
         require(!GameSettings.hasTextures(version,id)); require(pack.mkdirs());
         require(GameSettings.hasTextures(version,id));
+        require(!GameSettings.hasNativeCode(version) && !GameSettings.hasNativeCode(null));
+        File code=new File(version,"code/title.so"); require(code.getParentFile().mkdirs() && code.createNewFile());
+        require(GameSettings.hasNativeCode(version)); code.delete(); code.getParentFile().delete();
         require(original.textures==false); // Presence never changes a saved opt-out.
         pack.delete(); pack.getParentFile().delete(); pack.getParentFile().getParentFile().delete();
         new File(version,"data").delete(); version.delete();

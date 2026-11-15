@@ -516,7 +516,7 @@ public final class Game extends NativeActivity {
         String id=getIntent().getStringExtra("game_id"); if(id==null) return;
         android.content.SharedPreferences played=getSharedPreferences("played",MODE_MULTI_PROCESS);
         played.edit().putLong(id+".ms",played.getLong(id+".ms",0)+android.os.SystemClock.elapsedRealtime()-playStart)
-                .putLong(id+".last",System.currentTimeMillis()).apply();
+                .putLong(id+".last",System.currentTimeMillis()).commit(); // not apply(): the launcher reads this file in its onResume
     }
     private void fullscreen() {
         getWindow().setDecorFitsSystemWindows(false);

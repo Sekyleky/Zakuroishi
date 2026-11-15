@@ -189,7 +189,7 @@ final class GameSettings {
         return version != null && new File(version, "data/mods/" + id + "/textures").isDirectory();
     }
     void apply(Intent intent, File version) {
-        intent.putExtra("game_id", id); intent.putExtra("game_name", name);
+        intent.putExtra("game_id", id); intent.putExtra("game_name", name.isEmpty() && version != null ? GameMetadata.name(version, id) : name);
         intent.putExtra("resolution", resolution); intent.putExtra("texture_packs", textures && hasTextures(version, id));
         intent.removeExtra("driver_dir"); intent.removeExtra("driver_name");
         if (flag("custom_driver")) {
@@ -200,8 +200,10 @@ final class GameSettings {
                 intent.putExtra("driver_dir",folder.getCanonicalPath()); intent.putExtra("driver_name",library);
             } catch (java.io.IOException | org.json.JSONException e) { throw new IllegalStateException("Custom Vulkan driver unavailable: " + e.getMessage(),e); }
         }
-        intent.putExtra("advanced", json());
+        intent.putExtra("advanced", json(hasNativeCode(version)));
     }
+    /** A ROM-only import has no title.so; such a game runs in the interpreter whatever the aot switch says. */
+    static boolean hasNativeCode(File version) { return version != null && new File(version, "code/title.so").isFile(); }
     static String driverLibrary(File folder) throws java.io.IOException, org.json.JSONException {
         File metadata = new File(folder,"meta.json");
         if (!metadata.isFile() || metadata.length() > 65536) throw new java.io.IOException("Driver meta.json is missing or too large");
@@ -218,11 +220,13 @@ final class GameSettings {
         if (minimum < 0 || minimum > deviceApi) throw new java.io.IOException("Driver requires Android API " + minimum + "; this device uses API " + deviceApi);
         if (schema != 1) throw new java.io.IOException("Unsupported driver metadata schemaVersion " + schema + "; expected 1");
     }
-    String json() {
+    String json() { return json(true); }
+    String json(boolean nativeCode) {
         StringBuilder out = new StringBuilder("{");
         for (Setting setting : ALL) {
             if (out.length() > 1) out.append(',');
             quote(out, setting.key); out.append(':'); Object value = setting.normalize(values.get(setting.key));
+            if (!nativeCode && setting.key.equals("aot")) value = false;
             if (value instanceof String) quote(out, (String) value); else out.append(value);
         }
         out.append(",\"controller_bindings\":{"); boolean bindingFirst = true;
