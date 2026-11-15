@@ -2,13 +2,17 @@ package io.github.zakuro.android;
 
 import android.app.*;
 import android.content.*;
+import android.content.pm.ShortcutInfo;
+import android.content.pm.ShortcutManager;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
+import android.graphics.drawable.Icon;
 import android.hardware.display.DisplayManager;
 import android.net.Uri;
 import android.os.*;
 import android.text.*;
+import android.text.format.DateUtils;
 import android.view.*;
 import android.widget.*;
 import java.io.File;
@@ -23,12 +27,20 @@ public final class Launcher extends Activity {
     private boolean pendingIncludeTextures;
     private LinearLayout list;
     private ScrollView library;
-    private TextView status, count;
+    private TextView status, count, details;
     private LinearLayout legend;
     // Library scan cache: search only filters this; showLibrary() rescans.
     private List<String> ids = new ArrayList<>();
     private final Map<String, String> names = new HashMap<>(), summaries = new HashMap<>();
-    private final Map<String, Long> lastPlayed = new HashMap<>();
+    private final Map<String, Long> lastPlayed = new HashMap<>(), playMs = new HashMap<>();
+    private final Set<String> interpreted = new HashSet<>(); // imported without native code (title.so)
+    private String focused; // the game shown in the details line and on the bottom screen
+    private Presentation second;
+    private final DisplayManager.DisplayListener displayWatch = new DisplayManager.DisplayListener() {
+        public void onDisplayAdded(int display) { showSecond(); }
+        public void onDisplayRemoved(int display) { showSecond(); }
+        public void onDisplayChanged(int display) { }
+    };
     // ponytail: icons are 48x48 and never evicted; decoded on the UI thread at scan (one 14 KB read per new game). Move off-thread if a library reaches hundreds of games.
     private static final Map<String, android.graphics.Bitmap> icons = new HashMap<>();
     private ProgressBar progress;
@@ -64,7 +76,7 @@ public final class Launcher extends Activity {
         logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams logoSize = new LinearLayout.LayoutParams(dp(wide ? 40 : 64),dp(wide ? 40 : 64)); logoSize.setMargins(0,0,dp(12),0);
         identity.addView(logo,logoSize);
-        LinearLayout wordmark = column(); if (wide) wordmark.addView(text("Zakuroishi", 22, p.accent)); else { wordmark.addView(text("Zakuroishi", 16, p.accent)); wordmark.addView(text("Your library", 30, p.ink)); } identity.addView(wordmark);
+        LinearLayout wordmark = column(); if (wide) { TextView mark = text("Zakuroishi", 22, p.accent); mark.setSingleLine(true); wordmark.addView(mark); } else { wordmark.addView(text("Zakuroishi", 16, p.accent)); wordmark.addView(text("Your library", 30, p.ink)); } identity.addView(wordmark);
         search = new EditText(this); search.setId(0x1001); search.setSingleLine(true); search.setTextColor(p.ink); search.setHintTextColor(p.muted); search.setHint("Find a game");
         search.setTextSize(16); search.setMinHeight(dp(48)); search.setContentDescription("Find a game in your library");
         search.setBackground(p.row()); search.setPadding(dp(14), dp(8), dp(14), dp(8));
@@ -72,21 +84,21 @@ public final class Launcher extends Activity {
         search.setFocusableInTouchMode(false);
         search.setOnClickListener(v -> { if (v.isInTouchMode()) { v.setFocusableInTouchMode(true); v.requestFocus();
             getSystemService(android.view.inputmethod.InputMethodManager.class).showSoftInput(v, 0); } });
-        heading.addView(identity, compact ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1));
+        // Wide: search takes the spare width, so the wordmark keeps its own and stays on one line.
+        heading.addView(identity, compact ? new LinearLayout.LayoutParams(-1, -2) : wide ? new LinearLayout.LayoutParams(-2, -2) : new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.CENTER_VERTICAL);
         if (getResources().getConfiguration().fontScale > 1.3f) actions.setOrientation(LinearLayout.VERTICAL);
-        Button help = button("Setup help", false, "help"); help.setOnClickListener(v -> help(false)); actions.addView(help);
         add = button("Add game", true, "add"); add.setOnClickListener(v -> help(true));
-        LinearLayout.LayoutParams addSize = new LinearLayout.LayoutParams(-2, -2); addSize.setMargins(dp(8), dp(8), 0, dp(8)); actions.addView(add, addSize);
-        Button frontend = button("Frontends", false, "frontends"); frontend.setOnClickListener(v -> frontends()); actions.addView(frontend);
-        Button tools = button("Tools", false, "tools"); tools.setOnClickListener(v -> tools()); actions.addView(tools);
+        LinearLayout.LayoutParams addSize = new LinearLayout.LayoutParams(-2, -2); addSize.setMargins(0, dp(8), dp(8), dp(8)); actions.addView(add, addSize);
+        Button menu = button("Menu", false, "menu"); menu.setContentDescription("Menu: setup help, frontends, storage and settings files"); menu.setOnClickListener(v -> tools()); actions.addView(menu);
         if (wide) { LinearLayout.LayoutParams find = new LinearLayout.LayoutParams(0, -2, 1); find.setMargins(dp(16), 0, dp(16), 0); heading.addView(search, find); }
         heading.addView(actions); page.addView(heading); if (!wide) page.addView(search, new LinearLayout.LayoutParams(-1, -2));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setIndeterminate(true);
         progress.setIndeterminateTintList(ColorStateList.valueOf(p.accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
         status = text("", 14, p.muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
         count = text("", 14, p.muted); count.setPadding(0, 0, dp(20), 0);
-        legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page"); legend.addView(count, 0); legend.setPadding(0, dp(6), 0, dp(10)); page.addView(legend);
+        legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page · Start Menu"); legend.addView(count, 0); legend.setPadding(0, dp(6), 0, dp(6)); page.addView(legend);
+        details = text("", 16, p.ink); details.setSingleLine(true); details.setEllipsize(TextUtils.TruncateAt.END); details.setPadding(0, 0, 0, dp(10)); page.addView(details);
         list = column(); page.addView(list);
         library = new ScrollView(this); library.setFillViewport(true); library.setBackgroundColor(p.background); library.addView(page);
         setContentView(library); page.requestApplyInsets();
@@ -128,6 +140,10 @@ public final class Launcher extends Activity {
             }
             return true;
         }
+        if (code == KeyEvent.KEYCODE_BUTTON_START) {
+            if (event.getAction() == KeyEvent.ACTION_UP) tools();
+            return true;
+        }
         return super.dispatchKeyEvent(event);
     }
     private boolean imeShown() {
@@ -144,7 +160,14 @@ public final class Launcher extends Activity {
     AlertDialog controllerDialog(AlertDialog dialog, boolean cancelFocused) {
         dialog.setOnShowListener(window -> {
             p.dialog(dialog, false);
-            Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); if (cancelFocused && cancel != null) cancel.requestFocusFromTouch(); // plain requestFocus() fails in touch mode, which a controller on the Thor stays in
+            // Light a button so A works at once: Cancel when asked, else the positive one (Cancel/Close when there is none).
+            // Posted like focusFirst: requestFocusFromTouch can't leave touch mode, which the Thor stays in, before the window is attached.
+            // A list row that focusFirst already lit is left alone, whichever of the two runs first.
+            dialog.getWindow().getDecorView().post(() -> {
+                View now = dialog.getCurrentFocus(); if (now instanceof Button && now.getTag() != null) return;
+                Button first = dialog.getButton(cancelFocused ? DialogInterface.BUTTON_NEGATIVE : DialogInterface.BUTTON_POSITIVE), cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE);
+                if ((first == null || !first.requestFocusFromTouch()) && cancel != null) cancel.requestFocusFromTouch();
+            });
         });
         dialog.setOnKeyListener((window, code, event) -> {
             if (code == KeyEvent.KEYCODE_BUTTON_A) {
@@ -160,8 +183,9 @@ public final class Launcher extends Activity {
         return dialog;
     }
     LinearLayout column() { LinearLayout layout = new LinearLayout(this); layout.setOrientation(LinearLayout.VERTICAL); return layout; }
-    TextView text(String value, int size, int color) {
-        TextView text = new TextView(this); text.setText(value); text.setTextSize(size); text.setTextColor(color);
+    TextView text(String value, int size, int color) { return text(this, value, size, color); }
+    static TextView text(Context context, String value, int size, int color) {
+        TextView text = new TextView(context); text.setText(value); text.setTextSize(size); text.setTextColor(color);
         if (size >= 20) { text.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); text.setAccessibilityHeading(true); } return text;
     }
     Button button(String label, boolean primary, String tag) {
@@ -263,24 +287,47 @@ public final class Launcher extends Activity {
         });
     }
     boolean busy() { return task != null && task.busy; }
+    /** The header's Menu (also Start). */
     private void tools() {
-        LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
-        AlertDialog[] dialog = new AlertDialog[1];
-        String[][] items = {
+        chooser("Menu", new String[][]{
+            {"Setup help", "What a game folder needs, and how to play."},
+            {"Frontends…", "Export launch files so another game frontend can start your games."},
             {"Storage…", "See free space and delete old imports and backups you no longer need."},
             {"Export diagnostics…", "Save a text file with app, device and log details to attach to a bug report. It contains no games, saves or textures."},
             {"Export settings…", "Save every game's settings and controller mapping to a file."},
-            {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."}};
-        Runnable[] actions = {() -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings};
+            {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."}},
+            new Runnable[]{() -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings});
+    }
+    /** The tile's touch-only ⋯: Settings, Saves, and Pin where the home screen supports it. */
+    private void more(String id) {
+        String[][] items = {{"Settings", "Resolution, textures, controls and native code."}, {"Saves", "Export or restore this game's in-game saves."},
+            {"Pin to home screen", "Start this game from an icon on your home screen."}};
+        ShortcutManager shortcuts = getSystemService(ShortcutManager.class);
+        chooser(names.get(id), shortcuts != null && shortcuts.isRequestPinShortcutSupported() ? items : Arrays.copyOf(items, 2),
+            new Runnable[]{() -> options(id), () -> saves(id), () -> pin(id)});
+    }
+    /** A list of labelled actions; items[i] = {label, one-line effect}. */
+    private void chooser(String title, String[][] items, Runnable[] actions) {
+        LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
+        AlertDialog[] dialog = new AlertDialog[1];
         for (int i = 0; i < items.length; i++) {
             Runnable action = actions[i];
-            Button b = button(items[i][0], false, "tools." + i); b.setOnClickListener(v -> { dialog[0].dismiss(); action.run(); });
+            Button b = button(items[i][0], false, "choice." + i); b.setOnClickListener(v -> { dialog[0].dismiss(); action.run(); });
             LinearLayout.LayoutParams size = new LinearLayout.LayoutParams(-1, -2); size.setMargins(0, dp(i == 0 ? 0 : 8), 0, 0); content.addView(b, size);
             content.addView(text(items[i][1], 14, p.muted));
         }
         ScrollView scroll = new ScrollView(this); scroll.addView(content);
-        dialog[0] = controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Tools").setView(scroll).setNegativeButton("Close", null).create());
+        dialog[0] = controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle(title).setView(scroll).setNegativeButton("Close", null).create());
         dialog[0].show(); focusFirst(dialog[0]);
+    }
+    /** Pins a home screen icon that opens zakuro://game/ID (FrontendLaunch). */
+    private void pin(String id) {
+        android.graphics.Bitmap art = icons.get(id);
+        ShortcutInfo info = new ShortcutInfo.Builder(this, id).setShortLabel(names.get(id)).setLongLabel(names.get(id))
+                .setIcon(art != null ? Icon.createWithBitmap(art) : Icon.createWithResource(this, getApplicationInfo().icon))
+                .setIntent(new Intent(Intent.ACTION_VIEW, Uri.parse("zakuro://game/" + id)).setPackage(getPackageName())).build();
+        try { getSystemService(ShortcutManager.class).requestPinShortcut(info, null); }
+        catch (IllegalStateException e) { Toast.makeText(this, "The home screen can't add a shortcut right now.", Toast.LENGTH_LONG).show(); }
     }
     private void pickDocument(boolean create, String type, String title, int request) {
         if (task.busy) return;
@@ -345,7 +392,9 @@ public final class Launcher extends Activity {
         try { return GameMetadata.name(GameImport.active(this, id), id); } catch (Exception e) { return "Game " + id.substring(8); }
     }
     private void help(boolean importing) {
-        String body = "1. Choose one game's Android build folder. It needs the original decrypted game and its Android ARM64 title.so.\n\n"
+        String folder = "Choose the folder with your decrypted game (.3ds, .cci or .cxi). A native code file (title.so) is optional. Without it the game runs more slowly; add it later from the game's settings.";
+        String body = importing ? folder + "\n\nOnly add games you trust. Setup help in Menu has the details."
+                : "1. " + folder + "\n\n"
                 + "2. Texture packs are optional. Leave Include texture pack off to add just the game. You can attach a pack later from the game's Settings.\n\n"
                 + "3. Add the folder, then select Play. Reimporting keeps this app's saves.\n\n"
                 + "Native game code must be built for Zakuroishi Android ABI 5 (ABI 4 code still runs; rebuilding it runs faster). If an older build cannot start, open its Settings and choose Replace native game code. Select the rebuilt title.so; this keeps the ROM, textures and saves. See the project's Android build documentation for building compatible code.\n\n"
@@ -370,13 +419,12 @@ public final class Launcher extends Activity {
         if (files != null) for (File file : files) if (file.getName().matches("[0-9A-F]{16}\\.active(\\.bak)?")) found.add(file.getName().substring(0, 16));
         DisplayManager displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         boolean second = displays != null && displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
-        ids = new ArrayList<>(found); names.clear(); summaries.clear(); lastPlayed.clear();
+        ids = new ArrayList<>(found); names.clear(); summaries.clear(); lastPlayed.clear(); playMs.clear(); interpreted.clear();
         SharedPreferences played = getSharedPreferences("played", Context.MODE_MULTI_PROCESS); // written by the game process
         for (String id : ids) {
-            names.put(id, name(id)); lastPlayed.put(id, played.getLong(id + ".last", 0));
-            long minutes = played.getLong(id + ".ms", 0) / 60000;
-            String time = minutes == 0 ? "" : (minutes >= 60 ? minutes / 60 + " h " : "") + minutes % 60 + " min  ·  ";
-            summaries.put(id, time + summary(id, second));
+            names.put(id, name(id)); lastPlayed.put(id, played.getLong(id + ".last", 0)); playMs.put(id, played.getLong(id + ".ms", 0));
+            summaries.put(id, summary(id, second));
+            try { if (!new File(GameImport.active(this, id), "code/title.so").isFile()) interpreted.add(id); } catch (Exception ignored) { } // summary() already reports unreadable files
             if (!icons.containsKey(id)) try {
                 int[] pixels = GameMetadata.romIcon(new File(GameImport.active(this, id), "game/game.3ds"));
                 icons.put(id, pixels == null ? null : android.graphics.Bitmap.createBitmap(pixels, GameMetadata.ICON, GameMetadata.ICON, android.graphics.Bitmap.Config.ARGB_8888));
@@ -396,43 +444,121 @@ public final class Launcher extends Activity {
         Object focus = getCurrentFocus() == null ? null : getCurrentFocus().getTag(); int scroll = library.getScrollY(); list.removeAllViews();
         legend.setVisibility(ids.isEmpty() ? View.GONE : View.VISIBLE);
         String query = search.getText().toString().trim().toLowerCase(Locale.ROOT); int shown = 0;
-        boolean wide = getResources().getConfiguration().screenWidthDp >= 760 && getResources().getConfiguration().fontScale <= 1.3f;
-        String firstShown = null;
+        // Plain focusable tiles in LinearLayout rows: a GridView's selection is invisible in touch mode, which the Thor stays in.
+        int width = getResources().getConfiguration().screenWidthDp, columns = width >= 760 ? 5 : Math.max(2, Math.min(4, width / 170));
+        String firstShown = null; boolean focusedShown = false; LinearLayout row = null;
         for (String id : ids) {
-            String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++; if (firstShown == null) firstShown = id + ".play";
-            LinearLayout row = column(); row.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setBackground(p.shape(p.surface, p.border, 1, 16)); row.setPadding(dp(14), dp(8), dp(14), dp(8));
-            ImageView icon = new ImageView(this); icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            if (icons.get(id) != null) icon.setImageBitmap(icons.get(id)); else icon.setBackground(p.shape(p.raised, p.border, 1, 10));
-            icon.setClipToOutline(true); icon.setOutlineProvider(new ViewOutlineProvider() { public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(10)); } });
-            LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(dp(64), dp(64)); iconSize.setMargins(0, 0, dp(16), wide ? 0 : dp(8)); row.addView(icon, iconSize);
-            LinearLayout info = column(); TextView name = text(title, 21, p.ink); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END); info.addView(name);
-            TextView detail = text(summaries.get(id), 14, p.muted); detail.setPadding(0, dp(4), 0, wide ? 0 : dp(14)); info.addView(detail);
-            row.addView(info, wide ? new LinearLayout.LayoutParams(0, -2, 1) : new LinearLayout.LayoutParams(-1, -2));
-            LinearLayout actions = new LinearLayout(this);
-            if (getResources().getConfiguration().fontScale > 1.3f || getResources().getConfiguration().screenWidthDp < 400) actions.setOrientation(LinearLayout.VERTICAL);
-            Button play = button("Play", true, id + ".play"); play.setFocusedByDefault(shown == 1); play.setContentDescription("Play " + title);
-            play.setEnabled(!task.busy); play.setOnClickListener(v -> play(id)); actions.addView(play);
-            Button options = button("Settings", false, id + ".settings"); options.setContentDescription("Settings for " + title); options.setOnClickListener(v -> options(id));
-            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.setMargins(dp(10), 0, 0, 0); actions.addView(options, gap);
-            Button saves = button("Saves", false, id + ".saves"); saves.setContentDescription("Manage saves for " + title);
-            saves.setEnabled(!task.busy); saves.setOnClickListener(v -> saves(id));
-            LinearLayout.LayoutParams saveGap = new LinearLayout.LayoutParams(-2, -2); saveGap.setMargins(dp(10), 0, 0, 0); actions.addView(saves, saveGap);
-            LinearLayout.LayoutParams actionSize = new LinearLayout.LayoutParams(-2, -2); if (wide) actionSize.setMargins(dp(16), 0, 0, 0); row.addView(actions, actionSize);
-            LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.setMargins(0, 0, 0, dp(8)); list.addView(row, spacing);
+            String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++;
+            if (firstShown == null) firstShown = id; if (id.equals(focused)) focusedShown = true;
+            if ((shown - 1) % columns == 0) { row = new LinearLayout(this); row.setWeightSum(columns); list.addView(row, new LinearLayout.LayoutParams(-1, -2)); }
+            row.addView(tile(id, title, shown == 1), new LinearLayout.LayoutParams(0, -1, 1));
         }
+        if (!focusedShown) focused = firstShown;
         count.setText(query.isEmpty() ? ids.size() + (ids.size() == 1 ? " game" : " games") : shown + " of " + ids.size() + " games");
         if (ids.isEmpty()) {
             LinearLayout empty = column(); empty.setPadding(dp(8), dp(28), dp(8), dp(20)); empty.addView(text("Add your first game", 24, p.ink));
-            TextView body = text("Choose Add game to import a game folder. Setup help explains what you'll need.", 17, p.muted); body.setPadding(0, dp(12), 0, dp(12)); empty.addView(body); list.addView(empty);
+            TextView body = text("Choose Add game to import a game folder. Setup help in Menu explains what you'll need.", 17, p.muted); body.setPadding(0, dp(12), 0, dp(12)); empty.addView(body);
+            Button first = button("Add game", true, "empty.add"); first.setEnabled(add.isEnabled()); first.setFocusedByDefault(true); first.setOnClickListener(v -> help(true));
+            empty.addView(first, new LinearLayout.LayoutParams(-2, -2)); list.addView(empty);
         } else if (shown == 0) list.addView(text("No matching games. Try a different name.", 17, p.muted));
         if (search.length() == 0 && !imeShown()) search.setFocusableInTouchMode(false);
         View now = getCurrentFocus(), restore = focus == null ? null : list.findViewWithTag(focus);
         if (restore != null) restore.requestFocus();
-        else if ((now == null || now == search) && !(now == search && (search.length() > 0 || imeShown()))) { // first Play, unless the user is typing in search
-            View play = ids.isEmpty() ? null : list.findViewWithTag(firstShown); if (play != null) play.requestFocus();
+        else if ((now == null || now == search) && !(now == search && (search.length() > 0 || imeShown()))) { // first tile, unless the user is typing in search
+            View play = firstShown == null ? null : list.findViewWithTag(firstShown + ".play"); if (play != null) play.requestFocus();
         }
+        showDetails();
         library.post(() -> library.scrollTo(0, scroll));
+    }
+    /** One focus stop per game: A or a tap plays; Y/X read the "<id>.play" tag; the touch-only ⋯ opens Settings, Saves and Pin. */
+    private View tile(String id, String title, boolean first) {
+        FrameLayout tile = new FrameLayout(this); tile.setTag(id + ".play"); tile.setFocusable(true); tile.setFocusedByDefault(first);
+        tile.setBackground(p.button(Palette.SECONDARY)); tile.setContentDescription("Play " + title); tile.setOnClickListener(v -> play(id));
+        tile.setOnFocusChangeListener((v, has) -> { if (has && !id.equals(focused)) { focused = id; showDetails(); } });
+        LinearLayout body = column(); body.setGravity(Gravity.CENTER_HORIZONTAL); body.setPadding(dp(8), dp(12), dp(8), dp(8)); // inside the background's own 5dp ring inset
+        body.addView(icon(this, p, id, dp(72)), new LinearLayout.LayoutParams(dp(72), dp(72)));
+        TextView name = text(title, 16, p.ink); name.setTextColor(p.label(p.ink)); name.setDuplicateParentStateEnabled(true); name.setGravity(Gravity.CENTER_HORIZONTAL);
+        name.setMinLines(2); name.setMaxLines(2); name.setEllipsize(TextUtils.TruncateAt.END); name.setPadding(0, dp(8), 0, dp(2)); body.addView(name, new LinearLayout.LayoutParams(-1, -2));
+        TextView time = text(playTime(id), 14, p.muted); time.setTextColor(p.label(p.muted)); time.setDuplicateParentStateEnabled(true); time.setGravity(Gravity.CENTER_HORIZONTAL);
+        time.setSingleLine(true); time.setEllipsize(TextUtils.TruncateAt.END); body.addView(time, new LinearLayout.LayoutParams(-1, -2));
+        tile.addView(body, new FrameLayout.LayoutParams(-1, -2));
+        TextView more = text("⋯", 18, p.muted); more.setTextColor(p.label(p.muted)); more.setDuplicateParentStateEnabled(true); more.setGravity(Gravity.CENTER);
+        more.setContentDescription("Settings, saves and more for " + title); more.setOnClickListener(v -> more(id));
+        more.setFocusable(false); // after the click listener, which makes it focusable: the controller has Y and X instead
+        tile.addView(more, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP | Gravity.END));
+        return tile;
+    }
+    /** The game's icon at a square size, or a plain placeholder shape when the ROM has none. */
+    private static ImageView icon(Context c, Palette s, String id, int size) {
+        ImageView icon = new ImageView(c); icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        if (icons.get(id) != null) icon.setImageBitmap(icons.get(id)); else icon.setBackground(s.shape(s.soft, s.border, 1, 12));
+        int radius = size / 7; icon.setClipToOutline(true);
+        icon.setOutlineProvider(new ViewOutlineProvider() { public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), radius); } });
+        return icon;
+    }
+    private String playTime(String id) {
+        long minutes = playMs.get(id) / 60000;
+        return minutes == 0 ? (lastPlayed.get(id) == 0 ? "Not played yet" : "Under 1 min played") : (minutes >= 60 ? minutes / 60 + " h " : "") + minutes % 60 + " min played";
+    }
+    private String lastTime(String id) {
+        long last = lastPlayed.get(id), now = System.currentTimeMillis();
+        return last == 0 ? "" : now - last < 60000 ? "Played just now" : "Played " + DateUtils.getRelativeTimeSpanString(last, now, DateUtils.MINUTE_IN_MILLIS);
+    }
+    /** The focused game's full name, play time, last played and settings on one line, and large on the bottom screen. */
+    private void showDetails() {
+        String id = focused; details.setVisibility(id == null ? View.GONE : View.VISIBLE);
+        if (id != null) details.setText(names.get(id) + "  ·  " + playTime(id) + (lastPlayed.get(id) == 0 ? "" : "  ·  " + lastTime(id))
+                + (interpreted.contains(id) ? "  ·  No native code" : "") + "  ·  " + summaries.get(id));
+        secondScreen();
+    }
+    /** Finds the bottom (presentation) display the way Game does, and shows or drops the details there. */
+    private void showSecond() {
+        DisplayManager displays = getSystemService(DisplayManager.class); if (displays == null) return;
+        int own = getDisplay() == null ? Display.DEFAULT_DISPLAY : getDisplay().getDisplayId(); Display target = null;
+        for (Display candidate : displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) if (candidate.getDisplayId() != own && candidate.isValid()) { target = candidate; break; }
+        if (target == null) for (Display candidate : displays.getDisplays()) if (candidate.getDisplayId() != own && candidate.isValid()) { target = candidate; break; }
+        if (second != null && target != null && second.getDisplay().getDisplayId() == target.getDisplayId()) { secondScreen(); return; }
+        if (second != null) { second.dismiss(); second = null; }
+        if (target == null) return;
+        second = new Presentation(this, target, p.dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
+        // Never focusable: the controller's focus stays on the top screen; these buttons are for touch.
+        second.getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE); secondScreen();
+        try { second.show(); } catch (WindowManager.InvalidDisplayException e) { second = null; }
+    }
+    // ponytail: rebuilt on every focus move (about fifteen views); keep the views and only set their text if moving through the grid ever stutters.
+    private void secondScreen() {
+        if (second == null) return;
+        Context c = second.getContext(); Palette s = new Palette(c); String id = focused; // the bottom screen has its own density
+        LinearLayout page = new LinearLayout(c); page.setOrientation(LinearLayout.VERTICAL); page.setBackgroundColor(s.background); page.setPadding(s.dp(32), s.dp(28), s.dp(32), s.dp(24));
+        if (id == null || !names.containsKey(id)) {
+            page.setGravity(Gravity.CENTER); page.addView(text(c, ids.isEmpty() ? "Choose Add game on the top screen to add your first game." : "No matching games.", 20, s.muted));
+            second.setContentView(page); return;
+        }
+        LinearLayout top = new LinearLayout(c); top.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(s.dp(112), s.dp(112)); iconSize.setMargins(0, 0, s.dp(20), 0); top.addView(icon(c, s, id, s.dp(112)), iconSize);
+        LinearLayout info = new LinearLayout(c); info.setOrientation(LinearLayout.VERTICAL);
+        TextView name = text(c, names.get(id), 26, s.ink); name.setMaxLines(3); name.setEllipsize(TextUtils.TruncateAt.END); info.addView(name);
+        info.addView(text(c, playTime(id), 18, s.muted)); if (lastPlayed.get(id) != 0) info.addView(text(c, lastTime(id), 18, s.muted));
+        top.addView(info, new LinearLayout.LayoutParams(0, -2, 1)); page.addView(top);
+        TextView summary = text(c, (interpreted.contains(id) ? "No native code: runs more slowly in the interpreter.\n" : "") + summaries.get(id), 16, s.muted); summary.setPadding(0, s.dp(16), 0, 0); page.addView(summary);
+        page.addView(new View(c), new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout buttons = new LinearLayout(c); String[] labels = {"Play", "Settings", "Saves"};
+        Runnable[] actions = {() -> play(id), () -> options(id), () -> saves(id)};
+        for (int i = 0; i < labels.length; i++) {
+            Button b = new Button(c); b.setText(labels[i]); b.setAllCaps(false); b.setTextSize(20); b.setTextColor(s.label(s.ink)); b.setContentDescription(labels[i] + " " + names.get(id));
+            b.setBackground(s.button(i == 0 ? Palette.PRIMARY : Palette.SECONDARY)); b.setMinHeight(s.dp(96)); Runnable action = actions[i]; b.setOnClickListener(v -> action.run()); b.setFocusable(false);
+            buttons.addView(b, new LinearLayout.LayoutParams(0, -2, 1));
+        }
+        page.addView(buttons);
+        View chips = s.legend("A Play · Y Settings · X Saves · Start Menu"); chips.setPadding(0, s.dp(16), 0, 0); page.addView(chips);
+        second.setContentView(page);
+    }
+    @Override protected void onStart() {
+        super.onStart(); getSystemService(DisplayManager.class).registerDisplayListener(displayWatch, null); showSecond();
+    }
+    @Override protected void onStop() { // the game process shows its own Presentation on the bottom screen
+        getSystemService(DisplayManager.class).unregisterDisplayListener(displayWatch);
+        if (second != null) { second.dismiss(); second = null; } super.onStop();
     }
     private void options(String id) {
         try {
@@ -624,7 +750,8 @@ public final class Launcher extends Activity {
         }
         /** The success text for a freshly imported title.so, or null if it cannot be read back (the import itself already succeeded). */
         private static String codeReport(Context context, String id) {
-            try { return GameImport.codeReport(new File(GameImport.active(context, id), "code/title.so")); } catch (Exception e) { return null; }
+            try { File code = new File(GameImport.active(context, id), "code/title.so");
+                return code.isFile() ? GameImport.codeReport(code) : "Imported without native code; it runs in the interpreter."; } catch (Exception e) { return null; }
         }
         private void run(Context context, String id, Uri uri, int operation, boolean includeTextures) {
             if (busy) return; busy = true; error = null;
