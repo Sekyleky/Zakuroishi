@@ -1,13 +1,25 @@
 # Android library
 
-The launcher uses Android framework widgets, system fonts, and a restrained green
-accent. Light and dark colors follow the device setting. No web view, UI framework,
-remote artwork service, or additional runtime dependency is involved.
+The launcher uses Android framework widgets, system fonts, warm neutral surfaces
+and an orange accent. Focus is an orange fill inside a ring, the same on buttons
+and game tiles. Light and dark colors follow the device setting. No web view, UI
+framework, remote artwork service, or additional runtime dependency is involved.
 
-The library puts game names and Play first. Search filters names; Settings keeps
-rename, resolution, and the texture-pack switch out of the main list. Wide screens
-use compact horizontal game rows. Small screens and large text stack the controls.
-The whole page scrolls so the library stays reachable with large text in landscape.
+The library is a grid of game tiles, most recently played first: the game's own
+icon, its name on up to two lines and the play time. Wide screens show five tiles
+per row, narrower screens fewer. Each tile is one focus stop: A or a tap plays,
+Y opens Settings, X opens Saves, and a small touch-only ⋯ offers Settings, Saves
+and Pin to home screen. A line under the legend shows the focused game's full
+name, play time, last played and settings. Search filters names; L1/R1 page
+through the grid. The header has Add game and Menu (also Start), which holds
+Setup help, Frontends, Storage, diagnostics and settings files. The whole page
+scrolls so the library stays reachable with large text in landscape.
+
+On handhelds with a second screen, the bottom screen shows the focused game
+large: icon, name, play time, last played, settings, and big Play, Settings and
+Saves buttons for touch, with the button legend. It never takes controller focus,
+follows the screen being connected or removed, and hands the screen to the game
+while one runs. Everything on it is also on the top screen.
 
 New imports prefer the game's embedded English title, then the original ROM
 filename or selected folder. Existing imports without stored names also try the
@@ -15,8 +27,9 @@ embedded title, without rewriting their files. Names can be edited in Settings
 and never become filesystem paths. The existing game preferences,
 import pointers and save locations are preserved.
 
-Setup help explains the required folder and trusted native code before opening
-Android's folder picker. Imports start with a read-only checking phase before any
+Add game says in two lines which folder to choose (native code is optional; a game
+without it runs more slowly) before opening Android's folder picker; Setup help in
+Menu has the full explanation. Imports start with a read-only checking phase before any
 staging files exist. A validated, selective file plan and free-space check must pass
 before copying. Copy progress reports MB and completed files, rather than
 an invented percentage. Progress updates do not rebuild the library or flood the
@@ -25,12 +38,8 @@ off the UI thread. Errors explain how to retry and retain prior games and saves.
 
 Buttons have at least 48 dp targets, visible focus, descriptive accessibility labels,
 and Android font scaling. D-pad navigation uses native focus behavior. Controller A
-selects; B closes the keyboard first, then cancels a dialog or clears search before
-leaving the library. Settings changes are applied only with Save.
-
-The body, secondary text and primary-button text contrast ratios are 13.83, 6.04
-and 7.07 in light mode; 15.85, 7.54 and 10.85 in dark mode. These are calculated
-ratios for the explicit palette, not a complete accessibility certification.
+selects; B closes the keyboard first, then cancels a dialog or clears search; it
+never leaves the library. Every dialog opens with a button lit. Settings changes are applied only with Save.
 
 Frontend validation uses a separate Java-only debug package on a workspace-local
 Android emulator, with fictional fixture entries. It cannot run games and is not
