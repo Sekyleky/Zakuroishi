@@ -175,11 +175,32 @@ public final class ImportPlanCheck {
         try { plan.files.clear(); throw new AssertionError("Plan file list is mutable"); }
         catch (UnsupportedOperationException expectedImmutable) { }
     }
+    private static void romOnly() throws Exception {
+        Tree tree = valid(); tree.folders.get("arm").clear(); tree.folders.get("x86").clear();
+        ImportPlan plan = ImportPlan.inspect(tree, "root");
+        check(plan.code == null && plan.rom != null && TITLE.equals(plan.titleId), "ROM-only plan has wrong ROM/code");
+        for (ImportPlan.Item item : plan.files) check(!item.destination.equals("code/title.so"), "ROM-only plan copies a library");
+        check(item(plan, "rom").destination.equals("game/game.3ds") && tree.blobs.get("code").opens == 0, "ROM-only plan wrong ROM or opened a library");
+        // Only a ROM in the folder: nothing else is needed.
+        Tree bare = new Tree(); bare.file("root", "rom", "game.3ds", romHeader(FOUR_GIB), FOUR_GIB);
+        ImportPlan bareRom = ImportPlan.inspect(bare, "root");
+        check(bareRom.code == null && bareRom.files.size() == 1 && bareRom.bytes == FOUR_GIB, "Bare ROM plan is wrong");
+        // A bad library beside the ROM is still refused, not skipped.
+        for (byte[] bytes : new byte[][]{elf(62), NativeFixture.elf(5, true), new byte[64]}) {
+            Tree bad = new Tree(); bad.file("root", "rom", "game.3ds", romHeader(FOUR_GIB), FOUR_GIB);
+            bad.file("root", "code", "title.so", bytes);
+            rejects(() -> ImportPlan.inspect(bad, "root"), "bad library beside ROM");
+        }
+        // No ROM is still an error.
+        Tree none = new Tree(); none.file("root", "code", "title.so", NativeFixture.elf(4, false));
+        rejects(() -> ImportPlan.inspect(none, "root"), "library without ROM");
+    }
     private static void badStructure() throws Exception {
         Tree tree = valid(); tree.file("root", "other-rom", "other.cci", romHeader(512));
         structuralReject(tree, "duplicate ROMs");
-        tree = valid(); tree.folders.get("arm").clear(); tree.folders.get("x86").clear();
-        structuralReject(tree, "missing library");
+        tree = valid(); tree.folders.get("arm").clear();
+        final Tree desktopOnly = tree; // a library that is present but unusable never falls back to ROM-only
+        rejects(() -> ImportPlan.inspect(desktopOnly, "root"), "desktop-only library");
         tree = valid(); tree.directory("root", "more-textures", "textures");
         structuralReject(tree, "multiple textures folders");
         tree = valid(); tree.directory("root", "more-sysdata", "sysdata");
@@ -524,7 +545,7 @@ public final class ImportPlanCheck {
         check(Arrays.equals(source.prefix, original), "Header check modified source PNG");
     }
     public static void main(String[] args) throws Exception {
-        validPlan(); badStructure(); badPayloads(); unknownSizes(); directHeaders();
+        validPlan(); romOnly(); badStructure(); badPayloads(); unknownSizes(); directHeaders();
         destinationBounds(); capturedHeaders();
         incompatibleCode(); optionalTextures(); componentPlans();
         executableStructure(); completePngs(); romfsMods();

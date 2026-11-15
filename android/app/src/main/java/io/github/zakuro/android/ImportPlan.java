@@ -108,7 +108,6 @@ final class ImportPlan {
     static ImportPlan inspect(Source source, String rootId, boolean includeTextures) throws IOException {
         Scan scan = new Scan(includeTextures); scan.walk(source, rootId, "", "", new HashSet<>(), 0);
         if (scan.roms.size() != 1) throw new IOException("No game found. Choose a folder with one decrypted .3ds, .cci or .cxi game.");
-        if (scan.libraries.isEmpty()) throw new IOException("Missing Android ARM64 title.so. Choose the built game's folder.");
         int pngs = 0;
         for (Item item : scan.assets) if (item.destination.toLowerCase(Locale.ROOT).endsWith(".png")) pngs++;
         if (pngs == 0) scan.assets.removeIf(item -> item.destination.startsWith("textures/"));
@@ -128,9 +127,11 @@ final class ImportPlan {
                 code = sized;
             }
         }
-        if (code == null) throw new IOException(incompatible != null ? incompatible : "No valid ARM64 title.so found. A desktop build cannot be used on Android.");
+        // No library at all is a ROM-only import (interpreter); a library that is present must be valid.
+        if (code == null && !scan.libraries.isEmpty()) throw new IOException(incompatible != null ? incompatible : "No valid ARM64 title.so found. A desktop build cannot be used on Android.");
         List<Item> files = new ArrayList<>();
-        files.add(new Item(rom, "game/game.3ds")); files.add(new Item(code, "code/title.so"));
+        files.add(new Item(rom, "game/game.3ds"));
+        if (code != null) files.add(new Item(code, "code/title.so"));
         for (Item asset : scan.assets) {
             try (SeekableByteChannel file = source.open(asset.source.id)) {
                 Entry entry = sized(asset.source, file);
