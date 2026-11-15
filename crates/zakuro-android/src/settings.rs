@@ -139,6 +139,8 @@ pub struct Advanced {
     pub frame_generation_multiplier: i32,
     /// The motion search's share of the picture size, percent.
     pub frame_generation_flow: i32,
+    /// Make no pictures in scenes the game draws at 60 FPS.
+    pub frame_generation_rest: bool,
     /// FIFO at normal speed and the 60 FPS cap, mailbox otherwise; off keeps mailbox (0.1.8).
     pub vsync_pacing: bool,
     /// Stock Qualcomm drivers abort on GPU vertex shaders; fall back to Auto there.
@@ -230,6 +232,7 @@ impl Default for Advanced {
             frame_generation: false,
             frame_generation_multiplier: 4,
             frame_generation_flow: 100,
+            frame_generation_rest: false,
             vsync_pacing: true,
             safe_gpu_shaders: true,
             turnip_sysmem: false,
@@ -439,6 +442,7 @@ mod tests {
         assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
         assert!(!settings.frame_generation && settings.frame_generation_multiplier == 4 && settings.frame_generation_flow == 100);
         assert!(Advanced::parse(r#"{"frame_generation":true}"#).unwrap().renderer_options().frame_generation);
+        assert!(!settings.frame_generation_rest && Advanced::parse(r#"{"frame_generation_rest":true}"#).unwrap().frame_generation_rest);
         assert!(!settings.request_wait_idle);
         assert!(Advanced::parse(r#"{"request_wait_idle":true}"#).unwrap().request_wait_idle);
         assert!(!settings.short_vsync_queue);

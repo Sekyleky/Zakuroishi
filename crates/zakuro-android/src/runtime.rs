@@ -502,6 +502,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         multiplier: if settings.frame_generation_multiplier >= 4 { 4 } else { 2 },
         flow_percent: settings.frame_generation_flow.clamp(25, 100) as u32,
         dir: files.join("lsfg"),
+        rest_at_refresh_rate: settings.frame_generation_rest,
     });
     // Benchmark window baselines: game pictures, distinct pictures, interpolation counts (between, rough, off beat).
     let (mut bench_game, mut bench_distinct, mut bench_counts) = (hud_game, hud_distinct, (0u64, 0u64, 0u64));

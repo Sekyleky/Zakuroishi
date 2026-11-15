@@ -39,6 +39,9 @@ pub struct FrameGenOptions {
     pub flow_percent: u32,
     /// app-private folder holding the import and the translated shaders.
     pub dir: PathBuf,
+    /// make nothing while the game draws a new picture every refresh: there the graph runs twice
+    /// as often for one shown picture, which cost Ultra Moon's intro a fifth of its speed at 4x.
+    pub rest_at_refresh_rate: bool,
 }
 
 impl FrameGenOptions {
@@ -66,6 +69,11 @@ fn schedule(generated: usize, gap: u32, current: usize) -> VecDeque<Item> {
     };
     items.push_back(Item::Real(current));
     items
+}
+
+/// a game drawing every refresh leaves no room for more than its own pictures at a 60 Hz rate.
+fn rests(rest: bool, gap: u32) -> bool {
+    rest && gap <= 1
 }
 
 type Init = unsafe extern "C" fn(vk::PFN_vkGetInstanceProcAddr, vk::Instance, vk::PhysicalDevice, vk::Device, u32, vk::Queue, f32, u64, *const std::ffi::c_char) -> i32;
@@ -154,6 +162,10 @@ pub(super) struct FrameGen {
     gap: u32,
     waiting: VecDeque<Item>,
     showing: Option<Item>,
+    rest: bool,
+    /// the graph missed pictures while resting, so its next result is not shown.
+    stale: bool,
+    resting: bool,
 }
 
 /// what the presenter hands over to make one.
@@ -243,12 +255,15 @@ impl FrameGen {
             gap: 2,
             waiting: VecDeque::new(),
             showing: None,
+            rest: options.rest_at_refresh_rate,
+            stale: false,
+            resting: false,
         })
     }
 
     /// whether this graph makes the pictures the options ask for.
     pub(super) fn follows(&self, options: &FrameGenOptions) -> bool {
-        self.per_tick == options.per_tick()
+        self.per_tick == options.per_tick() && self.rest == options.rest_at_refresh_rate
     }
 
     pub(super) fn fits(&self, gpu: &GpuScreen) -> bool {
@@ -263,16 +278,27 @@ impl FrameGen {
             self.newest = Some((gpu.view, gpu.batch));
             self.gap = self.ticks_since_new;
             self.ticks_since_new = 0;
-            let current = (self.fed % 2) as usize;
-            self.generate(&gpu, current)?;
-            if self.waiting.iter().any(|item| matches!(item, Item::Real(_))) {
-                REAL_DROPPED.fetch_add(1, Relaxed);
-            }
-            self.waiting = if self.fed == 1 {
-                [Item::Real(current)].into()
+            self.resting = rests(self.rest, self.gap);
+            if self.resting {
+                (self.stale, self.showing) = (true, None);
+                self.waiting.clear();
             } else {
-                schedule(self.images.len() - 2, self.gap, current)
-            };
+                let current = (self.fed % 2) as usize;
+                self.generate(&gpu, current)?;
+                if self.waiting.iter().any(|item| matches!(item, Item::Real(_))) {
+                    REAL_DROPPED.fetch_add(1, Relaxed);
+                }
+                self.waiting = if self.fed == 1 || self.stale {
+                    [Item::Real(current)].into()
+                } else {
+                    schedule(self.images.len() - 2, self.gap, current)
+                };
+                self.stale = false;
+            }
+        }
+        if self.resting {
+            // nothing to present from here: the frame goes up as it is
+            return Ok(Vec::new());
         }
         let mut out = Vec::with_capacity(self.per_tick);
         for _ in 0..self.per_tick {
@@ -454,5 +480,6 @@ mod tests {
         assert_eq!(Vec::from(schedule(3, 1, 0)), [G(1), R(0)]);
         assert_eq!(Vec::from(schedule(1, 2, 1)), [G(0), R(1)]);
         assert_eq!(Vec::from(schedule(1, 1, 1)), [R(1)]);
+        assert!(rests(true, 1) && !rests(true, 2) && !rests(false, 1));
     }
 }

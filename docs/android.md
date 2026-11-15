@@ -208,6 +208,9 @@ sound/tap latching (Audio/Controls):
     setup ran at 15 game fps and 50.1% speed.
     **Motion search size**
     (`frame_generation_flow`): smaller costs the GPU less and follows motion less closely.
+  - **Rest in 60 FPS scenes** (`frame_generation_rest`, off by default): where the game itself
+    draws 60 pictures a second (titles, intros), show those and make none in between. Such
+    scenes ran at 75-80% speed at 4× on the Thor. Not yet measured with the switch on.
 - **Frame interpolation** (`interpolate`, Performance, off by default): for games that
   draw every other refresh, such as Ultra Moon, it draws a picture in between from the
   game's own draws with positions halfway, so game speed does not change. Use it with a
