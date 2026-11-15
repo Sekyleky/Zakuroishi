@@ -42,39 +42,63 @@ public final class GameMetadata {
         return clean(new String(bytes, at, end - at, StandardCharsets.UTF_16LE));
     }
 
-    /** Reads at most two container headers, one ExeFS header and 0x388 icon bytes. */
-    static String romTitle(File rom) {
+    /** Reads at most two container headers, one ExeFS header and the first `bytes` of the SMDH icon file; null when absent. */
+    private static byte[] smdh(File rom, int bytes) {
         try (RandomAccessFile in = new RandomAccessFile(rom, "r")) {
             long length = in.length(), base = 0, partitionSize = length;
-            if (length < 512) return "";
+            if (length < 512) return null;
             byte[] header = new byte[512]; in.readFully(header);
             if (magic(header, 0x100, "NCSD")) {
                 base = u32(header, 0x120) * 512;
                 partitionSize = u32(header, 0x124) * 512;
-                if (base < 512 || partitionSize < 512 || !fits(base, partitionSize, length)) return "";
+                if (base < 512 || partitionSize < 512 || !fits(base, partitionSize, length)) return null;
                 in.seek(base); in.readFully(header);
             }
-            if (!magic(header, 0x100, "NCCH") || (header[0x18f] & 4) == 0) return "";
+            if (!magic(header, 0x100, "NCCH") || (header[0x18f] & 4) == 0) return null;
             long contentSize = u32(header, 0x104) * 512;
             long exefsOffset = u32(header, 0x1a0) * 512;
             long exefsSize = u32(header, 0x1a4) * 512;
             if (contentSize < 512 || contentSize > partitionSize || exefsOffset < 512
-                    || exefsSize < 512 || !fits(exefsOffset, exefsSize, contentSize)) return "";
+                    || exefsSize < 512 || !fits(exefsOffset, exefsSize, contentSize)) return null;
             in.seek(base + exefsOffset); in.readFully(header);
             for (int entry = 0; entry < 10; entry++) {
                 int at = entry * 16;
                 if (!magic(header, at, "icon\0\0\0\0")) continue;
                 long iconOffset = 512 + u32(header, at + 8), iconSize = u32(header, at + 12);
-                if (iconSize < 0x388 || !fits(iconOffset, iconSize, exefsSize)) return "";
-                byte[] icon = new byte[0x388];
+                if (iconSize < bytes || !fits(iconOffset, iconSize, exefsSize)) return null;
+                byte[] icon = new byte[bytes];
                 in.seek(base + exefsOffset + iconOffset); in.readFully(icon);
-                if (!magic(icon, 0, "SMDH")) return "";
-                // English is language slot 1: short[0x80], long[0x100], publisher[0x80].
-                String title = utf16(icon, 0x288, 0x100);
-                return title.isEmpty() ? utf16(icon, 0x208, 0x80) : title;
+                return magic(icon, 0, "SMDH") ? icon : null;
             }
         } catch (IOException ignored) { }
-        return "";
+        return null;
+    }
+
+    static String romTitle(File rom) {
+        byte[] icon = smdh(rom, 0x388);
+        if (icon == null) return "";
+        // English is language slot 1: short[0x80], long[0x100], publisher[0x80].
+        String title = utf16(icon, 0x288, 0x100);
+        return title.isEmpty() ? utf16(icon, 0x208, 0x80) : title;
+    }
+
+    static final int ICON = 48;
+    /** The game's 48x48 icon as ARGB pixels, or null. */
+    static int[] romIcon(File rom) {
+        byte[] smdh = smdh(rom, 0x36c0);
+        return smdh == null ? null : icon(smdh, 0x24c0);
+    }
+    /** RGB565 in 8x8 tiles, each tile in Z-order (x on even bits, y on odd bits). */
+    static int[] icon(byte[] data, int at) {
+        int[] out = new int[ICON * ICON];
+        for (int i = 0; i < out.length; i++) {
+            int in = i & 63, x = (i >> 6) % 6 * 8, y = (i >> 6) / 6 * 8;
+            for (int bit = 0; bit < 3; bit++) { x += (in >> bit * 2 & 1) << bit; y += (in >> bit * 2 + 1 & 1) << bit; }
+            int c = (data[at + i * 2] & 255) | (data[at + i * 2 + 1] & 255) << 8;
+            int r = c >> 11, g = c >> 5 & 63, b = c & 31;
+            out[y * ICON + x] = 0xff000000 | (r << 3 | r >> 2) << 16 | (g << 2 | g >> 4) << 8 | (b << 3 | b >> 2);
+        }
+        return out;
     }
 
     static String clean(String value) {

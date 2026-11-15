@@ -28,6 +28,9 @@ public final class Launcher extends Activity {
     // Library scan cache: search only filters this; showLibrary() rescans.
     private List<String> ids = new ArrayList<>();
     private final Map<String, String> names = new HashMap<>(), summaries = new HashMap<>();
+    private final Map<String, Long> lastPlayed = new HashMap<>();
+    // ponytail: icons are 48x48 and never evicted; decoded on the UI thread at scan (one 14 KB read per new game). Move off-thread if a library reaches hundreds of games.
+    private static final Map<String, android.graphics.Bitmap> icons = new HashMap<>();
     private ProgressBar progress;
     private Button add;
     private EditText search;
@@ -61,7 +64,7 @@ public final class Launcher extends Activity {
         logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams logoSize = new LinearLayout.LayoutParams(dp(wide ? 40 : 64),dp(wide ? 40 : 64)); logoSize.setMargins(0,0,dp(12),0);
         identity.addView(logo,logoSize);
-        LinearLayout wordmark = column(); wordmark.addView(text("Zakuroishi", 16, p.accent)); wordmark.addView(text("Your library", wide ? 22 : 30, p.ink)); identity.addView(wordmark);
+        LinearLayout wordmark = column(); if (wide) wordmark.addView(text("Zakuroishi", 22, p.accent)); else { wordmark.addView(text("Zakuroishi", 16, p.accent)); wordmark.addView(text("Your library", 30, p.ink)); } identity.addView(wordmark);
         search = new EditText(this); search.setId(0x1001); search.setSingleLine(true); search.setTextColor(p.ink); search.setHintTextColor(p.muted); search.setHint("Find a game");
         search.setTextSize(16); search.setMinHeight(dp(48)); search.setContentDescription("Find a game in your library");
         search.setBackground(p.row()); search.setPadding(dp(14), dp(8), dp(14), dp(8));
@@ -82,8 +85,8 @@ public final class Launcher extends Activity {
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setIndeterminate(true);
         progress.setIndeterminateTintList(ColorStateList.valueOf(p.accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
         status = text("", 14, p.muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
-        count = text("", 14, p.muted); count.setPadding(0, dp(16), 0, dp(10)); page.addView(count);
-        legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page"); legend.setPadding(0, 0, 0, dp(10)); page.addView(legend);
+        count = text("", 14, p.muted); count.setPadding(0, 0, dp(20), 0);
+        legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page"); legend.addView(count, 0); legend.setPadding(0, dp(6), 0, dp(10)); page.addView(legend);
         list = column(); page.addView(list);
         library = new ScrollView(this); library.setFillViewport(true); library.setBackgroundColor(p.background); library.addView(page);
         setContentView(library); page.requestApplyInsets();
@@ -367,9 +370,20 @@ public final class Launcher extends Activity {
         if (files != null) for (File file : files) if (file.getName().matches("[0-9A-F]{16}\\.active(\\.bak)?")) found.add(file.getName().substring(0, 16));
         DisplayManager displays = (DisplayManager) getSystemService(DISPLAY_SERVICE);
         boolean second = displays != null && displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION).length > 0;
-        ids = new ArrayList<>(found); names.clear(); summaries.clear();
-        for (String id : ids) { names.put(id, name(id)); summaries.put(id, summary(id, second)); }
-        ids.sort((a, b) -> names.get(a).compareToIgnoreCase(names.get(b)));
+        ids = new ArrayList<>(found); names.clear(); summaries.clear(); lastPlayed.clear();
+        SharedPreferences played = getSharedPreferences("played", Context.MODE_MULTI_PROCESS); // written by the game process
+        for (String id : ids) {
+            names.put(id, name(id)); lastPlayed.put(id, played.getLong(id + ".last", 0));
+            long minutes = played.getLong(id + ".ms", 0) / 60000;
+            String time = minutes == 0 ? "" : (minutes >= 60 ? minutes / 60 + " h " : "") + minutes % 60 + " min  ·  ";
+            summaries.put(id, time + summary(id, second));
+            if (!icons.containsKey(id)) try {
+                int[] pixels = GameMetadata.romIcon(new File(GameImport.active(this, id), "game/game.3ds"));
+                icons.put(id, pixels == null ? null : android.graphics.Bitmap.createBitmap(pixels, GameMetadata.ICON, GameMetadata.ICON, android.graphics.Bitmap.Config.ARGB_8888));
+            } catch (Exception e) { icons.put(id, null); }
+        }
+        // Most recently played first, then by name.
+        ids.sort((a, b) -> { int recent = Long.compare(lastPlayed.get(b), lastPlayed.get(a)); return recent != 0 ? recent : names.get(a).compareToIgnoreCase(names.get(b)); });
     }
     private String summary(String id, boolean second) {
         String summary = Math.max(1, Math.min(3, settings().getInt(id + ".resolution", 1))) + "× resolution";
@@ -387,9 +401,13 @@ public final class Launcher extends Activity {
         for (String id : ids) {
             String title = names.get(id); if (!title.toLowerCase(Locale.ROOT).contains(query)) continue; shown++; if (firstShown == null) firstShown = id + ".play";
             LinearLayout row = column(); row.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setBackground(p.shape(p.surface, p.border, 1, 16)); row.setPadding(dp(18), dp(16), dp(18), dp(16));
+            row.setBackground(p.shape(p.surface, p.border, 1, 16)); row.setPadding(dp(14), dp(8), dp(14), dp(8));
+            ImageView icon = new ImageView(this); icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            if (icons.get(id) != null) icon.setImageBitmap(icons.get(id)); else icon.setBackground(p.shape(p.raised, p.border, 1, 10));
+            icon.setClipToOutline(true); icon.setOutlineProvider(new ViewOutlineProvider() { public void getOutline(View v, android.graphics.Outline o) { o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(10)); } });
+            LinearLayout.LayoutParams iconSize = new LinearLayout.LayoutParams(dp(64), dp(64)); iconSize.setMargins(0, 0, dp(16), wide ? 0 : dp(8)); row.addView(icon, iconSize);
             LinearLayout info = column(); TextView name = text(title, 21, p.ink); name.setMaxLines(2); name.setEllipsize(android.text.TextUtils.TruncateAt.END); info.addView(name);
-            TextView detail = text(summaries.get(id), 14, p.muted); detail.setPadding(0, dp(6), 0, wide ? 0 : dp(14)); info.addView(detail);
+            TextView detail = text(summaries.get(id), 14, p.muted); detail.setPadding(0, dp(4), 0, wide ? 0 : dp(14)); info.addView(detail);
             row.addView(info, wide ? new LinearLayout.LayoutParams(0, -2, 1) : new LinearLayout.LayoutParams(-1, -2));
             LinearLayout actions = new LinearLayout(this);
             if (getResources().getConfiguration().fontScale > 1.3f || getResources().getConfiguration().screenWidthDp < 400) actions.setOrientation(LinearLayout.VERTICAL);
@@ -401,7 +419,7 @@ public final class Launcher extends Activity {
             saves.setEnabled(!task.busy); saves.setOnClickListener(v -> saves(id));
             LinearLayout.LayoutParams saveGap = new LinearLayout.LayoutParams(-2, -2); saveGap.setMargins(dp(10), 0, 0, 0); actions.addView(saves, saveGap);
             LinearLayout.LayoutParams actionSize = new LinearLayout.LayoutParams(-2, -2); if (wide) actionSize.setMargins(dp(16), 0, 0, 0); row.addView(actions, actionSize);
-            LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.setMargins(0, 0, 0, dp(12)); list.addView(row, spacing);
+            LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.setMargins(0, 0, 0, dp(8)); list.addView(row, spacing);
         }
         count.setText(query.isEmpty() ? ids.size() + (ids.size() == 1 ? " game" : " games") : shown + " of " + ids.size() + " games");
         if (ids.isEmpty()) {

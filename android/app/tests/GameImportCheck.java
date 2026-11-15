@@ -258,6 +258,11 @@ public final class GameImportCheck {
         try {
             String id = "00040000001B0000";
             checkSmdh(dir, id);
+            // icon: source pixel 1 is (1,0), 2 is (0,1), 3 is (1,1); the second tile starts at x=8; red/green/blue expand to 8 bits
+            byte[] px = new byte[48 * 48 * 2];
+            px[2] = 0; px[3] = (byte) 0xf8; px[4] = (byte) 0xe0; px[5] = 0x07; px[6] = 0x1f; px[64 * 2] = (byte) 0xff; px[64 * 2 + 1] = (byte) 0xff;
+            int[] icon = GameMetadata.icon(px, 0);
+            require(icon[1] == 0xffff0000 && icon[48] == 0xff00ff00 && icon[49] == 0xff0000ff && icon[8] == 0xffffffff && icon[0] == 0xff000000);
             require(GameMetadata.name(dir, id).equals("Game 1B0000"));
             require(GameMetadata.choose("Pokemon_Ultra_Moon.3DS", "Pocket Native", id).equals("Pokemon Ultra Moon"));
             require(GameMetadata.choose("game.3ds", "Mario Kart 7", id).equals("Mario Kart 7"));
