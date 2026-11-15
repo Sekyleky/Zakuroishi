@@ -21,6 +21,16 @@ Not released. What was seen on the Thor and what was not is in
 - **Games without native code:** a folder with only a decrypted ROM can be imported and runs in
   the interpreter; native code can be added later from the game's settings. See
   [native library](native-library.md).
+- **Hotkeys:** a controller key can be mapped to quick save, quick load (asks first), swap
+  screens, screenshot or the pause menu. Not run on a device.
+- **Save-state thumbnails:** each slot shows a small picture of where it was saved. Not run on a
+  device.
+- **Cheats:** Game files has Import cheats (one text file in the common cheat format), a switch
+  per cheat and Remove cheats; the file is kept when the game is imported again. Not run on a
+  device.
+- **Frame generation:** new switch **Rest in 60 FPS scenes** (`frame_generation_rest`, off by
+  default). At 4× a title or intro the game draws at 60 ran at 75-80% speed; with the switch the
+  game's own pictures are shown there. Not yet measured.
 - **Fixed:** importing your Lossless.dll from the in-game settings closed the game; the button
   is now only in the library.
 - **Build:** the Windows APK build passes the classes to the dexer as one jar. The class list
