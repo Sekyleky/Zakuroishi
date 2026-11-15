@@ -58,7 +58,7 @@ Other build outputs, source files and unrelated files are not copied.
 
 ## Mods
 
-Open a game's **Settings** and choose **Import mod…**, then select the mod's
+Open a game's **Settings → Game files** and choose **Import mod…**, then select the mod's
 folder. The importer finds the mod whichever level you pick: the folder that holds
 `romfs/`, `exefs/` or the code patches, a folder above it (`luma/titles/`,
 `load/mods/` or a wrapper from an extracted ZIP, where the folder named for the
@@ -115,17 +115,33 @@ compatible enhancement codes to change their own frame rate or remove outlines.
 
 ## Settings and controls
 
-Settings are grouped as Display (resolution, HD pack, screen layout and second
+A game's settings open on a simple page: preset, resolution, HD pack, twelve
+everyday settings, then **All settings…**, **Button mapping…** and **Game files…**
+(texture pack, mods, native code, saves, shader cache, driver import).
+Presets (Battery, Balanced, Quality) set resolution, HD textures, frame cap and
+in-between pictures at once and store nothing of their own; the row shows the
+matching preset or Custom. Their values are proposals not yet measured on a device.
+**Settings for all games** apply to every game; a game keeps only what it changes,
+marked *changed*, and **Use defaults for this game** drops those. Name, HD pack
+switch, driver and enhancements stay per game.
+
+All settings are grouped as Display (resolution, HD pack, screen layout and second
 display, scaling, on-screen info, 3D), Performance (speed and fast-forward, frame
-cap and vsync, shader warm-up, custom driver), Controls, Button mapping, Motion,
+cap, shader warm-up, custom driver), Controls, Button mapping, Motion,
 Audio, System, and Advanced (renderer, shader, HD-texture and driver
-troubleshooting switches). Save
+troubleshooting switches, and switches kept for testing). Save
 applies changes; Cancel discards them. Runtime-affecting changes need a restart.
+A game without native code runs in the interpreter whatever its compiled-code switch says.
 The [feature matrix](feature-parity.md) identifies supported backend behavior
 and settings still requiring a port.
 
 A selects and B cancels in the library. In play, open the pause menu for resume,
-save/load slot 0, restart, screen swap, gyro recalibration and settings. Optional
+save and load states (quick slot and slots 1-9; X quick-saves and Y quick-loads),
+restart, screen swap, gyro recalibration and settings. B or Cancel in a list or
+question goes back to the pause menu. The **HUD** tile shows or hides the clock and
+battery at once and remembers it for the game. **Screenshot** saves the picture on
+the main display as a PNG in `Pictures/Zakuroishi` (the second display is not
+included). Optional
 on-screen controls provide buttons and sticks. Controller settings include
 Nintendo/Xbox face layout, remapping, stick dead zone, C-stick/touch cursor and
 stick-generated motion. Bottom-screen touch remains available on the game image.
@@ -311,10 +327,10 @@ The app stores files privately beneath Android's app files directory:
 | `imports/UUID/data/mods/TITLE_ID/textures/` | Optional replacement pack |
 | `imports/UUID/data/mods/TITLE_ID/romfs/`, `romfs_ext/` | Optional mod (also `code.ips`, `code.bps`, `code.bin`, `exheader.bin`) |
 | `imports/UUID/data/states/TITLE_ID/0.state` | Quick-save slot for this import |
-| `imports/UUID/data/states/TITLE_ID/1.state` to `9.state` | Numbered state slots (pause menu: Save to slot / Load from slot) |
+| `imports/UUID/data/states/TITLE_ID/1.state` to `9.state` | Numbered state slots (pause menu: Save state… / Load state…) |
 
-Save state / Load state always use slot 0. The numbered slots 1-9 show their save time (file modified
-time); overwriting and loading ask first, and empty slots cannot be loaded. Deleting an old import
+Save state… and Load state… list the quick slot (slot 0, also X and Y in the pause menu) and slots 1-9
+with their save time (file modified time); overwriting and loading ask first, and empty slots cannot be loaded. Deleting an old import
 removes its whole `states` folder, so every slot goes with it.
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
