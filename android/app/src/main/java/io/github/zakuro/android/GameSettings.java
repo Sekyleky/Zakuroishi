@@ -62,23 +62,23 @@ final class GameSettings {
         number("Performance", "speed_limit", "Game speed limit (%)", 100, 0, 400, "100% runs at the game's intended speed. Higher values allow faster emulation; 0 removes the limit. Actual speed depends on the device and game."),
         number("Performance", "fast_forward_speed", "Fast-forward speed (hold button, %)", 150, 0, 400, "Hold your mapped Fast-forward button for this speed. Release it to restore the normal speed setting. 0 is unlimited."),
         number("Performance", "frame_cap", "Frame rate cap", 60, 0, 240, "Limits pictures presented per second. Zero is unlimited. This does not speed up the game's clock."),
-        flag("Performance", "vsync_pacing", "Pace to display refresh (vsync)", true, "At normal speed and the 60 FPS cap, present on each display refresh for even frame times; fast-forward still presents freely. Turn off for the 0.1.8 mailbox behavior. Takes effect immediately."),
-        flag("Performance", "request_wait_idle", "Service requests wait for the reply even when idle", false, "Off: a request to a system service is answered at once when no other game thread could run, so the core no longer waits on the GPU for every request. On brings back the old wait, to compare. Requires restart."),
-        flag("Performance", "short_vsync_queue", "Vsync: show frames sooner", false, "With vsync pacing, keep fewer finished frames queued for the display. On a custom Turnip driver the picture shows about 17 ms sooner; the system driver gains nothing and stutters slightly more. Takes effect immediately."),
+        flag("Advanced", "vsync_pacing", "Pace to display refresh (vsync)", true, "At normal speed and the 60 FPS cap, present on each display refresh for even frame times; fast-forward still presents freely. Turn off to present without waiting, as before. Takes effect immediately."),
+        flag("Advanced", "request_wait_idle", "Service requests wait for the reply even when idle", false, "Off: a request to a system service is answered at once when no other game thread could run, so the core no longer waits on the GPU for every request. On brings back the old wait, to compare. Requires restart."),
+        flag("Advanced", "short_vsync_queue", "Vsync: show frames sooner", false, "With vsync pacing, keep fewer finished frames queued for the display. On a custom Turnip driver the picture shows about 17 ms sooner; the system driver gains nothing and stutters slightly more. Takes effect immediately."),
         flag("Performance", "interpolate", "Frame interpolation", false, "Draws a picture in between for games that run at 30 fps, so motion looks like 60 at normal game speed. Use a Turnip driver: on the stock driver games can slow down. Adds a little input delay. Needs hardware rendering; off while GPU readback is forced or the top screen is on the second display. May show artifacts. Turning this on turns off Frame generation."),
         flag("Performance", "frame_generation", "Frame generation (Lossless Scaling)", false, "Experimental. Shows pictures made between the game's own, so a 30 fps game looks much smoother. Needs a Turnip driver and your own copy of Lossless Scaling, a paid app that is not included: import its Lossless.dll below. Adds input delay, and text and menus can smear. Top screen only. Turning this on turns off Frame interpolation."),
         number("Performance", "frame_generation_multiplier", "Pictures per game picture", 4, 2, 4, "4× runs the panel at 120 Hz. If Android holds the screen at 60 Hz, 4× switches itself to 2×, which stays at 60 Hz."),
         number("Performance", "frame_generation_flow", "Motion search size", 100, 25, 100, "Smaller costs the GPU less and follows motion less closely."),
-        flag("Performance", "warm_before_start", "Finish shader warm-up before the game starts", false, "Hold the game's first frame (up to 30 s) until the remembered vertex programs and GPU pipelines are ready, so the intro and first battle don't stutter. The game starts later. Needs the two warm-up switches. Requires restart."),
-        flag("Performance", "warm_vertex_programs", "Warm up vertex programs at launch", true, "Remember the CPU vertex programs this game used and compile them in the background when it starts, so attacks and cutscenes seen before don't stutter. Turn off only to compare. Requires restart."),
-        flag("Performance", "warm_pipelines", "Warm up GPU pipelines at launch", true, "Remember the GPU pipelines this game used and create them in the background when it starts. Turn off only to compare. Requires restart."),
+        flag("Performance", "warm_before_start", "Finish shader warm-up before the game starts", false, "Hold the game's first frame (up to 30 s) until the remembered vertex programs and GPU pipelines are ready, so the intro and first battle don't stutter. The game starts later. Needs the two warm-up switches under Advanced. Requires restart."),
+        flag("Advanced", "warm_vertex_programs", "Warm up vertex programs at launch", true, "Remember the CPU vertex programs this game used and compile them in the background when it starts, so attacks and cutscenes seen before don't stutter. Turn off only to compare. Requires restart."),
+        flag("Advanced", "warm_pipelines", "Warm up GPU pipelines at launch", true, "Remember the GPU pipelines this game used and create them in the background when it starts. Turn off only to compare. Requires restart."),
         flag("Performance", "custom_driver", "Use selected custom Vulkan driver", false, "Requires an imported ARM64 Android Vulkan driver and packaged native driver support. Restart after changing. Driver compatibility depends on your GPU."),
         choice("Controls", "button_mapping", "Face button layout", "nintendo", "nintendo|xbox", "Choose Nintendo positions or Xbox button labels."),
         choice("Controls", "left_stick", "Left stick", "circle_pad", "circle_pad|dpad", "Map the physical left stick to the Circle Pad or D-pad."),
         choice("Controls", "right_stick", "Right stick", "c_stick", "c_stick|cursor", "Use the C-stick or move a cursor on the bottom screen."),
         number("Controls", "deadzone", "Stick dead zone", 0.15f, 0, 0.9f, "Ignore small stick movement around the center."),
         number("Controls", "cursor_speed", "Touch cursor speed", 1f, 0.1f, 5, "Speed of the right-stick touch cursor."),
-        flag("Controls", "latch_short_presses", "Never miss a quick tap", true, "A button or touch pressed and released within one frame still reaches the game for that frame. Turn off only to compare. Requires restart."),
+        flag("Advanced", "latch_short_presses", "Never miss a quick tap", true, "A button or touch pressed and released within one frame still reaches the game for that frame. Turn off only to compare. Requires restart."),
         flag("Controls", "touch_controls", "Show touch controls", false,"On-screen buttons and sticks. The unoccupied game surface still accepts bottom-screen touches."),
         flag("Controls", "touch_auto_hide", "Hide touch controls with a gamepad", true, "Automatically hide on-screen buttons and sticks while an Android gamepad or joystick is connected."),
         flag("Controls", "show_pause_button", "Show pause button", false, "An on-screen Pause button in the top-right corner. Back or the controller's menu button pauses either way."),
@@ -95,7 +95,7 @@ final class GameSettings {
         flag("Motion", "reverse_tilt_y", "Invert stick-motion vertical tilt", false, "Reverse vertical tilt from the right stick, independently of device gyroscope axes."),
         flag("Audio", "mute", "Mute game audio", false, "Silence audio without changing the saved volume."),
         number("Audio", "volume", "Game volume", 1f, 0, 1, "Volume within the device's media volume."),
-        flag("Audio", "audio_queue_managed", "Keep sound in step with the picture", true, "Hold about 125 ms of sound, adjust playback a fraction of a percent to stay there, and stretch the sound instead of cutting out when the game falls behind. Off restores the 0.2.0 queue, which drifts up to 250 ms behind. Requires restart."),
+        flag("Advanced", "audio_queue_managed", "Keep sound in step with the picture", true, "Hold about 125 ms of sound, adjust playback a fraction of a percent to stay there, and stretch the sound instead of cutting out when the game falls behind. Off restores the older queue, which drifts up to 250 ms behind. Requires restart."),
         flag("Audio", "low_latency_audio", "Low-latency sound output", false, "Ask Android for its fast audio path, which plays sound sooner after the game makes it. On the AYN Thor a system equalizer blocks that path, so this changes nothing there. Requires restart."),
         number("System", "region", "Console region", -1, -1, 6, "Automatic uses the game's own region."),
         number("System", "language", "Console language", 1, 0, 11, "Games only provide languages included in their release."),
@@ -131,23 +131,49 @@ final class GameSettings {
     final Map<String, String> controllerBindings = new LinkedHashMap<>();
     final Set<String> enhancements = new LinkedHashSet<>();
 
+    /**
+     * Settings for all games, stored like a game under this pseudo ID. A game uses its own stored value, else this one, else
+     * the declared initial; the same for resolution and the whole controller-bindings set. Name, texture switch, driver
+     * (with custom_driver) and enhancements stay per game. No import exists for it, so it never shows as a game.
+     */
+    static final String DEFAULTS = "0000000000000000";
+    static final String MIGRATED = "defaults_migrated";
+    /** What a real game inherits; null for DEFAULTS, which inherits the declared initials. */
+    private GameSettings base;
     private GameSettings(String id) { this.id = id; }
+    Object inherited(Setting setting) { return base == null || setting.key.equals("custom_driver") ? setting.initial : base.values.get(setting.key); }
+    int inheritedResolution() { return base == null ? 1 : base.resolution; }
+    Map<String, String> inheritedBindings() { return base == null ? Collections.emptyMap() : base.controllerBindings; }
+    /** True when a real game overrides the inherited value; DEFAULTS never counts as changed. */
+    boolean changed(Setting setting) { return base != null && !setting.normalize(values.get(setting.key)).equals(inherited(setting)); }
+    boolean changedResolution() { return base != null && resolution != base.resolution; }
+    boolean changedBindings() { return base != null && !controllerBindings.equals(base.controllerBindings); }
+    /** Drops this game's overrides in the draft; its driver choice stays. */
+    void useDefaults() {
+        for (Setting setting : ALL) if (!setting.key.equals("custom_driver")) values.put(setting.key, inherited(setting));
+        resolution = inheritedResolution(); controllerBindings.clear(); controllerBindings.putAll(inheritedBindings());
+    }
     static GameSettings from(Map<String, ?> prefs, String id) {
         if (id == null || !id.matches("[0-9A-Fa-f]{16}")) throw new IllegalArgumentException("Invalid game ID");
         GameSettings settings = new GameSettings(id);
+        if (!id.equals(DEFAULTS)) settings.base = from(prefs, DEFAULTS);
         settings.name = prefs.get(id + ".name") instanceof String ? (String) prefs.get(id + ".name") : "";
         Object selectedDriver = prefs.get(id + ".driver");
         if (selectedDriver instanceof String && ((String)selectedDriver).matches("[0-9a-fA-F-]{36}")) settings.driver = (String)selectedDriver;
         Object scale = prefs.get(id + ".resolution");
-        settings.resolution = scale instanceof Integer ? Math.max(1, Math.min(3, (Integer) scale)) : 1;
+        settings.resolution = scale instanceof Integer ? Math.max(1, Math.min(3, (Integer) scale)) : settings.inheritedResolution();
         Object texture = prefs.get(id + ".textures"); settings.textures = !(texture instanceof Boolean) || (Boolean) texture;
-        for (Setting setting : ALL) settings.values.put(setting.key, setting.normalize(prefs.get(id + ".advanced." + setting.key)));
+        for (Setting setting : ALL) {
+            Object own = prefs.get(id + ".advanced." + setting.key);
+            settings.values.put(setting.key, own == null ? settings.inherited(setting) : setting.normalize(own));
+        }
         Object enabled = prefs.get(id + ".advanced.enhancements");
         if (enabled instanceof Set<?>) for (Object value : (Set<?>) enabled)
             if (value instanceof String && !((String) value).isEmpty() && ((String) value).length() <= 120 && settings.enhancements.size() < 32)
                 settings.enhancements.add((String) value);
         Object bindings = prefs.get(id + ".advanced.controller_bindings");
-        if (bindings instanceof Set<?>) for (Object item : (Set<?>) bindings) {
+        if (!(bindings instanceof Set<?>)) settings.controllerBindings.putAll(settings.inheritedBindings());
+        else for (Object item : (Set<?>) bindings) {
             if (!(item instanceof String)) continue;
             String[] parts = ((String)item).split("=", 2);
             if (parts.length == 2 && parts[0].matches("[0-9]{1,4}") && Integer.parseInt(parts[0]) <= 1024 && Arrays.asList(BINDING_TARGETS).contains(parts[1]))
@@ -155,32 +181,62 @@ final class GameSettings {
         }
         return settings;
     }
+    /**
+     * Keys the one-time migration removes: before defaults existed every save wrote every value, so a stored value equal to
+     * its initial (resolution 1, no bindings) is not a choice and must not hide the defaults. Nothing changes at that moment.
+     */
+    static List<String> stale(Map<String, ?> prefs) {
+        List<String> keys = new ArrayList<>();
+        for (Map.Entry<String, ?> entry : prefs.entrySet()) {
+            String key = entry.getKey(); Object value = entry.getValue();
+            if (key.length() < 18 || !key.substring(0, 16).matches("[0-9A-Fa-f]{16}") || key.startsWith(DEFAULTS)) continue;
+            String rest = key.substring(16);
+            if (rest.equals(".resolution") && Integer.valueOf(1).equals(value)) keys.add(key);
+            else if (rest.equals(".advanced.controller_bindings") && value instanceof Set<?> && ((Set<?>) value).isEmpty()) keys.add(key);
+            else for (Setting setting : ALL)
+                if (rest.equals(".advanced." + setting.key) && value != null && setting.normalize(value).equals(setting.initial)) keys.add(key);
+        }
+        return keys;
+    }
+    static void migrate(SharedPreferences prefs) {
+        Map<String, ?> all = prefs.getAll();
+        if (Boolean.TRUE.equals(all.get(MIGRATED))) return;
+        SharedPreferences.Editor edit = prefs.edit();
+        for (String key : stale(all)) edit.remove(key);
+        edit.putBoolean(MIGRATED, true).commit(); // a failed commit only means it runs again next time
+    }
     @SuppressWarnings("deprecation")
     static SharedPreferences preferences(Context context) {
         // Launcher and NativeActivity use separate processes, and only the foreground UI edits settings.
         return context.getSharedPreferences("games", Context.MODE_MULTI_PROCESS);
     }
-    static GameSettings load(Context context, String id) { return from(preferences(context).getAll(), id); }
+    static GameSettings load(Context context, String id) {
+        SharedPreferences prefs = preferences(context); migrate(prefs); return from(prefs.getAll(), id);
+    }
     GameSettings copy() {
-        GameSettings result = new GameSettings(id); result.driver = driver; result.name = name; result.resolution = resolution; result.textures = textures;
+        GameSettings result = new GameSettings(id); result.base = base; result.driver = driver; result.name = name; result.resolution = resolution; result.textures = textures;
         result.controllerBindings.putAll(controllerBindings); result.values.putAll(values); result.enhancements.addAll(enhancements); return result;
     }
     boolean flag(String key) { return Boolean.TRUE.equals(values.get(key)); }
     float number(String key) { return ((Number) values.get(key)).floatValue(); }
     void save(Context context) {
         SharedPreferences.Editor edit = preferences(context).edit();
-        edit.putString(id + ".name", name.trim()).putInt(id + ".resolution", resolution).putBoolean(id + ".textures", textures);
+        edit.putString(id + ".name", name.trim()).putBoolean(id + ".textures", textures);
         edit.putString(id + ".driver", driver);
+        // Only what differs from the inherited value is stored, so later changes to the defaults still reach this game.
+        if (resolution == inheritedResolution()) edit.remove(id + ".resolution"); else edit.putInt(id + ".resolution", resolution);
         for (Setting setting : ALL) {
             String key = id + ".advanced." + setting.key; Object value = setting.normalize(values.get(setting.key));
-            if (value instanceof Boolean) edit.putBoolean(key, (Boolean) value);
+            if (value.equals(inherited(setting))) edit.remove(key);
+            else if (value instanceof Boolean) edit.putBoolean(key, (Boolean) value);
             else if (value instanceof Integer) edit.putInt(key, (Integer) value);
             else if (value instanceof Float) edit.putFloat(key, (Float) value);
             else edit.putString(key, (String) value);
         }
         Set<String> bindings = new HashSet<>();
         for (Map.Entry<String,String> binding : controllerBindings.entrySet()) bindings.add(binding.getKey() + "=" + binding.getValue());
-        edit.putStringSet(id + ".advanced.controller_bindings", bindings);
+        if (controllerBindings.equals(inheritedBindings())) edit.remove(id + ".advanced.controller_bindings");
+        else edit.putStringSet(id + ".advanced.controller_bindings", bindings);
         edit.putStringSet(id + ".advanced.enhancements", new HashSet<>(enhancements));
         // Complete before handing control to the separate game process or restarting its runtime.
         if (!edit.commit()) throw new IllegalStateException("Could not save game settings");
@@ -189,7 +245,7 @@ final class GameSettings {
         return version != null && new File(version, "data/mods/" + id + "/textures").isDirectory();
     }
     void apply(Intent intent, File version) {
-        intent.putExtra("game_id", id); intent.putExtra("game_name", name);
+        intent.putExtra("game_id", id); intent.putExtra("game_name", name.isEmpty() && version != null ? GameMetadata.name(version, id) : name);
         intent.putExtra("resolution", resolution); intent.putExtra("texture_packs", textures && hasTextures(version, id));
         intent.removeExtra("driver_dir"); intent.removeExtra("driver_name");
         if (flag("custom_driver")) {
@@ -200,8 +256,10 @@ final class GameSettings {
                 intent.putExtra("driver_dir",folder.getCanonicalPath()); intent.putExtra("driver_name",library);
             } catch (java.io.IOException | org.json.JSONException e) { throw new IllegalStateException("Custom Vulkan driver unavailable: " + e.getMessage(),e); }
         }
-        intent.putExtra("advanced", json());
+        intent.putExtra("advanced", json(hasNativeCode(version)));
     }
+    /** A ROM-only import has no title.so; such a game runs in the interpreter whatever the aot switch says. */
+    static boolean hasNativeCode(File version) { return version != null && new File(version, "code/title.so").isFile(); }
     static String driverLibrary(File folder) throws java.io.IOException, org.json.JSONException {
         File metadata = new File(folder,"meta.json");
         if (!metadata.isFile() || metadata.length() > 65536) throw new java.io.IOException("Driver meta.json is missing or too large");
@@ -218,11 +276,13 @@ final class GameSettings {
         if (minimum < 0 || minimum > deviceApi) throw new java.io.IOException("Driver requires Android API " + minimum + "; this device uses API " + deviceApi);
         if (schema != 1) throw new java.io.IOException("Unsupported driver metadata schemaVersion " + schema + "; expected 1");
     }
-    String json() {
+    String json() { return json(true); }
+    String json(boolean nativeCode) {
         StringBuilder out = new StringBuilder("{");
         for (Setting setting : ALL) {
             if (out.length() > 1) out.append(',');
             quote(out, setting.key); out.append(':'); Object value = setting.normalize(values.get(setting.key));
+            if (!nativeCode && setting.key.equals("aot")) value = false;
             if (value instanceof String) quote(out, (String) value); else out.append(value);
         }
         out.append(",\"controller_bindings\":{"); boolean bindingFirst = true;
