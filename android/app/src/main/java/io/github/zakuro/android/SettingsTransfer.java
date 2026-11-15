@@ -46,7 +46,7 @@ final class SettingsTransfer {
         Map<String, GameSettings> result = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : games.entrySet()) {
             String id = entry.getKey();
-            if (!id.matches("[0-9A-F]{16}")) throw new IllegalArgumentException("Invalid game ID " + id);
+            if (!id.matches("[0-9A-F]{16}") || id.equals(GameSettings.DEFAULTS)) throw new IllegalArgumentException("Invalid game ID " + id);
             Map<String, Object> game = object(entry.getValue(), id);
             only(game, id, "resolution", "textures", "advanced", "controller_bindings", "enhancements");
             GameSettings s = current.apply(id).copy();

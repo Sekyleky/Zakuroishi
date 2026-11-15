@@ -435,7 +435,7 @@ public final class Launcher extends Activity {
         ids.sort((a, b) -> { int recent = Long.compare(lastPlayed.get(b), lastPlayed.get(a)); return recent != 0 ? recent : names.get(a).compareToIgnoreCase(names.get(b)); });
     }
     private String summary(String id, boolean second) {
-        String summary = Math.max(1, Math.min(3, settings().getInt(id + ".resolution", 1))) + "× resolution";
+        String summary = Math.max(1, Math.min(3, GameSettings.load(this, id).resolution)) + "× resolution";
         try { if (new File(GameImport.active(this, id), "data/mods/" + id + "/textures").isDirectory()) summary += settings().getBoolean(id + ".textures", true) ? "  ·  HD textures on" : "  ·  HD textures off";
             else summary += "  ·  Original textures";
         } catch (Exception e) { return "Files unavailable. Add this game again to repair it."; }
