@@ -131,23 +131,49 @@ final class GameSettings {
     final Map<String, String> controllerBindings = new LinkedHashMap<>();
     final Set<String> enhancements = new LinkedHashSet<>();
 
+    /**
+     * Settings for all games, stored like a game under this pseudo ID. A game uses its own stored value, else this one, else
+     * the declared initial; the same for resolution and the whole controller-bindings set. Name, texture switch, driver
+     * (with custom_driver) and enhancements stay per game. No import exists for it, so it never shows as a game.
+     */
+    static final String DEFAULTS = "0000000000000000";
+    static final String MIGRATED = "defaults_migrated";
+    /** What a real game inherits; null for DEFAULTS, which inherits the declared initials. */
+    private GameSettings base;
     private GameSettings(String id) { this.id = id; }
+    Object inherited(Setting setting) { return base == null || setting.key.equals("custom_driver") ? setting.initial : base.values.get(setting.key); }
+    int inheritedResolution() { return base == null ? 1 : base.resolution; }
+    Map<String, String> inheritedBindings() { return base == null ? Collections.emptyMap() : base.controllerBindings; }
+    /** True when a real game overrides the inherited value; DEFAULTS never counts as changed. */
+    boolean changed(Setting setting) { return base != null && !setting.normalize(values.get(setting.key)).equals(inherited(setting)); }
+    boolean changedResolution() { return base != null && resolution != base.resolution; }
+    boolean changedBindings() { return base != null && !controllerBindings.equals(base.controllerBindings); }
+    /** Drops this game's overrides in the draft; its driver choice stays. */
+    void useDefaults() {
+        for (Setting setting : ALL) if (!setting.key.equals("custom_driver")) values.put(setting.key, inherited(setting));
+        resolution = inheritedResolution(); controllerBindings.clear(); controllerBindings.putAll(inheritedBindings());
+    }
     static GameSettings from(Map<String, ?> prefs, String id) {
         if (id == null || !id.matches("[0-9A-Fa-f]{16}")) throw new IllegalArgumentException("Invalid game ID");
         GameSettings settings = new GameSettings(id);
+        if (!id.equals(DEFAULTS)) settings.base = from(prefs, DEFAULTS);
         settings.name = prefs.get(id + ".name") instanceof String ? (String) prefs.get(id + ".name") : "";
         Object selectedDriver = prefs.get(id + ".driver");
         if (selectedDriver instanceof String && ((String)selectedDriver).matches("[0-9a-fA-F-]{36}")) settings.driver = (String)selectedDriver;
         Object scale = prefs.get(id + ".resolution");
-        settings.resolution = scale instanceof Integer ? Math.max(1, Math.min(3, (Integer) scale)) : 1;
+        settings.resolution = scale instanceof Integer ? Math.max(1, Math.min(3, (Integer) scale)) : settings.inheritedResolution();
         Object texture = prefs.get(id + ".textures"); settings.textures = !(texture instanceof Boolean) || (Boolean) texture;
-        for (Setting setting : ALL) settings.values.put(setting.key, setting.normalize(prefs.get(id + ".advanced." + setting.key)));
+        for (Setting setting : ALL) {
+            Object own = prefs.get(id + ".advanced." + setting.key);
+            settings.values.put(setting.key, own == null ? settings.inherited(setting) : setting.normalize(own));
+        }
         Object enabled = prefs.get(id + ".advanced.enhancements");
         if (enabled instanceof Set<?>) for (Object value : (Set<?>) enabled)
             if (value instanceof String && !((String) value).isEmpty() && ((String) value).length() <= 120 && settings.enhancements.size() < 32)
                 settings.enhancements.add((String) value);
         Object bindings = prefs.get(id + ".advanced.controller_bindings");
-        if (bindings instanceof Set<?>) for (Object item : (Set<?>) bindings) {
+        if (!(bindings instanceof Set<?>)) settings.controllerBindings.putAll(settings.inheritedBindings());
+        else for (Object item : (Set<?>) bindings) {
             if (!(item instanceof String)) continue;
             String[] parts = ((String)item).split("=", 2);
             if (parts.length == 2 && parts[0].matches("[0-9]{1,4}") && Integer.parseInt(parts[0]) <= 1024 && Arrays.asList(BINDING_TARGETS).contains(parts[1]))
@@ -155,32 +181,62 @@ final class GameSettings {
         }
         return settings;
     }
+    /**
+     * Keys the one-time migration removes: before defaults existed every save wrote every value, so a stored value equal to
+     * its initial (resolution 1, no bindings) is not a choice and must not hide the defaults. Nothing changes at that moment.
+     */
+    static List<String> stale(Map<String, ?> prefs) {
+        List<String> keys = new ArrayList<>();
+        for (Map.Entry<String, ?> entry : prefs.entrySet()) {
+            String key = entry.getKey(); Object value = entry.getValue();
+            if (key.length() < 18 || !key.substring(0, 16).matches("[0-9A-Fa-f]{16}") || key.startsWith(DEFAULTS)) continue;
+            String rest = key.substring(16);
+            if (rest.equals(".resolution") && Integer.valueOf(1).equals(value)) keys.add(key);
+            else if (rest.equals(".advanced.controller_bindings") && value instanceof Set<?> && ((Set<?>) value).isEmpty()) keys.add(key);
+            else for (Setting setting : ALL)
+                if (rest.equals(".advanced." + setting.key) && value != null && setting.normalize(value).equals(setting.initial)) keys.add(key);
+        }
+        return keys;
+    }
+    static void migrate(SharedPreferences prefs) {
+        Map<String, ?> all = prefs.getAll();
+        if (Boolean.TRUE.equals(all.get(MIGRATED))) return;
+        SharedPreferences.Editor edit = prefs.edit();
+        for (String key : stale(all)) edit.remove(key);
+        edit.putBoolean(MIGRATED, true).commit(); // a failed commit only means it runs again next time
+    }
     @SuppressWarnings("deprecation")
     static SharedPreferences preferences(Context context) {
         // Launcher and NativeActivity use separate processes, and only the foreground UI edits settings.
         return context.getSharedPreferences("games", Context.MODE_MULTI_PROCESS);
     }
-    static GameSettings load(Context context, String id) { return from(preferences(context).getAll(), id); }
+    static GameSettings load(Context context, String id) {
+        SharedPreferences prefs = preferences(context); migrate(prefs); return from(prefs.getAll(), id);
+    }
     GameSettings copy() {
-        GameSettings result = new GameSettings(id); result.driver = driver; result.name = name; result.resolution = resolution; result.textures = textures;
+        GameSettings result = new GameSettings(id); result.base = base; result.driver = driver; result.name = name; result.resolution = resolution; result.textures = textures;
         result.controllerBindings.putAll(controllerBindings); result.values.putAll(values); result.enhancements.addAll(enhancements); return result;
     }
     boolean flag(String key) { return Boolean.TRUE.equals(values.get(key)); }
     float number(String key) { return ((Number) values.get(key)).floatValue(); }
     void save(Context context) {
         SharedPreferences.Editor edit = preferences(context).edit();
-        edit.putString(id + ".name", name.trim()).putInt(id + ".resolution", resolution).putBoolean(id + ".textures", textures);
+        edit.putString(id + ".name", name.trim()).putBoolean(id + ".textures", textures);
         edit.putString(id + ".driver", driver);
+        // Only what differs from the inherited value is stored, so later changes to the defaults still reach this game.
+        if (resolution == inheritedResolution()) edit.remove(id + ".resolution"); else edit.putInt(id + ".resolution", resolution);
         for (Setting setting : ALL) {
             String key = id + ".advanced." + setting.key; Object value = setting.normalize(values.get(setting.key));
-            if (value instanceof Boolean) edit.putBoolean(key, (Boolean) value);
+            if (value.equals(inherited(setting))) edit.remove(key);
+            else if (value instanceof Boolean) edit.putBoolean(key, (Boolean) value);
             else if (value instanceof Integer) edit.putInt(key, (Integer) value);
             else if (value instanceof Float) edit.putFloat(key, (Float) value);
             else edit.putString(key, (String) value);
         }
         Set<String> bindings = new HashSet<>();
         for (Map.Entry<String,String> binding : controllerBindings.entrySet()) bindings.add(binding.getKey() + "=" + binding.getValue());
-        edit.putStringSet(id + ".advanced.controller_bindings", bindings);
+        if (controllerBindings.equals(inheritedBindings())) edit.remove(id + ".advanced.controller_bindings");
+        else edit.putStringSet(id + ".advanced.controller_bindings", bindings);
         edit.putStringSet(id + ".advanced.enhancements", new HashSet<>(enhancements));
         // Complete before handing control to the separate game process or restarting its runtime.
         if (!edit.commit()) throw new IllegalStateException("Could not save game settings");

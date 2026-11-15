@@ -19,7 +19,7 @@ final class SettingsDialog {
     private final String title;
     private final Palette p;
     private final Runnable saved, closed, repair, textures, mods;
-    private final boolean inGame;
+    private final boolean inGame, defaults; // defaults: the All games page, no version and no file actions
     private boolean saving;
     private AlertDialog rootDialog;
 
@@ -31,7 +31,7 @@ final class SettingsDialog {
                            Runnable saved, Runnable closed, Runnable repair, Runnable textures, Runnable mods) {
         this.activity = activity; this.version = version; this.title = title; this.inGame = inGame;
         this.saved = saved; this.closed = closed; this.repair = repair; this.textures = textures; this.mods = mods;
-        settings = GameSettings.load(activity, id);
+        settings = GameSettings.load(activity, id); defaults = GameSettings.DEFAULTS.equals(id);
         p = new Palette(activity);
     }
     private int dp(int value) { return Math.round(value * activity.getResources().getDisplayMetrics().density); }
@@ -166,14 +166,20 @@ final class SettingsDialog {
     private void root() {
         LinearLayout content = column();
         content.addView(legend("A Select · B Back · Start Save · L/R Page"));
-        content.addView(text(inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts." : "Settings are saved for this game and apply the next time you play.", true));
+        content.addView(text(defaults ? "Every game uses these unless its own settings change them." : inGame ? "Changes apply after Save & restart. In-game saves are preserved; unsaved progress restarts." : "Settings are saved for this game and apply the next time you play. Settings marked changed differ from All games.", true));
         Button firstGroup = null;
         for (String group : GameSettings.GROUPS) {
             Button button = button(group); button.setContentDescription(group + " settings for " + title);
             button.setOnClickListener(v -> group(group)); addButton(content, button);
             if (firstGroup == null) firstGroup = button;
         }
-        if (!inGame) {
+        if (!defaults) {
+            Button reset = button("Use defaults for this game");
+            reset.setOnClickListener(v -> { settings.useDefaults(); Toast.makeText(activity, "This game now follows All games. Save to keep it.", Toast.LENGTH_LONG).show(); });
+            addButton(content, reset);
+            content.addView(text("Drops this game's own choices, marked changed, so it follows the settings for all games. Name, texture pack, driver and enhancements stay.", true));
+        }
+        if (!inGame && !defaults) {
             if (textures != null) {
                 Button attach = button("Import texture pack…"); attach.setOnClickListener(v -> textures.run()); addButton(content, attach);
                 content.addView(text("Optional. Attach a pack without copying your game again.", true));
@@ -191,7 +197,7 @@ final class SettingsDialog {
                 content.addView(text("Choose a trusted Android ABI 5 title.so (ABI 4 still runs). The ROM, textures and saves stay in place.", true));
             }
         }
-        if (!inGame && activity instanceof Launcher) {
+        if (!inGame && !defaults && activity instanceof Launcher) {
             Button saves = button("Manage saves…");
             saves.setOnClickListener(v -> { rootDialog.dismiss(); ((Launcher)activity).saves(settings.id); }); addButton(content, saves);
             Button shaders = button("Clear shader cache");
@@ -222,14 +228,13 @@ final class SettingsDialog {
             }); addButton(content,driver);
             content.addView(text("Only import drivers you trust: they run native code inside this app. Driver support must be included in the app build.",true));
         }
-        content.addView(text("Game name", true));
-        EditText name = new EditText(activity); name.setText(settings.name.isEmpty() ? title : settings.name);
+        EditText name = new EditText(activity); name.setText(settings.name.isEmpty() && !defaults ? title : settings.name);
         name.setSingleLine(true); name.setTextColor(p.ink); name.setMinHeight(dp(48)); name.setTextSize(17);
-        name.setContentDescription("Game name"); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)}); content.addView(name);
+        name.setContentDescription("Game name"); name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(100)});
+        if (!defaults) { content.addView(text("Game name", true)); content.addView(name); content.addView(text("Game ID: " + settings.id, true)); }
         String start = snapshot(settings, name.getText().toString().trim());
         BooleanSupplier dirty = () -> !start.equals(snapshot(settings, name.getText().toString().trim()));
-        content.addView(text("Game ID: " + settings.id, true));
-        AlertDialog.Builder builder = dialog("Game settings", content).setNegativeButton("Cancel", null);
+        AlertDialog.Builder builder = dialog(defaults ? title : "Game settings", content).setNegativeButton("Cancel", null);
         if (inGame) builder.setNeutralButton("Save for next start", null);
         AlertDialog root = builder
                 .setPositiveButton(inGame ? "Save & restart" : "Save", null).create();
@@ -261,22 +266,29 @@ final class SettingsDialog {
             if(child instanceof Button && child.getTag() instanceof String) ((Button)child).setText(bindingLabel(draft,(String)child.getTag()));
         }
     }
+    private static String resolutionLabel(GameSettings draft) { return "Rendering resolution" + (draft.changedResolution() ? " · changed" : ""); }
+    /** Resolution and the HD pack switch; the pack is per game, so All games has no switch. */
+    private void picture(LinearLayout content, GameSettings draft) {
+        Button resolution = button(resolutionLabel(draft) + " · " + draft.resolution + "×");
+        resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail"}));
+        addButton(content, resolution);
+        if (defaults) return;
+        boolean pack = GameSettings.hasTextures(version, settings.id);
+        Switch use = toggle("HD texture pack (optional)", pack && draft.textures);
+        use.setEnabled(pack);
+        use.setOnCheckedChangeListener((button, checked) -> draft.textures = checked); content.addView(use);
+        content.addView(text(pack ? "Uses the imported pack. Higher resolutions and large textures use more GPU memory." : "No texture pack attached. Original textures are used. Import a pack under Game files if you want one.", true));
+    }
     private void group(String group) {
         GameSettings draft = settings.copy(); LinearLayout content = column();
         String start = snapshot(draft, draft.name);
         content.addView(legend(group.equals("Button mapping") ? "A Change · B Back · X Clears · Start Done · L/R Page" : "A Change · B Back · Start Done · L/R Page"));
         if (group.equals("Display")) {
             content.addView(heading("Picture quality"));
-            Button resolution = button("Rendering resolution · " + draft.resolution + "×");
-            resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail"}));
-            addButton(content, resolution);
-            boolean pack = GameSettings.hasTextures(version, settings.id);
-            Switch use = toggle("HD texture pack (optional)", pack && draft.textures);
-            use.setEnabled(pack);
-            use.setOnCheckedChangeListener((button, checked) -> draft.textures = checked); content.addView(use);
-            content.addView(text(pack ? "Uses the imported pack. Higher resolutions and large textures use more GPU memory." : "No texture pack attached. Original textures are used. Import a pack from Game settings if you want one.", true));
+            picture(content, draft);
         }
         for (GameSettings.Setting setting : GameSettings.ALL) if (setting.group.equals(group)) {
+            if (defaults && setting.key.equals("custom_driver")) continue; // the driver is chosen per game
             String section;
             switch (setting.key) {
                 case "dual_display": section = "Screens"; break;
@@ -311,7 +323,7 @@ final class SettingsDialog {
                 state.getViewTreeObserver().addOnWindowFocusChangeListener(focused -> state.setText(losslessState()));
             }
         }
-        if (group.equals("Performance")) {
+        if (group.equals("Performance") && !defaults) {
             File home=new File(activity.getFilesDir(),"drivers");
             File[] folders=home.listFiles(f -> f.isDirectory() && f.getName().matches("[0-9a-fA-F-]{36}"));
             Button choose=button("Select Vulkan driver…");
@@ -333,20 +345,13 @@ final class SettingsDialog {
         if (group.equals("Controls")) {
             Button resetTouch=button("Reset touch controls to defaults");
             resetTouch.setOnClickListener(v -> {
-                draft.values.put("touch_controls",false); draft.values.put("touch_auto_hide",true);
-                for(int i=0;i<content.getChildCount();i++) {
-                    View child=content.getChildAt(i);
-                    if(child instanceof Switch) {
-                        Switch toggle=(Switch)child;
-                        if(toggle.getText().toString().equals("Show touch controls")) toggle.setChecked(false);
-                        if(toggle.getText().toString().equals("Hide touch controls with a gamepad")) toggle.setChecked(true);
-                    }
-                }
+                for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("touch_controls") || setting.key.equals("touch_auto_hide"))
+                    ((Switch)content.findViewWithTag(setting.key)).setChecked((Boolean)draft.inherited(setting)); // the listener updates the draft
                 Toast.makeText(activity,"Touch-control defaults restored in this draft",Toast.LENGTH_SHORT).show();
             }); addButton(content,resetTouch);
         }
         if (group.equals("Button mapping")) {
-            content.addView(heading("Controller bindings"));
+            content.addView(heading("Controller bindings" + (draft.changedBindings() ? " · changed" : "")));
             content.addView(text("Select an action, then press a physical controller button. Back cancels capture. Press X on an action here (or hold it) to clear its custom bindings; while capturing, choose Clear binding. Touch buttons keep their printed actions. Fast-forward restores normal speed when released.", true));
             for (String target : GameSettings.BINDING_TARGETS) {
                 Button bind = button(bindingLabel(draft,target));
@@ -370,10 +375,10 @@ final class SettingsDialog {
                 bind.setTag(target); addButton(content,bind);
             }
             Button reset = button("Reset controller bindings");
-            reset.setOnClickListener(v -> { draft.controllerBindings.clear(); refreshBindings(content,draft); Toast.makeText(activity,"Default controller bindings restored in this draft",Toast.LENGTH_SHORT).show(); }); addButton(content,reset);
+            reset.setOnClickListener(v -> { draft.controllerBindings.clear(); draft.controllerBindings.putAll(draft.inheritedBindings()); refreshBindings(content,draft); Toast.makeText(activity,"Default controller bindings restored in this draft",Toast.LENGTH_SHORT).show(); }); addButton(content,reset);
         }
         if (group.equals("Motion")) content.addView(text("To recalibrate during play, open the game menu and choose Recalibrate motion, then hold the device still.", true));
-        if (group.equals("System")) enhancements(content, draft);
+        if (group.equals("System") && !defaults) enhancements(content, draft);
         AlertDialog dialog = dialog(group, content).setNegativeButton("Cancel", null).setPositiveButton("Done", (d, which) -> {
             settings.driver=draft.driver;
             settings.controllerBindings.clear(); settings.controllerBindings.putAll(draft.controllerBindings);
@@ -411,27 +416,32 @@ final class SettingsDialog {
             default: return Character.toUpperCase(value.charAt(0)) + value.substring(1).replace('_', ' ');
         }
     }
+    /** The label, marked when this game overrides the value it would inherit from All games. */
+    private static String name(GameSettings draft, GameSettings.Setting setting) { return setting.label + (draft.changed(setting) ? " · changed" : ""); }
     private void control(LinearLayout content, GameSettings draft, GameSettings.Setting setting) {
         Object value = draft.values.get(setting.key);
         if (value instanceof Boolean) {
-            Switch toggle = toggle(setting.label, (Boolean) value);
+            Switch toggle = toggle(name(draft, setting), (Boolean) value);
             toggle.setTag(setting.key);
             if (interpreterOnly(setting)) toggle.setEnabled(false);
             toggle.setOnCheckedChangeListener((button, checked) -> {
-                draft.values.put(setting.key, checked);
+                draft.values.put(setting.key, checked); toggle.setText(name(draft, setting));
                 // the two draw in-between pictures in different ways, only one can run
                 String rival = setting.key.equals("frame_generation") ? "interpolate" : setting.key.equals("interpolate") ? "frame_generation" : null;
-                if (checked && rival != null) ((Switch) content.findViewWithTag(rival)).setChecked(false);
+                if (checked && rival != null) {
+                    draft.values.put(rival, false); Switch other = content.findViewWithTag(rival);
+                    if (other != null) other.setChecked(false);
+                }
             }); content.addView(toggle);
         } else if (setting.choices != null) {
-            Button choose = button(setting.label + " · " + label((String) value));
+            Button choose = button(name(draft, setting) + " · " + label((String) value));
             choose.setOnClickListener(v -> {
                 String[] names = Arrays.stream(setting.choices).map(SettingsDialog::label).toArray(String[]::new), shown = names.clone();
-                for (int i = 0; i < shown.length; i++) if (setting.choices[i].equals(setting.initial)) shown[i] += " (default)";
+                for (int i = 0; i < shown.length; i++) if (setting.choices[i].equals(draft.inherited(setting))) shown[i] += " (default)";
                 int checked = Arrays.asList(setting.choices).indexOf(draft.values.get(setting.key));
                 AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(setting.label)
                         .setSingleChoiceItems(shown, checked, (d, which) -> {
-                            draft.values.put(setting.key, setting.choices[which]); choose.setText(setting.label + " · " + names[which]); d.dismiss();
+                            draft.values.put(setting.key, setting.choices[which]); choose.setText(name(draft, setting) + " · " + names[which]); d.dismiss();
                         }).setNegativeButton("Cancel", null).create(); choices(list, checked);
             }); addButton(content, choose);
         } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("speed_limit") || setting.key.equals("fast_forward_speed") || setting.key.equals("region") || setting.key.equals("language") || setting.key.equals("frame_generation_multiplier") || setting.key.equals("frame_generation_flow")) {
@@ -447,11 +457,11 @@ final class SettingsDialog {
                 default: values = new float[]{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; names = new String[]{"Japanese", "English", "French", "German", "Italian", "Spanish", "Chinese (Simplified)", "Korean", "Dutch", "Portuguese", "Russian", "Chinese (Traditional)"};
             }
             int index = -1; for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - draft.number(setting.key)) < 0.01f) index = i;
-            Button choose = button(setting.label + " · " + (index >= 0 ? names[index] : draft.values.get(setting.key)));
+            Button choose = button(name(draft, setting) + " · " + (index >= 0 ? names[index] : draft.values.get(setting.key)));
             choose.setOnClickListener(v -> numbers(draft, choose, setting, setting.label, values, names)); addButton(content, choose);
         } else {
             float step = setting.max <= 1 ? 0.05f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
-            TextView caption = text(setting.label + " · " + format(setting, draft.number(setting.key)), false); content.addView(caption);
+            TextView caption = text(name(draft, setting) + " · " + format(setting, draft.number(setting.key)), false); content.addView(caption);
             SeekBar slider = new SeekBar(activity); slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border));
             slider.setThumbTintList(ColorStateList.valueOf(p.accent)); slider.setMax(Math.round((setting.max - setting.min) / step));
             slider.setProgress(Math.round((draft.number(setting.key) - setting.min) / step)); slider.setKeyProgressIncrement(1);
@@ -459,7 +469,7 @@ final class SettingsDialog {
                 public void onProgressChanged(SeekBar bar, int progress, boolean user) {
                     if (!user) return;
                     float number = Math.min(setting.max, setting.min + progress * step); draft.values.put(setting.key, number);
-                    caption.setText(setting.label + " · " + format(setting, number)); bar.setContentDescription(caption.getText());
+                    caption.setText(name(draft, setting) + " · " + format(setting, number)); bar.setContentDescription(caption.getText());
                 }
                 public void onStartTrackingTouch(SeekBar bar) {}
                 public void onStopTrackingTouch(SeekBar bar) {}
@@ -474,13 +484,13 @@ final class SettingsDialog {
     private void numbers(GameSettings draft, Button button, GameSettings.Setting setting, String heading, float[] values, String[] names) {
         float current = setting == null ? draft.resolution : draft.number(setting.key);
         int selected = -1; for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - current) < 0.01f) selected = i;
-        float initial = setting == null ? 1 : ((Number) setting.initial).floatValue();
+        float initial = setting == null ? draft.inheritedResolution() : ((Number) draft.inherited(setting)).floatValue();
         String[] shown = names.clone();
         for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - initial) < 0.01f) shown[i] += " (default)";
         AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(heading).setSingleChoiceItems(shown, selected, (d, which) -> {
             if (setting == null) draft.resolution = (int) values[which];
             else draft.values.put(setting.key, setting.normalize(values[which]));
-            button.setText(heading + " · " + names[which]); d.dismiss();
+            button.setText((setting == null ? resolutionLabel(draft) : name(draft, setting)) + " · " + names[which]); d.dismiss();
         }).setNegativeButton("Cancel", null).create(); choices(list, selected);
     }
     private void enhancements(LinearLayout content, GameSettings draft) {
