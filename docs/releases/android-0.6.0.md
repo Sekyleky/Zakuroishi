@@ -110,8 +110,8 @@ installs over the other and keeps games, settings and saves.
 - The known issues still apply, see
   [known issues](https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/known-issues.md).
 
-Java host checks pass (settings, Java/native contract, driver, frontend, debug settings, import and
-native library checks). See the
+Host tests: zakuro-android 47 passed, and the Java host checks pass (settings, Java/native contract,
+driver, frontend, debug settings, import and native library checks). See the
 [changelog](https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/changelog.md).
 
 ## Install
