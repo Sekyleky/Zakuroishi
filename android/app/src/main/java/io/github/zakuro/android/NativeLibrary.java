@@ -9,10 +9,10 @@ import java.util.*;
 /** Inspect exported ABI data without loading or executing untrusted native code. */
 final class NativeLibrary {
     /** recomp_abi::ABI of the pinned 3dsrecomp, and OLDEST_ABI, the oldest code it still runs. */
-    static final int ABI = 5, OLDEST_ABI = 4;
+    static final int ABI = 8, OLDEST_ABI = 4;
     /** recomp_abi::GENERATION of the pinned 3dsrecomp; older libraries run but are slower (recompiled.rs: outdated). */
-    static final int GENERATION = 5;
-    /** size_of::<Entry>() and size_of::<Module>() on AArch64 (abi/src/lib.rs at 73b8f9c, repr(C)). */
+    static final int GENERATION = 6;
+    /** size_of::<Entry>() and size_of::<Module>() on AArch64 (abi/src/lib.rs at 730fbac, repr(C)). */
     static final int ENTRY_SIZE = 16, MODULE_SIZE = 32;
     private static final Set<String> DATA_EXPORTS = new HashSet<>(Arrays.asList("recomp_abi", "recomp_entry_count", "recomp_module_count", "recomp_generation"));
     static final class Info {
@@ -26,7 +26,7 @@ final class NativeLibrary {
             if (fastMemory) throw new IOException("This title.so was built for Pocket Native (it exports recomp_fastmem), not for Zakuroishi. "
                     + "Rebuild this game with zakuro-build-title, then choose Replace native game code. The ROM and saves do not need replacing.");
             if (abi < OLDEST_ABI || abi > ABI) throw new IOException("This title.so uses " + describe()
-                    + ". Zakuroishi Android requires ABI " + ABI + " (or " + OLDEST_ABI + ") without fast memory. Rebuild this game's native code with Zakuroishi's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
+                    + ". Zakuroishi Android requires ABI " + OLDEST_ABI + " to " + ABI + " without fast memory. Rebuild this game's native code with Zakuroishi's build-title tool, then choose Replace native game code. The ROM and saves do not need replacing.");
         }
     }
     private static ByteBuffer bytes(SeekableByteChannel file, long offset, int size) throws IOException {

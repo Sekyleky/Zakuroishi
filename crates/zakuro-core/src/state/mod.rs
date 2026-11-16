@@ -154,6 +154,7 @@ impl System {
     /// the state is not one this game and this Zakuro can take.
     pub fn load_state(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.idle_interrupted(true);
+        self.spin.forget();
         let mut reader = Reader(bytes);
         if reader.take(MAGIC.len())? != MAGIC {
             return Err("it is not a saved state".into());
@@ -195,6 +196,8 @@ impl System {
         self.services.fs.files = files;
         // the computer's camera on while the state has a camera capturing
         crate::services::cam::capturing(self);
+        // and the microphone while it has a title sampling
+        crate::services::mic::sampling(self);
         // the recompiled code of the modules goes where the state has them
         if let Some(library) = &mut self.recompiled {
             for module in &self.cro.modules {

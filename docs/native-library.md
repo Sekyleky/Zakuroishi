@@ -34,8 +34,8 @@ All of these must agree; filename and ELF machine alone are insufficient:
 | Layer | Required for this Android host | Evidence |
 | --- | --- | --- |
 | OS/CPU | Android ELF64 little-endian AArch64 ET_DYN, Android API 30-compatible imports | `android/scripts/Containerfile`, `ImportPlan.java`, NDK readelf |
-| Recompiler interface | Exported `recomp_abi` **value 5**, or 4 (`OLDEST_ABI`), not merely a symbol with that name | Cargo.lock pins `recomp-abi` to `73b8f9caf3700991c290dd84bccffb92294d6b15`; abi/src/lib.rs:14-18 (`ABI = 5`, `OLDEST_ABI = 4`) |
-| Generator contract | Compatible `recomp.h`, entry/module tables and generation/origin layout from that same revision; `recomp_generation` 5 is current, older generations still run | 3dsrecomp abi/src/lib.rs:25 and docs/interface.md |
+| Recompiler interface | Exported `recomp_abi` **value 4 to 8** (`OLDEST_ABI` to `ABI`), not merely a symbol with that name | Cargo.lock pins `recomp-abi` to `730fbac3b104a904d1a3d2faab8b3c903fad7a09`; abi/src/lib.rs:14-18 (`ABI = 8`, `OLDEST_ABI = 4`) |
+| Generator contract | Compatible `recomp.h`, entry/module tables and generation/origin layout from that same revision; `recomp_generation` 6 is current, older generations still run | 3dsrecomp abi/src/lib.rs:25 and docs/interface.md |
 | Memory access | Page tables plus host callbacks, as in ABI 4. Upstream ABI 5 only adds the `svc` host callback (svcs run in place) and the optional `recomp_natives` byte; it has **no** fast-memory context. A library exporting `recomp_fastmem` is Pocket Native's own ABI 5 and is rejected | `crates/zakuro-core/src/recompiled.rs` (`HOST`, `Library::run`); local PN recompiler/abi/src/lib.rs:85 adds `Context::fastmem` |
 | Guest code | Same title ID, game region/version, update and code-changing mods as the input used to recompile | Loader code/origin checks; title ROM header |
 | Native dependencies | All required dynamic symbols available in Android's public system libraries; no desktop glibc or host DLL imports | `llvm-readelf --dynamic --dyn-syms --version-info` |
@@ -69,6 +69,7 @@ from 3dsrecomp. From 0.4.0 on, the commit is also pinned in `Cargo.toml`.
 | 0.1.4 to 0.1.9 | `cec1270` | ABI 4 | ABI 4 |
 | 0.2.0, 0.3.0, 0.3.1 | `73b8f9c` | ABI 5 and ABI 4 | ABI 5 (generation 5) |
 | 0.4.0, 0.5.0, 0.6.0 | `73b8f9c` | ABI 5 and ABI 4 | ABI 5 (generation 5) |
+| Unreleased | `730fbac` | ABI 4 to 8 | ABI 8 (generation 6) |
 
 An ABI-4 library runs on 0.2.0 and later without svcs in place; rebuild it to get ABI 5.
 Releases before 0.1.4 are not covered here. Pocket Native's own ABI-5 libraries are
@@ -78,11 +79,12 @@ rejected by every version.
 
 Use the exact generator revision pinned by this APK, not the current default
 branch of Pocket Native or 3dsrecomp. The reference is
-[3dsrecomp at 73b8f9c](https://github.com/fearkov/3dsrecomp/tree/73b8f9caf3700991c290dd84bccffb92294d6b15)
-and its [interface contract](https://github.com/fearkov/3dsrecomp/blob/73b8f9caf3700991c290dd84bccffb92294d6b15/docs/interface.md).
-Libraries built with the earlier pin (`cec1270`, ABI 4) still load; rebuilding
-them with this one gives generation-5 code (svcs run in place, divisions on the
-host), which the runtime logs as an outdated library otherwise.
+[3dsrecomp at 730fbac](https://github.com/fearkov/3dsrecomp/tree/730fbac3b104a904d1a3d2faab8b3c903fad7a09)
+and its [interface contract](https://github.com/fearkov/3dsrecomp/blob/730fbac3b104a904d1a3d2faab8b3c903fad7a09/docs/interface.md).
+Libraries built with the earlier pins (`cec1270`, ABI 4; `73b8f9c`, ABI 5) still load;
+rebuilding them with this one gives generation-6 code (svcs run in place, divisions on the
+host, the clock and a lent mutex answered in the code), which the runtime logs as an
+outdated library otherwise.
 If Cargo.lock changes, re-audit this instruction before generating more libraries.
 
 The workspace tool uses that exact generator dependency and applies the Android

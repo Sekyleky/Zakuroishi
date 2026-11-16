@@ -16,6 +16,16 @@
 - **Build:** nightly version names carry their tag date, `-VersionName 0.6.0-nightly.YYYYMMDD`
   for tag `nightly-YYYYMMDD`, so the updater can tell nightlies apart. A name containing
   `-nightly` (no longer only ending in it) turns on the nightly features.
+- **Upstream Zakuro after 0.2.32 (not run on a device):** merged `fearkov/zakuro` up to `3fe7b15`:
+  recompiled code that reads the clock, takes and lets go of a mutex and skips clock-polling loops
+  itself (`spin.rs`); GPU draws that set, copy and hash only what changed (vertex arrays kept across
+  batches, strips drawn as strips, lighting tables found by hash, descriptors pushed only when they
+  change); multiply hashes instead of SipHash; Cranelift stack probes; the 3DS microphone service
+  (games hear silence; there is no Android microphone input). 3dsrecomp moves from `73b8f9c` to
+  `730fbac` (ABI 8, generation 6). Existing ABI 4/5 `title.so` files still load and run: 3dsrecomp
+  accepts ABI 4 to 8 and the mutex lending is used only for ABI 8 code; rebuilding with
+  `build-title` gets the new speedups. Import and Replace native game code now accept ABI 4 to 8.
+  Left out: the macOS Pro Controller reader (`4bae63f`), desktop only.
 
 ## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
 

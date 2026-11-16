@@ -68,7 +68,7 @@ adb -s DEVICE_SERIAL shell am start -n io.github.zakuro.android/.Launcher
 ## Add a game
 
 1. Prepare one folder containing your original decrypted `.3ds`, `.cci` or `.cxi`
-   ROM and, for full speed, its matching Android ARM64 **ABI 5** `title.so` (ABI 4 builds still run).
+   ROM and, for full speed, its matching Android ARM64 **ABI 8** `title.so` (ABI 4 to 7 builds still run).
    The 0.6.0 download needs the `title.so` and refuses a folder without one before copying
    anything. In the nightly build the folder may hold only the ROM (see **Without native code**
    below).

@@ -69,7 +69,8 @@ public final class NativeLibraryCheck {
         inspect(NativeFixture.elf(5, false)).requireCompatible();
         rejects(inspect(NativeFixture.elf(4, true))::requireCompatible, "ABI 4 fast memory");
         rejects(inspect(NativeFixture.elf(3, false))::requireCompatible, "ABI 3");
-        rejects(inspect(NativeFixture.elf(6, false))::requireCompatible, "ABI 6");
+        inspect(NativeFixture.elf(8, false)).requireCompatible();
+        rejects(inspect(NativeFixture.elf(9, false))::requireCompatible, "ABI 9");
         byte[] importedFastMemory = NativeFixture.elf(4, true);
         NativeFixture.buffer(importedFastMemory).putShort(NativeFixture.SYMBOLS + 6 * 24 + 6, (short) 0);
         check(!inspect(importedFastMemory).fastMemory, "Undefined fast-memory import treated as export");

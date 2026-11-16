@@ -1,6 +1,5 @@
 //! software rasterization of PICA200 draw calls.
 
-use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -706,7 +705,7 @@ enum Vertices<'a> {
         vertex_shader: &'a ShaderUnit,
         raw: &'a hardware::RawInputs,
         /// each vertex of the draw, counted from the first of the arrays.
-        vertices: &'a [u32],
+        order: hardware::RawOrder<'a>,
     },
     Shaded(&'a [Vertex]),
     /// through the shaders and placed on the screen by another thread, see
@@ -719,7 +718,7 @@ impl Vertices<'_> {
         match self {
             Vertices::Unshaded { inputs, order, .. } => order.map_or(inputs.len(), <[usize]>::len),
             #[cfg(feature = "vulkan")]
-            Vertices::Raw { vertices, .. } => vertices.len(),
+            Vertices::Raw { order, .. } => order.len(),
             Vertices::Shaded(shaded) => shaded.len(),
             Vertices::Prepared(prepared) => prepared.order.as_ref().map_or(prepared.shaded.len(), Vec::len),
         }
@@ -890,7 +889,7 @@ pub(crate) fn hand_out<M: GpuMemory>(
         return None;
     }
     let writes = memory.writes();
-    let scratch = &mut resources.scratch;
+    let scratch = resources.scratch.get_or_insert_with(Box::default);
     read_indices(registers, memory, scratch, indexed);
     let plan = scratch.plans.update(registers, fixed_attributes);
     // the vertices the draw names, from the first to the last
@@ -1562,7 +1561,9 @@ pub struct Resources {
     pub light_tables: Tables,
     pub proctex_tables: crate::proctex::Tables,
     pub fog_table: crate::fog::Table,
-    scratch: Scratch,
+    /// boxed, a draw takes it for itself and puts it back, which moved a
+    /// thousand bytes each way.
+    scratch: Option<Box<Scratch>>,
     /// the bytes of the last memory fill, the next one's buffer.
     pub(crate) fill: Vec<u8>,
     /// the words of the last command list, the next one's buffer.
@@ -1646,8 +1647,6 @@ struct Scratch {
     unique: Vec<u32>,
     order: Vec<usize>,
     inputs: Vec<[Vec4; shader::INPUT_REGISTERS]>,
-    /// each vertex of a draw counted from the first one it uses.
-    relative: Vec<u32>,
     plans: Plans,
     /// the arrays a draw hands the GPU to decode.
     #[cfg(feature = "vulkan")]
@@ -1688,15 +1687,20 @@ impl Scratch {
 /// of them when filtering, costs far more than looking one up.
 #[derive(Default)]
 pub struct TextureCache {
-    /// by address, format and size.
-    entries: HashMap<TextureKey, Decoded>,
+    /// by address, format and size, hashed by a multiply rather than
+    /// SipHash, as each draw looks its textures up.
+    entries: zakuro_common::hash::IntMap<TextureKey, Decoded>,
     texels: usize,
     /// counts command lists. nothing but drawing changes memory while one
     /// runs, so a texture checked during it is not checked again unless a
     /// draw writes over it.
     list: u64,
-    /// where the draws of this list wrote, as address and length.
-    written: Vec<(u32, u32)>,
+    /// where the draws of this list wrote, as address and length, each with
+    /// how many writes the list had made when it was last written, and how
+    /// many it made. titles draw into a few buffers in turn, which stay a
+    /// few entries rather than one a draw to look through.
+    written: Vec<(u32, u32, usize)>,
+    writes: usize,
     /// the texture pack whose pictures replace textures, and where a
     /// texture is laid out to hash it as Citra did.
     pack: Option<Arc<crate::pack::Pack>>,
@@ -1756,12 +1760,15 @@ impl TextureCache {
     pub fn begin_list(&mut self) {
         self.list += 1;
         self.written.clear();
+        self.writes = 0;
     }
 
     /// a draw writes to size bytes at addr.
     fn wrote(&mut self, addr: u32, size: u32) {
-        if self.written.last() != Some(&(addr, size)) {
-            self.written.push((addr, size));
+        self.writes += 1;
+        match self.written.iter_mut().find(|(start, length, _)| (*start, *length) == (addr, size)) {
+            Some(entry) => entry.2 = self.writes,
+            None => self.written.push((addr, size, self.writes)),
         }
     }
 
@@ -1771,9 +1778,10 @@ impl TextureCache {
         let decoded = self.entries.get(&key)?;
         let (list, writes) = decoded.checked;
         let addr = key.0;
-        let overwritten = self.written[writes.min(self.written.len())..]
+        let overwritten = self
+            .written
             .iter()
-            .any(|&(start, length)| start < addr.saturating_add(size) && addr < start.saturating_add(length));
+            .any(|&(start, length, at)| at > writes && start < addr.saturating_add(size) && addr < start.saturating_add(length));
         (list == self.list && !overwritten).then(|| (decoded.texels.clone(), found(&decoded.replacement)))
     }
 
@@ -1785,7 +1793,7 @@ impl TextureCache {
         if !memory.unchanged(key.0, size, watch) {
             return None;
         }
-        decoded.checked = (self.list, self.written.len());
+        decoded.checked = (self.list, self.writes);
         Some((decoded.texels.clone(), found(&decoded.replacement)))
     }
 
@@ -1800,7 +1808,7 @@ impl TextureCache {
         let _timed = crate::timed(1);
         let (_, format, width, height, levels) = key;
         let hash = fingerprint(data);
-        let checked = (self.list, self.written.len());
+        let checked = (self.list, self.writes);
         let threaded = *self.threaded_lookup.get_or_insert_with(|| crate::backend::renderer_options().is_none_or(|options| options.async_pack_lookup));
         if let Some(decoded) = self.entries.get_mut(&key) {
             if decoded.hash != hash && decoded.bytes.len() == data.len() && width % 8 == 0 && height % 8 == 0 {
@@ -2543,7 +2551,7 @@ struct DrawState<'a> {
     target: ColorTarget,
     depth_map: DepthMap,
     depth_stencil: Option<DepthStencil>,
-    tex_env: crate::tev::TexEnv,
+    tex_env: &'a crate::tev::TexEnv,
     alpha_test: Option<AlphaTest>,
     blend: Option<crate::blend::Blend>,
     logic_op: Option<crate::blend::LogicOp>,
@@ -2552,7 +2560,7 @@ struct DrawState<'a> {
     texture2_uses_coord1: bool,
     /// texture unit 0 is projected, see projected.
     texture0_projected: bool,
-    lighting: Option<Lighting>,
+    lighting: Option<&'a Lighting>,
     tables: &'a Tables,
     /// texture 3, made up from its coordinates, and its tables.
     proctex: Option<crate::proctex::ProcTex<'a>>,
@@ -2577,7 +2585,7 @@ impl DrawState<'_> {
             depth_map: self.depth_map,
             geometry,
             textures: self.textures,
-            lighting: self.lighting.as_ref(),
+            lighting: self.lighting,
             tables: self.tables,
             proctex: self.proctex.is_some(),
             proctex_tables: self.proctex_tables,
@@ -2749,7 +2757,7 @@ fn fill_triangle(
                 }
             }
 
-            let fragment = state.lighting.as_ref().map(|lighting| {
+            let fragment = state.lighting.map(|lighting| {
                 let quaternion = std::array::from_fn(|i| {
                     interpolate([a.quaternion_over_w[i], b.quaternion_over_w[i], c.quaternion_over_w[i]])
                 });
@@ -2971,7 +2979,7 @@ pub fn draw<M: GpuMemory>(
 
     // an index buffer names most vertices several times, fetch and shade
     // each of them once.
-    let mut scratch = std::mem::take(&mut resources.scratch);
+    let mut scratch = resources.scratch.take().unwrap_or_default();
     read_indices(registers, memory, &mut scratch, indexed);
     let plan = scratch.plans.update(registers, fixed_attributes);
     log::trace!(
@@ -3004,22 +3012,15 @@ pub fn draw<M: GpuMemory>(
             (first_vertex, vertex_count)
         };
         if raw_inputs(plan, memory, attribute_base, first, span, &mut scratch.raw) {
-            scratch.relative.clear();
-            if indexed {
-                // straight from the index buffer, the draw needs its indices
-                // as words only when the CPU decodes its arrays
-                if index_short {
-                    let halves = scratch.bytes.as_chunks::<2>().0.iter();
-                    scratch.relative.extend(halves.map(|b| u16::from_le_bytes(*b) as u32 - first));
-                } else {
-                    scratch.relative.extend(scratch.bytes.iter().map(|&b| b as u32 - first));
-                }
-            } else {
-                scratch.relative.extend(0..vertex_count);
-            }
-            let vertices = Vertices::Raw { vertex_shader, raw: &scratch.raw, vertices: &scratch.relative };
+            // straight from the index buffer, the draw needs its indices
+            // as words only when the CPU decodes its arrays
+            let order = match indexed {
+                true => hardware::RawOrder::Indexed { bytes: &scratch.bytes, short: index_short, first },
+                false => hardware::RawOrder::InARow(vertex_count as usize),
+            };
+            let vertices = Vertices::Raw { vertex_shader, raw: &scratch.raw, order };
             if rasterize(registers, memory, resources, vertices).is_some() {
-                resources.scratch = scratch;
+                resources.scratch = Some(scratch);
                 return vertex_count;
             }
         }
@@ -3028,7 +3029,7 @@ pub fn draw<M: GpuMemory>(
     let order = indexed.then_some(&scratch.order[..]);
     let vertices = Vertices::Unshaded { vertex_shader, geometry_shader, inputs: &scratch.inputs, order };
     rasterize(registers, memory, resources, vertices);
-    resources.scratch = scratch;
+    resources.scratch = Some(scratch);
     vertex_count
 }
 
@@ -3048,10 +3049,13 @@ fn read_indices<M: GpuMemory>(registers: &[u32], memory: &mut M, scratch: &mut S
     let size = if index_short { 2 } else { 1 };
     let len = (registers[REG_VERTEX_COUNT] * size) as usize;
     let bytes = &mut scratch.bytes;
-    bytes.resize(len, 0);
+    bytes.clear();
     match memory.slice(index_base, len) {
-        Some(slice) => bytes.copy_from_slice(slice),
-        None => memory.read(index_base, bytes),
+        Some(slice) => bytes.extend_from_slice(slice),
+        None => {
+            bytes.resize(len, 0);
+            memory.read(index_base, bytes);
+        }
     }
 }
 
@@ -3149,51 +3153,58 @@ fn raw_inputs<M: GpuMemory>(
 /// them, each the vertex it names, into indices.
 fn assemble_into(topology: u32, count: usize, vertex: impl Fn(usize) -> u32, indices: &mut Vec<u32>) {
     indices.clear();
-    // a strip or a fan a triangle at a time, a flattened iterator has no
-    // length to reserve by and pushes a vertex at a time
-    if matches!(topology, 1 | 2) {
-        indices.reserve(count.saturating_sub(2) * 3);
+    if !matches!(topology, 1 | 2) {
+        indices.extend((0..count / 3 * 3).map(vertex));
+        return;
     }
-    match topology {
-        1 => {
-            for i in 2..count {
-                let (a, b) = if i % 2 == 0 { (i - 2, i - 1) } else { (i - 1, i - 2) };
-                indices.extend([vertex(a), vertex(b), vertex(i)]);
-            }
+    // a strip or a fan a triangle at a time, written in place. pushing
+    // kept the length in memory, each push waiting on the last one's
+    indices.resize(count.saturating_sub(2) * 3, 0);
+    let triangles = indices.as_chunks_mut::<3>().0;
+    if topology == 1 {
+        for (i, triangle) in (2..count).zip(triangles) {
+            *triangle = match i % 2 {
+                0 => [vertex(i - 2), vertex(i - 1), vertex(i)],
+                _ => [vertex(i - 1), vertex(i - 2), vertex(i)],
+            };
         }
-        2 => {
-            for i in 2..count {
-                indices.extend([vertex(0), vertex(i - 1), vertex(i)]);
-            }
+    } else {
+        for (i, triangle) in (2..count).zip(triangles) {
+            *triangle = [vertex(0), vertex(i - 1), vertex(i)];
         }
-        _ => indices.extend((0..count / 3 * 3).map(vertex)),
     }
 }
 
-/// the triangles of a draw of count vertices as the GPU takes them, three
-/// vertices each, numbered as the raw arrays number them, or by their place
-/// among the vertices order gives, or by their place in the draw. a list of
-/// raw vertices is its own triangles, which go as they are rather than
-/// copied.
+/// the triangles of a draw of count vertices as the GPU takes them. a list
+/// or a strip of raw vertices goes as the guest's index buffer has it, or
+/// with none for vertices in a row, rather than three indices a triangle,
+/// which a strip has three times the vertices of. the rest go three
+/// vertices a triangle, numbered as the raw arrays number them, or by their
+/// place among the vertices order gives, or by their place in the draw. not
+/// every GPU draws fans (MoltenVK), they stay triangles.
 #[cfg(feature = "vulkan")]
-fn triangle_indices<'a>(
+fn primitives<'a>(
     topology: u32,
     count: usize,
-    raw: Option<&'a [u32]>,
+    raw: Option<hardware::RawOrder<'a>>,
     order: Option<&[usize]>,
     assembled: &'a mut Vec<u32>,
-) -> &'a [u32] {
+) -> hardware::Primitives<'a> {
+    use hardware::RawOrder;
     match raw {
-        Some(vertices) if !matches!(topology, 1 | 2) => &vertices[..count / 3 * 3],
-        Some(vertices) => {
-            assemble_into(topology, count, |i| vertices[i], assembled);
-            assembled
+        Some(order) if topology != 2 => return hardware::Primitives::Raw { strip: topology == 1, order },
+        Some(RawOrder::InARow(_)) => assemble_into(topology, count, |i| i as u32, assembled),
+        Some(RawOrder::Indexed { bytes, short: true, first }) => {
+            let halves = &bytes.as_chunks::<2>().0[..count];
+            assemble_into(topology, count, |i| u16::from_le_bytes(halves[i]) as u32 - first, assembled);
         }
-        None => {
-            assemble_into(topology, count, |i| order.map_or(i, |order| order[i]) as u32, assembled);
-            assembled
+        Some(RawOrder::Indexed { bytes, short: false, first }) => {
+            let bytes = &bytes[..count];
+            assemble_into(topology, count, |i| bytes[i] as u32 - first, assembled);
         }
+        None => assemble_into(topology, count, |i| order.map_or(i, |order| order[i]) as u32, assembled),
     }
+    hardware::Primitives::Triangles(assembled)
 }
 
 /// the vertices of each triangle out of count of them, for a list, a strip
@@ -3331,7 +3342,7 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
             Vertices::Unshaded { vertex_shader, inputs, order, .. } => {
                 Some((vertex_shader, hardware::Inputs::Decoded(inputs), order, None))
             }
-            Vertices::Raw { vertex_shader, raw, vertices } => Some((vertex_shader, hardware::Inputs::Raw(raw), None, Some(vertices))),
+            Vertices::Raw { vertex_shader, raw, order } => Some((vertex_shader, hardware::Inputs::Raw(raw), None, Some(order))),
             Vertices::Shaded(_) | Vertices::Prepared(_) => None,
         };
         if let Some((unit, inputs, order, raw)) = unshaded.filter(|_| hardware.shades() && whole && registers[REG_GEOSTAGE_CONFIG] & 0x3 != 2) {
@@ -3344,17 +3355,17 @@ fn rasterize<M: GpuMemory>(registers: &[u32], memory: &mut M, resources: &mut Re
             // with y pointing up.
             let cull_mode = registers[REG_FACE_CULLING] & 0x3;
             let mut assembled = std::mem::take(&mut resources.triangles);
-            let indices = triangle_indices(topology, vertex_count, raw, order, &mut assembled);
+            let primitives = primitives(topology, vertex_count, raw, order, &mut assembled);
             let shading = hardware::Shading {
                 unit,
                 inputs,
-                indices,
+                primitives,
                 semantics: resources.semantics.get(registers),
                 viewport,
                 cull: cull_mode,
             };
             let drawn = hardware.draw(memory, &state.hardware(registers, hardware::Geometry::Shaded(&shading)));
-            let triangles = (indices.len() / 3) as u32;
+            let triangles = primitives.triangles() as u32;
             resources.triangles = assembled;
             match drawn {
                 Ok(()) => return Some(triangles),
@@ -4128,6 +4139,11 @@ mod tests {
         assert!(cache.checked(key, 256).is_none(), "a draw over it");
         cache.decoded(key, &[0x11; 256]);
         assert!(cache.checked(key, 256).is_some(), "checked again after the draw");
+        // buffers drawn into in turn, the one over it again after
+        cache.wrote(0x5000, 0x100);
+        assert!(cache.checked(key, 256).is_some(), "drawn over before it was checked");
+        cache.wrote(0x1080, 0x10);
+        assert!(cache.checked(key, 256).is_none(), "drawn over again");
         cache.begin_list();
         assert!(cache.checked(key, 256).is_none(), "a new list");
     }
@@ -5308,6 +5324,10 @@ mod tests {
         /// how long each slice handed out was, a whole array's for the GPU
         /// among them, a vertex's when the CPU decodes them.
         sliced: Vec<usize>,
+        /// the writes so far, and the one each 256 bytes of the arrays last
+        /// had, which watches go by as the console's pages.
+        writes: u64,
+        written: Vec<u64>,
     }
 
     #[cfg(feature = "vulkan")]
@@ -5315,7 +5335,7 @@ mod tests {
         const START: u32 = 0x1400_0000;
 
         fn new() -> ArrayMemory {
-            ArrayMemory { rest: ConsoleMemory::default(), arrays: vec![0; 0x1_0000], sliced: Vec::new() }
+            ArrayMemory { rest: ConsoleMemory::default(), arrays: vec![0; 0x1_0000], sliced: Vec::new(), writes: 0, written: vec![0; 0x100] }
         }
 
         fn at(&self, addr: u32) -> Option<usize> {
@@ -5340,10 +5360,14 @@ mod tests {
         }
 
         fn write(&mut self, addr: u32, data: &[u8]) {
+            self.writes += 1;
             for (i, &byte) in data.iter().enumerate() {
                 let addr = addr + i as u32;
                 match self.at(addr) {
-                    Some(at) => self.arrays[at] = byte,
+                    Some(at) => {
+                        self.arrays[at] = byte;
+                        self.written[at >> 8] = self.writes;
+                    }
                     None => self.rest.write(addr, &[byte]),
                 }
             }
@@ -5359,6 +5383,110 @@ mod tests {
             self.sliced.push(len);
             Some(&self.arrays[at..end])
         }
+
+        fn watch(&mut self, addr: u32, len: u32) -> Option<u64> {
+            let at = self.at(addr)?;
+            (at + len as usize <= self.arrays.len()).then_some(self.writes)
+        }
+
+        fn unchanged(&mut self, addr: u32, len: u32, watch: u64) -> bool {
+            self.at(addr).is_some_and(|at| self.written[at >> 8..(at + len as usize).div_ceil(0x100)].iter().all(|&write| write <= watch))
+        }
+    }
+
+    /// a draw's arrays, once they stayed the same, go to the GPU once and
+    /// are drawn from there in later batches, until a title writes over
+    /// them, the draws coming out as those whose vertices the CPU decodes.
+    #[cfg(feature = "vulkan")]
+    #[test]
+    fn arrays_kept_on_the_gpu_draw_what_memory_has() {
+        const SIZE: u32 = 32;
+        const BASE: u32 = 0x2000_0000;
+        const INDICES: u32 = 0x6000;
+        const VERTICES: u32 = 24;
+        const IDENTITY: u32 = 0x1B << 5 | 0x1B << 14 | 0x1B << 23;
+        let Ok(hardware) = hardware::Hardware::new() else { return };
+        let mut unit = ShaderUnit::new();
+        unit.descriptors[0] = 0xF | IDENTITY;
+        let op = |opcode: u32, destination: u32, src1: u32, src2: u32| opcode << 26 | destination << 21 | src1 << 12 | src2 << 7;
+        // o0 = c0 * v0, o1 = c1 * v1
+        let program = [op(0x08, 0x00, 0x20, 0x00), op(0x08, 0x01, 0x21, 0x01), 0x22 << 26];
+        unit.program[..program.len()].copy_from_slice(&program);
+        unit.float_uniforms[0] = [0.9, 0.9, 1.0, 1.0];
+        unit.float_uniforms[1] = [1.0 / 255.0; 4];
+        unit.prepare();
+        let fixed = [shader::ZERO; 16];
+        let mut registers = target_registers();
+        registers[REG_VIEWPORT_WIDTH] = float24(SIZE as f32 / 2.0);
+        registers[REG_VIEWPORT_HEIGHT] = float24(SIZE as f32 / 2.0);
+        registers[REG_FRAMEBUFFER_DIMENSIONS] = SIZE | ((SIZE - 1) << 12) | 1 << 24;
+        registers[REG_SHADER_OUTPUT_TOTAL] = 2;
+        registers[REG_SHADER_OUTPUT_MAP] = 0x0302_0100;
+        registers[REG_SHADER_OUTPUT_MAP + 1] = 0x0B0A_0908;
+        registers[REG_VS_OUTPUT_MASK] = 0b11;
+        registers[REG_ATTRIBUTE_BASE] = BASE >> 3;
+        registers[REG_VS_NUM_INPUT_ATTRIBUTES] = 1;
+        registers[REG_VS_BLOCK + SHADER_INPUT_MAP_LOW] = 0x10;
+        // two floats of position from one array, four bytes of color from
+        // another, drawn as a strip
+        registers[REG_ATTRIBUTE_FORMAT_LOW] = (1 << 2 | 3) | (3 << 2 | 1) << 4;
+        registers[REG_ATTRIBUTE_FORMAT_HIGH] = 1 << 28;
+        for (i, (offset, stride, id)) in [(0x100u32, 8u32, 0u32), (0x800, 4, 1)].into_iter().enumerate() {
+            let at = REG_ATTRIBUTE_LOADER + i * 3;
+            registers[at] = offset;
+            registers[at + 1] = id;
+            registers[at + 2] = stride << 16 | 1 << 28;
+        }
+        registers[REG_PRIMITIVE_CONFIG] = 1 << 8;
+        registers[REG_VERTEX_COUNT] = VERTICES;
+        registers[REG_INDEX_ARRAY] = INDICES | 1 << 31;
+
+        let mut seed = 5u32;
+        let mut random = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            seed >> 8
+        };
+        let mut positions = || -> Vec<u8> {
+            (0..VERTICES * 2).flat_map(|_| ((random() & 0xFFFF) as f32 / 65536.0 * 1.8 - 0.9).to_le_bytes()).collect()
+        };
+        let first = positions();
+        let moved = positions();
+        let colors: Vec<u8> = (0..VERTICES * 4).map(|i| (i * 37 % 251) as u8).collect();
+        let indices: Vec<u8> = (0..VERTICES as u16).flat_map(|i| (i * 7 % VERTICES as u16).to_le_bytes()).collect();
+        let (mut decoded, mut raw) = (ConsoleMemory::default(), ArrayMemory::new());
+        for (at, bytes) in [(0x100, &first), (0x800, &colors), (INDICES, &indices)] {
+            decoded.write(0x1400_0000 + at, bytes);
+            raw.write(0x1400_0000 + at, bytes);
+        }
+        let mut resources = Resources { hardware: Some(hardware), ..Default::default() };
+        let mut kept = Vec::new();
+        for round in 0..6 {
+            // a title moving what it draws writes over the arrays
+            if round == 3 {
+                decoded.write(0x1400_0000 + 0x100, &moved);
+                raw.write(0x1400_0000 + 0x100, &moved);
+            }
+            decoded.write(COLOR, &vec![0u8; (SIZE * SIZE * 4) as usize]);
+            raw.write(COLOR, &vec![0u8; (SIZE * SIZE * 4) as usize]);
+            draw(&registers, &unit, &unit, &fixed, &mut decoded, &mut resources, true, None);
+            resources.hardware.as_mut().unwrap().flush(&mut decoded).unwrap();
+            draw(&registers, &unit, &unit, &fixed, &mut raw, &mut resources, true, None);
+            resources.hardware.as_mut().unwrap().flush(&mut raw).unwrap();
+            let (mut a, mut b) = (vec![0u8; (SIZE * SIZE * 4) as usize], vec![0u8; (SIZE * SIZE * 4) as usize]);
+            decoded.read(COLOR, &mut a);
+            raw.read(COLOR, &mut b);
+            let drawn = a.chunks(4).filter(|pixel| *pixel != [0; 4]).count();
+            assert!(drawn > 50, "round {round}, only {drawn} pixels drawn");
+            assert!(a == b, "round {round}: the kept arrays draw differently");
+            kept.push(resources.hardware.as_ref().unwrap().heap_used());
+        }
+        // new, then the same twice and kept, then written over and new,
+        // then kept again where the heap goes on
+        assert_eq!(kept[0], 0);
+        assert!(kept[1] > 0);
+        assert_eq!((kept[2], kept[3]), (kept[1], kept[1]));
+        assert!(kept[4] > kept[3]);
+        assert_eq!(kept[5], kept[4]);
     }
 
     /// draws from vertex arrays the GPU decodes itself come out as those
@@ -6391,24 +6519,62 @@ mod tests {
         }
     }
 
-    /// the triangles the GPU takes are the ones assemble_into puts down, for
-    /// raw arrays as they number the vertices, a list's going as they are,
-    /// for vertices in an order and for vertices in a row.
+    /// the triangles the GPU takes are the ones assemble_into puts down, the
+    /// same three vertices wound the same way, for lists and strips of raw
+    /// arrays as Vulkan puts them together from the guest's indices or
+    /// from vertices in a row, and as they are for fans, vertices in an
+    /// order and vertices in a row.
     #[cfg(feature = "vulkan")]
     #[test]
     fn the_gpu_takes_the_triangles_the_assembler_makes() {
+        use hardware::{Primitives, RawOrder};
+        // as Vulkan takes them, a strip's triangle k the vertices k,
+        // k + 1 + k % 2 and k + 2 - k % 2
+        fn taken(primitives: Primitives) -> Vec<[u32; 3]> {
+            let Primitives::Raw { strip, order } = primitives else {
+                let Primitives::Triangles(indices) = primitives else { unreachable!() };
+                return indices.as_chunks::<3>().0.to_vec();
+            };
+            let vertex = |i: usize| match order {
+                RawOrder::InARow(_) => i as u32,
+                RawOrder::Indexed { bytes, short: true, first } => u16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]) as u32 - first,
+                RawOrder::Indexed { bytes, short: false, first } => bytes[i] as u32 - first,
+            };
+            match strip {
+                true => (0..order.len().saturating_sub(2)).map(|k| [vertex(k), vertex(k + 1 + k % 2), vertex(k + 2 - k % 2)]).collect(),
+                false => (0..order.len() / 3).map(|t| [vertex(3 * t), vertex(3 * t + 1), vertex(3 * t + 2)]).collect(),
+            }
+        }
+        let turned = |[a, b, c]: [u32; 3]| [[a, b, c], [b, c, a], [c, a, b]];
         for topology in 0..4 {
             for count in 0..14 {
-                let raw: Vec<u32> = (0..count as u32).map(|i| 1000 + i * 7 % 5).collect();
+                let relative: Vec<u32> = (0..count as u32).map(|i| i * 7 % 5).collect();
+                let halves: Vec<u8> = relative.iter().flat_map(|&i| (1000 + i as u16).to_le_bytes()).collect();
+                let bytes: Vec<u8> = relative.iter().map(|&i| 100 + i as u8).collect();
                 let order: Vec<usize> = (0..count).map(|i| (i * 3) % 4).collect();
-                let mut assembled = vec![99];
-                let mut expected = Vec::new();
-                assemble_into(topology, count, |i| raw[i], &mut expected);
-                assert_eq!(triangle_indices(topology, count, Some(&raw), None, &mut assembled), expected, "raw, topology {topology}, {count} vertices");
-                assemble_into(topology, count, |i| order[i] as u32, &mut expected);
-                assert_eq!(triangle_indices(topology, count, None, Some(&order), &mut assembled), expected, "ordered, topology {topology}, {count} vertices");
-                assemble_into(topology, count, |i| i as u32, &mut expected);
-                assert_eq!(triangle_indices(topology, count, None, None, &mut assembled), expected, "in a row, topology {topology}, {count} vertices");
+                let cases = [
+                    ("halfwords", Some(RawOrder::Indexed { bytes: &halves, short: true, first: 1000 }), None, &relative),
+                    ("bytes", Some(RawOrder::Indexed { bytes: &bytes, short: false, first: 100 }), None, &relative),
+                    ("raw in a row", Some(RawOrder::InARow(count)), None, &(0..count as u32).collect()),
+                    ("ordered", None, Some(&order[..]), &order.iter().map(|&i| i as u32).collect()),
+                    ("in a row", None, None, &(0..count as u32).collect()),
+                ];
+                for (name, raw, order, vertices) in cases {
+                    let mut expected = Vec::new();
+                    assemble_into(topology, count, |i| vertices[i], &mut expected);
+                    let mut assembled = vec![99];
+                    let primitives = primitives(topology, count, raw, order, &mut assembled);
+                    let triangles = taken(primitives);
+                    let what = format!("{name}, topology {topology}, {count} vertices");
+                    assert_eq!(primitives.triangles(), expected.len() / 3, "{what}");
+                    assert_eq!(triangles.len(), expected.len() / 3, "{what}");
+                    for (&triangle, &wanted) in triangles.iter().zip(expected.as_chunks::<3>().0) {
+                        assert!(turned(triangle).contains(&wanted), "{what}, {triangle:?} for {wanted:?}");
+                    }
+                    // raw lists and strips go as the guest has them
+                    let raw_kept = raw.is_some() && topology != 2;
+                    assert_eq!(matches!(primitives, Primitives::Raw { .. }), raw_kept, "{what}");
+                }
             }
         }
     }

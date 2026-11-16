@@ -74,7 +74,7 @@ pub fn take_wait_stats() -> (u32, std::time::Duration, u32, std::time::Duration)
     (waits, wait_time, reads, read_time)
 }
 use crate::format::{morton_offset, ColorFormat};
-use crate::lighting::{Lighting, Tables};
+use crate::lighting::{self, Lighting, Tables};
 use crate::registers::*;
 use crate::device::SharedDevice;
 use crate::shader::glsl::{self, SEMANTICS};
@@ -110,6 +110,16 @@ const IN_FLIGHT: usize = 3;
 /// a batch past this much is run before the next draw, so a draw always
 /// finds room.
 const RING_FLUSH: u64 = RING_SIZE / 2;
+/// where vertex arrays that stay the same go once and stay, rather than
+/// into each batch's ring again, see Hardware::kept.
+const HEAP_SIZE: u64 = 32 << 20;
+/// the heap starts over before a draw once this much is in it, each draw
+/// finding room for the 4 MiB of arrays raw_inputs hands over at most.
+const HEAP_FLUSH: u64 = HEAP_SIZE - (8 << 20);
+/// how many arrays are looked out for, past which those seen once go,
+/// titles putting what they write each frame somewhere else each time,
+/// and past half of which in the heap it starts over.
+const MOST_ARRAYS: usize = 1 << 14;
 
 /// a vertex is six vectors, position, color, texture coordinates 0 and 1,
 /// coordinate 2 with the mapped depth, the quaternion and the view vector.
@@ -127,6 +137,44 @@ const UNIFORM_SIZE: u64 = (UNIFORM_WORDS * 4) as u64;
 /// map and alpha map as values and steps and its colors and their steps as
 /// two pairs each, then the fog's, a value and a step an entry.
 const TABLES_SIZE: u64 = (24 * 256 + 3 * proctex::MAP_ENTRIES + 4 * proctex::COLOR_ENTRIES + fog::ENTRIES) as u64 * 8;
+/// a set of tables as the batch copied it, the hashes of the lighting
+/// tables and the generations of the procedural texture's and the fog's,
+/// which titles seldom change.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct TablesKey {
+    light: [u64; lighting::TABLES],
+    procedural: u64,
+    fog: u64,
+    read: Read,
+}
+
+/// the tables a draw reads, the lighting ones a bit each, and whether the
+/// procedural texture's and the fog's.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct Read {
+    light: u32,
+    procedural: bool,
+    fog: bool,
+}
+
+/// a hash of a lighting table's entries. every step is one to one, so two
+/// tables apart in a single entry never share it. eight lanes, so that
+/// the multiplies overlap.
+fn table_hash(table: &[[f32; 2]; 256]) -> u64 {
+    const K: u64 = 0x9E37_79B9_7F4A_7C15;
+    let mix = |hash: u64, word: u64| {
+        let mixed = (hash ^ word).wrapping_mul(K);
+        mixed ^ (mixed >> 29)
+    };
+    let mut lanes: [u64; 8] = std::array::from_fn(|lane| (lane as u64 + 1).wrapping_mul(0xD6E8_FEB8_6659_FD93));
+    for chunk in table.as_chunks::<8>().0 {
+        for (lane, &[value, step]) in lanes.iter_mut().zip(chunk) {
+            *lane = mix(*lane, u64::from(value.to_bits()) | u64::from(step.to_bits()) << 32);
+        }
+    }
+    lanes.into_iter().fold(0, mix)
+}
+
 /// a shader program and its operand descriptors.
 const PROGRAM_BYTES: u64 = ((PROGRAM_SIZE + DESCRIPTOR_SIZE) * 4) as u64;
 /// the words of what a vertex shader reads besides its program, the float
@@ -187,6 +235,53 @@ pub(super) struct Draw<'a> {
 /// where something is staged in the ring, and its bytes.
 type Staged = (u64, u64);
 
+/// where stage_shading put what the vertex shader reads.
+#[derive(Clone, Copy)]
+struct ShadingStaged {
+    /// the program, its uniforms, the inputs and the indices.
+    ranges: [Staged; 4],
+    /// how wide the indices are, none for vertices in a row.
+    index_type: Option<vk::IndexType>,
+    /// whether the inputs are the heap's rather than the ring's.
+    kept: bool,
+}
+
+/// what the command buffer was last set to draw with, which draws in a row
+/// mostly share, each draw setting only what it changes, a call into the
+/// driver for each costing more than the comparing. a command buffer
+/// starts with nothing set.
+#[derive(Clone, Copy, Default)]
+struct Set {
+    pipeline: Option<vk::Pipeline>,
+    viewport: Option<[u32; 6]>,
+    cull: Option<vk::CullModeFlags>,
+    topology: Option<vk::PrimitiveTopology>,
+    scissor: Option<[i32; 4]>,
+    depth_test: Option<bool>,
+    depth_compare: Option<vk::CompareOp>,
+    depth_write: Option<bool>,
+    /// whether the test is on, its register, the op register and whether
+    /// the draw may write.
+    stencil: Option<(bool, u32, u32, bool)>,
+    blend_constants: Option<[u32; 4]>,
+    /// the blend's configuration and the color mask.
+    blend: Option<(Option<u32>, u32)>,
+    logic_op: Option<Option<LogicOp>>,
+}
+
+/// the bindings of the draws' descriptor set, three textures, the
+/// uniforms, the tables, then the program, its uniforms and the inputs of
+/// a draw the GPU shades.
+const BINDINGS: usize = 8;
+
+/// a vertex array a draw read, what memory gave to tell whether something
+/// wrote over it since, and where the heap has it once it was seen the
+/// same twice.
+struct Seen {
+    watch: u64,
+    at: Option<u32>,
+}
+
 /// a draw as recorded, once what it reads is staged, so the same draw can
 /// go into the twins of its buffers later.
 #[derive(Clone, Copy)]
@@ -212,12 +307,12 @@ struct Recorded {
     samplers: [vk::Sampler; 3],
     uniforms: u64,
     tables: u64,
-    /// where the program, its uniforms, the inputs and the indices are
-    /// staged, for a draw the GPU shades.
-    shaded: Option<[(u64, u64); 4]>,
+    /// what the vertex shader reads, for a draw the GPU shades.
+    shaded: Option<ShadingStaged>,
     /// where the vertices and the indices are, for one the CPU placed.
     placed: (u64, u64),
     count: u32,
+    topology: vk::PrimitiveTopology,
 }
 
 /// the triangles of a draw.
@@ -234,14 +329,69 @@ pub(super) enum Geometry<'a> {
 pub(super) struct Shading<'a> {
     pub(super) unit: &'a ShaderUnit,
     pub(super) inputs: Inputs<'a>,
-    /// three inputs a triangle.
-    pub(super) indices: &'a [u32],
+    /// how the inputs go together into triangles.
+    pub(super) primitives: Primitives<'a>,
     /// where each varying is in the output registers.
     pub(super) semantics: [u32; 24],
     /// left, bottom, width and height.
     pub(super) viewport: (f32, f32, f32, f32),
     /// the face culling register.
     pub(super) cull: u32,
+}
+
+/// the inputs of each triangle of a draw, as the GPU puts them together.
+#[derive(Clone, Copy)]
+pub(super) enum Primitives<'a> {
+    /// three inputs a triangle.
+    Triangles(&'a [u32]),
+    /// a list or a strip of the inputs, in a row or in the order the
+    /// guest's own index buffer has them, which goes to the GPU nearly as it
+    /// is rather than three indices a triangle.
+    Raw { strip: bool, order: RawOrder<'a> },
+}
+
+/// which input each vertex of a draw from raw arrays is.
+#[derive(Clone, Copy)]
+pub(super) enum RawOrder<'a> {
+    /// that many, the first input on.
+    InARow(usize),
+    /// the guest's index buffer, a byte an index or a halfword when short,
+    /// less the first index, which the arrays start at.
+    Indexed { bytes: &'a [u8], short: bool, first: u32 },
+}
+
+impl RawOrder<'_> {
+    pub(super) fn len(&self) -> usize {
+        match *self {
+            RawOrder::InARow(count) => count,
+            RawOrder::Indexed { bytes, short, .. } => bytes.len() >> short as u32,
+        }
+    }
+}
+
+impl Primitives<'_> {
+    /// the vertices the GPU takes, a list's last triangle whole.
+    fn count(&self) -> usize {
+        match *self {
+            Primitives::Triangles(indices) => indices.len(),
+            Primitives::Raw { strip: true, order } => order.len(),
+            Primitives::Raw { strip: false, order } => order.len() / 3 * 3,
+        }
+    }
+
+    pub(super) fn triangles(&self) -> usize {
+        match *self {
+            Primitives::Raw { strip: true, order } => order.len().saturating_sub(2),
+            _ => self.count() / 3,
+        }
+    }
+
+    fn topology(&self) -> vk::PrimitiveTopology {
+        match *self {
+            Primitives::Raw { strip: true, .. } => vk::PrimitiveTopology::TRIANGLE_STRIP,
+            _ => vk::PrimitiveTopology::TRIANGLE_LIST,
+        }
+    }
 }
 
 /// a draw's input registers, as the vertex shader gets them.
@@ -410,6 +560,10 @@ struct Surface {
     /// nothing else, standing in for them. a frame's fills would copy
     /// megabytes into shadows, and memory compares faster with a pixel.
     pixel: Option<[u8; 4]>,
+    /// what memory gave to watch the buffer's bytes when they last held
+    /// what the shadow does. while nothing wrote over them since, a lookup
+    /// takes them as unchanged rather than comparing them again.
+    watch: Option<u64>,
     /// the image is known to match guest memory in this batch.
     checked: bool,
     /// the rows drawn into since guest memory last got the image, rows of
@@ -480,6 +634,7 @@ impl Surface {
     /// pixel they all are when they are, as memory under a buffer the GPU
     /// draws often is.
     fn keep(&mut self, bytes: &[u8]) {
+        self.watch = None;
         let bpp = self.kind.bytes() as usize;
         let size = self.size() as usize;
         match bytes.get(..bpp).filter(|pixel| bytes.len() == size && crate::pattern::holds(bytes, pixel)) {
@@ -495,6 +650,7 @@ impl Surface {
 
     /// has the shadow hold the pixel all over the buffer.
     fn keep_pixel(&mut self, pixel: &[u8]) {
+        self.watch = None;
         let mut kept = [0; 4];
         kept[..pixel.len()].copy_from_slice(pixel);
         self.pixel = Some(kept);
@@ -513,6 +669,8 @@ impl Surface {
 
     /// the shadow's bytes, written out where a pixel stood in for them.
     fn shadow(&mut self) -> &mut Vec<u8> {
+        // whatever is done with it, memory is to be compared with it again
+        self.watch = None;
         if let Some(pixel) = self.pixel.take() {
             self.shadow.resize(self.size() as usize, 0);
             crate::pattern::fill(&mut self.shadow, &pixel[..self.kind.bytes() as usize]);
@@ -1695,6 +1853,7 @@ fn compile_pipeline(
         vk::DynamicState::STENCIL_REFERENCE,
         vk::DynamicState::BLEND_CONSTANTS,
         vk::DynamicState::CULL_MODE,
+        vk::DynamicState::PRIMITIVE_TOPOLOGY,
     ];
     if dynamic.blend {
         dynamic_states.extend([
@@ -1811,12 +1970,24 @@ pub struct Hardware {
     max_bias: f32,
     ring: Buffer,
     used: u64,
+    /// vertex arrays kept across batches, how much of it they take, and
+    /// the arrays draws read, by address and length, see kept.
+    heap: Buffer,
+    heap_used: u64,
+    arrays: QuickMap<u64, Seen>,
+    /// what the command buffer was last set to draw with.
+    set: Set,
+    /// what each binding of the draws' descriptor set was last pushed
+    /// with in the command buffer, a view and a sampler or a buffer, where
+    /// in it and how much. the rest keep theirs when a draw pushes some,
+    /// the layout being the same for every draw.
+    pushed: [Option<[u64; 3]>; BINDINGS],
     readback: Option<Buffer>,
     surfaces: Vec<Surface>,
     /// by the address of the decoded texels.
-    textures: HashMap<usize, Texture>,
+    textures: QuickMap<usize, Texture>,
     /// textures copied from surfaces, by what they are.
-    copies: HashMap<DrawnTexture, Copied>,
+    copies: QuickMap<DrawnTexture, Copied>,
     /// texture pack pictures, by the hash of the textures they replace.
     replaced: HashMap<u64, Replaced>,
     /// the bytes those take, and how many they may, half the GPU's memory.
@@ -1836,7 +2007,7 @@ pub struct Hardware {
     upload_size_budget: bool,
     threaded_picture_copy: bool,
     /// device memory blocks pictures are carved from.
-    heap: std::cell::RefCell<Vec<HeapBlock>>,
+    picture_heap: std::cell::RefCell<Vec<HeapBlock>>,
     /// staging buffers the GPU is done with, kept for the next big picture.
     spare: Vec<Buffer>,
     /// pictures being copied to staging memory, by hash.
@@ -1854,7 +2025,13 @@ pub struct Hardware {
     /// what unused texture units sample.
     blank: Image,
     /// the tables' generation and where the batch copied them.
-    tables: Option<((u64, u64, u64), u64)>,
+    tables: Option<((u64, u64, u64, Read), u64)>,
+    /// a hash of each lighting table, with the generation it was taken
+    /// at, and which tables those were.
+    light_hashes: (u64, [(u64, u64); lighting::TABLES]),
+    /// the sets of tables the batch copied and where, by the hashes of
+    /// the lighting tables and the generations of the others.
+    copied_tables: Vec<(TablesKey, u64)>,
     recording: bool,
     /// uploads waiting for a barrier before anything reads them.
     uploads: bool,
@@ -1870,10 +2047,10 @@ pub struct Hardware {
     /// twins once rather than once a draw.
     twin_draws: Vec<Recorded>,
     /// textures copied from twins, as copies has those from surfaces.
-    twin_copies: HashMap<DrawnTexture, Copied>,
+    twin_copies: QuickMap<DrawnTexture, Copied>,
     /// the batch the draw a draw in between follows staged its vertices
     /// and its indices in, and where, which the one in between reads too.
-    twinned_inputs: Option<(u64, Staged, Staged)>,
+    twinned_inputs: Option<(u64, Staged, Staged, bool)>,
     batch: u64,
     name: String,
     /// how many times the console's resolution surfaces are drawn at.
@@ -2079,10 +2256,15 @@ impl Hardware {
                 samplers: QuickMap::default(),
                 max_bias: properties.limits.max_sampler_lod_bias,
                 used: 0,
+                heap: unmade(),
+                heap_used: 0,
+                arrays: QuickMap::default(),
+                set: Set::default(),
+                pushed: [None; BINDINGS],
                 readback: None,
                 surfaces: Vec::new(),
-                textures: HashMap::new(),
-                copies: HashMap::new(),
+                textures: QuickMap::default(),
+                copies: QuickMap::default(),
                 replaced: HashMap::new(),
                 replaced_bytes: 0,
                 // half the GPU's own memory, up to 4 GiB, and a quarter, up
@@ -2102,7 +2284,7 @@ impl Hardware {
                 pooled_uploads: crate::backend::renderer_options().map_or(true, |options| options.pooled_uploads),
                 upload_size_budget: crate::backend::renderer_options().map_or(true, |options| options.upload_size_budget),
                 threaded_picture_copy: crate::backend::renderer_options().map_or(true, |options| options.threaded_picture_copy),
-                heap: std::cell::RefCell::new(Vec::new()),
+                picture_heap: std::cell::RefCell::new(Vec::new()),
                 spare: Vec::new(),
                 copying: HashMap::new(),
                 deferred: std::collections::HashSet::new(),
@@ -2110,13 +2292,15 @@ impl Hardware {
                 replacing_from: 0,
                 max_image_size: properties.limits.max_image_dimension2_d,
                 tables: None,
+                light_hashes: (u64::MAX, [(0, 0); lighting::TABLES]),
+                copied_tables: Vec::new(),
                 recording: false,
                 uploads: false,
                 rendering: None,
                 pass: Pass::Real,
                 twins: false,
                 twin_draws: Vec::new(),
-                twin_copies: HashMap::new(),
+                twin_copies: QuickMap::default(),
                 twinned_inputs: None,
                 batch: 0,
                 name,
@@ -2154,6 +2338,7 @@ impl Hardware {
             for i in 0..hardware.free.len() {
                 hardware.free[i].ring = hardware.buffer(RING_SIZE, ring_usage, false)?;
             }
+            hardware.heap = hardware.buffer(HEAP_SIZE, vk::BufferUsageFlags::STORAGE_BUFFER, false)?;
             hardware.begin()?;
             hardware.blank = hardware.image(
                 1,
@@ -2311,7 +2496,7 @@ impl Hardware {
         let (Some(index), true) = (index, requirements.size <= POOL_BLOCK) else {
             return self.allocate(requirements, flags).map(|(memory, _)| (memory, 0, false));
         };
-        let mut heap = self.heap.borrow_mut();
+        let mut heap = self.picture_heap.borrow_mut();
         for block in heap.iter_mut().filter(|block| block.kind == index as u32) {
             if let Some(at) = carve(&mut block.free, requirements.size, requirements.alignment) {
                 return Ok((block.memory, at, true));
@@ -2334,7 +2519,7 @@ impl Hardware {
     /// gives pooled memory back, and a block wholly free goes unless it is
     /// the only one. ponytail: that one stays, 64 MB held for good.
     fn pool_free(&self, memory: vk::DeviceMemory, at: u64, size: u64) {
-        let mut heap = self.heap.borrow_mut();
+        let mut heap = self.picture_heap.borrow_mut();
         let Some(index) = heap.iter().position(|block| block.memory == memory) else { return };
         uncarve(&mut heap[index].free, at, size);
         if heap.len() > 1 && heap[index].free == [(0, heap[index].size)] {
@@ -2452,6 +2637,8 @@ impl Hardware {
                     .map_err(vk_error("begin a command buffer"))?;
             }
             self.recording = true;
+            self.set = Set::default();
+            self.pushed = [None; BINDINGS];
             self.start_timing()?;
             // the batch before may still be running
             self.unfenced = true;
@@ -2837,6 +3024,7 @@ impl Hardware {
                     tiled,
                     shadow: Vec::new(),
                     pixel: None,
+                    watch: None,
                     checked: false,
                     dirty: None,
                     guarded: None,
@@ -2882,7 +3070,11 @@ impl Hardware {
         // bytes a fill wrote can hold what the shadow does, and still be
         // newer than the image
         let stale = self.surfaces[index].stale.is_some();
-        let same = !stale && memory.slice(addr, size as usize).is_some_and(|now| self.surfaces[index].shadows(whole.clone(), now));
+        // and none at all where nothing wrote over them since memory last
+        // held what the shadow does, a frame's buffers are megabytes
+        let unchanged = !stale && self.surfaces[index].watch.is_some_and(|watch| memory.unchanged(addr, size, watch));
+        let same = unchanged
+            || (!stale && memory.slice(addr, size as usize).is_some_and(|now| self.surfaces[index].shadows(whole.clone(), now)));
         if !same {
             bytes.resize(size as usize, 0);
             memory.read(addr, &mut bytes);
@@ -2903,6 +3095,11 @@ impl Hardware {
             self.surfaces[index].keep(&bytes);
         }
         self.scratch = bytes;
+        if !unchanged {
+            // memory holds what the shadow does now, until something writes
+            // over it
+            self.surfaces[index].watch = memory.watch(addr, size);
+        }
         self.surfaces[index].checked = true;
         Ok(index)
     }
@@ -3437,34 +3634,71 @@ impl Hardware {
         Ok(sampler)
     }
 
-    /// where the batch holds the current lighting tables.
-    fn tables(&mut self, tables: &Tables, procedural: &proctex::Tables, fog: &fog::Table) -> Result<u64, String> {
-        let generation = (tables.generation(), procedural.generation(), fog.generation());
+    /// where the batch holds the current lighting tables, the ones a draw
+    /// reads, which the rest of what is staged for it lacks.
+    fn tables(&mut self, tables: &Tables, procedural: &proctex::Tables, fog: &fog::Table, read: Read) -> Result<u64, String> {
+        let generation = (tables.generation(), procedural.generation(), fog.generation(), read);
         if let Some((staged, offset)) = self.tables {
             if staged == generation {
                 return Ok(offset);
             }
         }
+        // titles switch between a few sets of lighting tables, sending a
+        // set again each time it comes back, and a set the batch already
+        // copied is found by the hashes of its tables, each taken again
+        // only once its table changed. copying is what costs, the ring
+        // being memory the CPU writes past its caches
+        let (id, hashes) = &mut self.light_hashes;
+        let other = *id != tables.id();
+        *id = tables.id();
+        for ((taken, hash), (&changed, table)) in hashes.iter_mut().zip(tables.changed().iter().zip(tables.entries())) {
+            if other || *taken != changed {
+                *taken = changed;
+                *hash = table_hash(table);
+            }
+        }
+        let mut light = [0; lighting::TABLES];
+        for (number, (out, &(_, hash))) in light.iter_mut().zip(hashes.iter()).enumerate() {
+            if read.light & (1 << number) != 0 {
+                *out = hash;
+            }
+        }
+        let key = TablesKey {
+            light,
+            procedural: if read.procedural { procedural.generation() } else { 0 },
+            fog: if read.fog { fog.generation() } else { 0 },
+            read,
+        };
+        if let Some(&(_, offset)) = self.copied_tables.iter().find(|(copied, _)| *copied == key) {
+            self.tables = Some((generation, offset));
+            return Ok(offset);
+        }
         let offset = self.stage(TABLES_SIZE, self.storage_alignment)?;
         let staging = self.ring(offset, TABLES_SIZE);
         let (colors, steps) = procedural.colors();
-        // a plain loop over each, which goes as fast as copying, a chain of
-        // flattened iterators took a quarter of a frame
+        // each lighting table, then the others, in the places the shader
+        // reads them from, only the ones the draw reads being copied, a
+        // draw reading a few of the 24. a plain loop over each, which goes
+        // as fast as copying, a chain of flattened iterators took a
+        // quarter of a frame
+        let lights = tables.entries().iter().enumerate().map(|(number, table)| (table.as_flattened(), read.light & (1 << number) != 0));
         let parts = [
-            tables.entries().as_flattened().as_flattened(),
-            procedural.maps().as_flattened().as_flattened(),
-            colors.as_flattened(),
-            steps.as_flattened(),
-            fog.entries().as_flattened(),
+            (procedural.maps().as_flattened().as_flattened(), read.procedural),
+            (colors.as_flattened(), read.procedural),
+            (steps.as_flattened(), read.procedural),
+            (fog.entries().as_flattened(), read.fog),
         ];
         let mut out = staging.as_chunks_mut::<4>().0;
-        for part in parts {
+        for (part, wanted) in lights.chain(parts) {
             let (here, rest) = out.split_at_mut(part.len());
-            for (bytes, value) in here.iter_mut().zip(part) {
-                *bytes = value.to_le_bytes();
+            if wanted {
+                for (bytes, value) in here.iter_mut().zip(part) {
+                    *bytes = value.to_le_bytes();
+                }
             }
             out = rest;
         }
+        self.copied_tables.push((key, offset));
         self.tables = Some((generation, offset));
         Ok(offset)
     }
@@ -3634,6 +3868,7 @@ impl Hardware {
                 surface.untwin();
                 surface.shadow.clear();
                 surface.pixel = None;
+                surface.watch = None;
                 surface.dirty = None;
                 surface.guarded = None;
                 surface.write_guarded = None;
@@ -3800,6 +4035,12 @@ impl Hardware {
         self.waits = waits;
     }
 
+    /// how much of the heap kept arrays take.
+    #[cfg(test)]
+    pub(super) fn heap_used(&self) -> u64 {
+        self.heap_used
+    }
+
     /// whether draws always go through the generic fragment shader.
     #[cfg(test)]
     pub(super) fn set_generic(&mut self, generic: bool) {
@@ -3952,7 +4193,12 @@ impl Hardware {
     /// copies what the vertex shader reads into the batch, and says where
     /// the program, the rest of what it reads, the inputs and the indices
     /// went.
-    fn stage_shading<M: GpuMemory>(&mut self, memory: &mut M, shading: &Shading, depth_map: DepthMap) -> Result<[(u64, u64); 4], String> {
+    fn stage_shading<M: GpuMemory>(
+        &mut self,
+        memory: &mut M,
+        shading: &Shading,
+        depth_map: DepthMap,
+    ) -> Result<ShadingStaged, String> {
         let unit = shading.unit;
         let fingerprint = unit.fingerprint();
         let program = match self.programs.get(&fingerprint) {
@@ -3988,6 +4234,8 @@ impl Hardware {
         let mut attributes = [[0u32; 4]; INPUT_REGISTERS];
         let mut defaults = [crate::shader::ZERO; INPUT_REGISTERS];
         let mut starts = [0u32; 12];
+        // whether the arrays are read from the heap
+        let mut kept = false;
         let input_bytes = match shading.inputs {
             Inputs::Decoded(decoded) => {
                 // the registers a vertex reads in turn, four floats each
@@ -3998,13 +4246,22 @@ impl Hardware {
                 ((decoded.len() * registers.len()).max(1) * 16) as u64
             }
             Inputs::Raw(raw) => {
-                // each array from a word on, and a word after the last, a
-                // value can run into the word after its own
-                let mut total = 0;
-                for (start, &(_, len)) in starts.iter_mut().zip(&raw.arrays) {
-                    *start = total;
-                    total += len.div_ceil(4) * 4;
-                }
+                let bytes = match self.kept(memory, raw) {
+                    Some(at) => {
+                        (starts, kept) = (at, true);
+                        HEAP_SIZE
+                    }
+                    None => {
+                        // each array from a word on, and a word after the
+                        // last, a value can run into the word after its own
+                        let mut total = 0;
+                        for (start, &(_, len)) in starts.iter_mut().zip(&raw.arrays) {
+                            *start = total;
+                            total += len.div_ceil(4) * 4;
+                        }
+                        total as u64 + 4
+                    }
+                };
                 for &register in registers {
                     defaults[register] = raw.defaults[register];
                     if let Some(field) = raw.fields[register] {
@@ -4012,7 +4269,7 @@ impl Hardware {
                         attributes[register] = [starts[field.array], field.stride, format, 0];
                     }
                 }
-                total as u64 + 4
+                bytes
             }
         };
         // the arrays go in as slices, a flattened iterator has no length to
@@ -4035,17 +4292,39 @@ impl Hardware {
         self.shading = block;
         let uniforms = uniforms?;
 
+        // indices from the guest's arrays have 8 or 16 bits, and draws
+        // seldom have more vertices, so they mostly go in at half the size,
+        // the ring being memory the CPU writes past its caches. vertices in
+        // a row need none
+        let count = shading.primitives.count();
+        let index_type = match shading.primitives {
+            Primitives::Triangles(indices) if indices.iter().fold(0, |all, &index| all | index) > 0xFFFF => {
+                Some(vk::IndexType::UINT32)
+            }
+            Primitives::Raw { order: RawOrder::InARow(_), .. } => None,
+            _ => Some(vk::IndexType::UINT16),
+        };
+        let index_size = match index_type {
+            Some(vk::IndexType::UINT32) => 4,
+            Some(_) => 2,
+            None => 0,
+        };
         // the draw in between reads the vertices its own draw staged just
         // before, only its uniforms differ
-        let index_bytes = (shading.indices.len() * 4) as u64;
-        if let Some((batch, inputs, indices)) = self.twinned_inputs.filter(|_| self.pass == Pass::Twin) {
-            if batch == self.batch && inputs.1 == input_bytes && indices.1 == index_bytes {
-                return Ok([(program, PROGRAM_BYTES), (uniforms, SHADING_SIZE), inputs, indices]);
+        let index_bytes = (count * index_size) as u64;
+        if let Some((batch, inputs, indices, were_kept)) = self.twinned_inputs.filter(|_| self.pass == Pass::Twin) {
+            if batch == self.batch && inputs.1 == input_bytes && indices.1 == index_bytes && were_kept == kept {
+                let ranges = [(program, PROGRAM_BYTES), (uniforms, SHADING_SIZE), inputs, indices];
+                return Ok(ShadingStaged { ranges, index_type, kept });
             }
         }
 
-        let inputs = self.stage(input_bytes, self.storage_alignment)?;
+        let inputs = match kept {
+            true => 0,
+            false => self.stage(input_bytes, self.storage_alignment)?,
+        };
         match shading.inputs {
+            _ if kept => {}
             Inputs::Decoded(decoded) => {
                 let staging = self.ring(inputs, input_bytes);
                 // the inner loop copies a register at a time, simple enough to
@@ -4068,13 +4347,84 @@ impl Hardware {
         }
 
         let indices = self.stage(index_bytes, 4)?;
-        for (out, index) in self.ring(indices, index_bytes).as_chunks_mut::<4>().0.iter_mut().zip(shading.indices) {
-            *out = index.to_le_bytes();
+        let staging = self.ring(indices, index_bytes);
+        match shading.primitives {
+            Primitives::Triangles(triangles) if index_size == 4 => {
+                for (out, index) in staging.as_chunks_mut::<4>().0.iter_mut().zip(triangles) {
+                    *out = index.to_le_bytes();
+                }
+            }
+            Primitives::Triangles(triangles) => {
+                for (out, &index) in staging.as_chunks_mut::<2>().0.iter_mut().zip(triangles) {
+                    *out = (index as u16).to_le_bytes();
+                }
+            }
+            // the guest's indices less the first, which none is below
+            Primitives::Raw { order: RawOrder::Indexed { bytes, short: true, first }, .. } => {
+                for (out, index) in staging.as_chunks_mut::<2>().0.iter_mut().zip(bytes.as_chunks::<2>().0) {
+                    *out = u16::from_le_bytes(*index).wrapping_sub(first as u16).to_le_bytes();
+                }
+            }
+            Primitives::Raw { order: RawOrder::Indexed { bytes, short: false, first }, .. } => {
+                for (out, &index) in staging.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
+                    *out = (index as u16).wrapping_sub(first as u16).to_le_bytes();
+                }
+            }
+            Primitives::Raw { order: RawOrder::InARow(_), .. } => {}
         }
         if self.pass == Pass::Twinned {
-            self.twinned_inputs = Some((self.batch, (inputs, input_bytes), (indices, index_bytes)));
+            self.twinned_inputs = Some((self.batch, (inputs, input_bytes), (indices, index_bytes), kept));
         }
-        Ok([(program, PROGRAM_BYTES), (uniforms, SHADING_SIZE), (inputs, input_bytes), (indices, index_bytes)])
+        let ranges = [(program, PROGRAM_BYTES), (uniforms, SHADING_SIZE), (inputs, input_bytes), (indices, index_bytes)];
+        Ok(ShadingStaged { ranges, index_type, kept })
+    }
+
+    /// where the heap has each of a draw's arrays, none when one of them is
+    /// new or something wrote over it since it was last seen, the draw then
+    /// staging them all in the ring. an array seen twice the same goes to
+    /// the heap, which later batches read it from while memory has nothing
+    /// written over it, as most of a title's models are, and the ring takes
+    /// those a title writes each frame.
+    fn kept<M: GpuMemory>(&mut self, memory: &mut M, raw: &RawInputs) -> Option<[u32; 12]> {
+        let mut starts = [0u32; 12];
+        let mut kept = true;
+        for (start, &(addr, len)) in starts.iter_mut().zip(&raw.arrays) {
+            let key = (addr as u64) << 32 | len as u64;
+            match self.arrays.get_mut(&key) {
+                Some(seen) if memory.unchanged(addr, len, seen.watch) => match seen.at {
+                    Some(at) => *start = at,
+                    None => {
+                        // from a word on and with a word after it, as in
+                        // the ring
+                        let (at, room) = (self.heap_used, (len.div_ceil(4) * 4 + 4) as u64);
+                        let bytes = memory.slice(addr, len as usize).filter(|_| at + room <= HEAP_SIZE);
+                        let Some(bytes) = bytes else {
+                            kept = false;
+                            continue;
+                        };
+                        // SAFETY: the heap is mapped for its whole size and
+                        // the range is inside it, past what any batch reads
+                        unsafe { std::slice::from_raw_parts_mut(self.heap.mapped.add(at as usize), len as usize) }.copy_from_slice(bytes);
+                        self.heap_used = at + room;
+                        seen.at = Some(at as u32);
+                        *start = at as u32;
+                    }
+                },
+                _ => {
+                    // new or written over, watched from now on
+                    match memory.watch(addr, len) {
+                        Some(watch) => {
+                            self.arrays.insert(key, Seen { watch, at: None });
+                        }
+                        None => {
+                            self.arrays.remove(&key);
+                        }
+                    }
+                    kept = false;
+                }
+            }
+        }
+        kept.then_some(starts)
     }
 
     pub(super) fn draw<M: GpuMemory>(&mut self, memory: &mut M, draw: &Draw) -> Result<(), String> {
@@ -4090,7 +4440,7 @@ impl Hardware {
         let (right, top) = (right.min(draw.width as i32), top.min(draw.height as i32));
         let empty = match draw.geometry {
             Geometry::Placed { indices, .. } => indices.is_empty(),
-            Geometry::Shaded(shading) => shading.indices.is_empty(),
+            Geometry::Shaded(shading) => shading.primitives.triangles() == 0,
         };
         if empty || right <= left || top <= bottom {
             return Ok(());
@@ -4100,6 +4450,17 @@ impl Hardware {
         // happens but not what is drawn
         if self.used > RING_FLUSH {
             self.submit()?;
+        }
+        if self.arrays.len() > MOST_ARRAYS {
+            self.arrays.retain(|_, seen| seen.at.is_some());
+        }
+        // the batches reading the heap finish before it starts over, which
+        // takes far more frames than are in flight
+        if self.heap_used > HEAP_FLUSH || self.arrays.len() > MOST_ARRAYS / 2 {
+            self.submit()?;
+            self.wait()?;
+            self.heap_used = 0;
+            self.arrays.clear();
         }
         self.begin()?;
 
@@ -4192,8 +4553,9 @@ impl Hardware {
                 None => samplers[unit] = self.sampler(Filtering::OFF)?,
             }
         }
+        let read = Read { light: draw.lighting.map_or(0, Lighting::tables_read), procedural: draw.proctex, fog: draw.fog };
         let tables = match draw.lighting.is_some() || draw.proctex || draw.fog {
-            true => self.tables(draw.tables, draw.proctex_tables, draw.fog_table)?,
+            true => self.tables(draw.tables, draw.proctex_tables, draw.fog_table, read)?,
             false => 0,
         };
 
@@ -4207,8 +4569,12 @@ impl Hardware {
             }
             Geometry::Shaded(shading) => {
                 let staged = self.stage_shading(memory, shading, depth_map)?;
-                (shading.indices.len(), (0, 0), Some(staged), self.vertex_stage(shading))
+                (shading.primitives.count(), (0, 0), Some(staged), self.vertex_stage(shading))
             }
+        };
+        let topology = match draw.geometry {
+            Geometry::Shaded(shading) => shading.primitives.topology(),
+            Geometry::Placed { .. } => vk::PrimitiveTopology::TRIANGLE_LIST,
         };
 
 
@@ -4410,6 +4776,7 @@ impl Hardware {
             shaded,
             placed: (vertex_offset, index_offset),
             count: vertex_count as u32,
+            topology,
         };
         if real {
             self.record(&recorded);
@@ -4432,87 +4799,135 @@ impl Hardware {
         let uniform_info = [vk::DescriptorBufferInfo::default().buffer(self.ring.buffer).offset(r.uniforms).range(UNIFORM_SIZE)];
         let tables_info = [vk::DescriptorBufferInfo::default().buffer(self.ring.buffer).offset(r.tables).range(TABLES_SIZE)];
         let vertex_infos = r.shaded.map(|staged| {
-            staged.map(|(offset, range)| [vk::DescriptorBufferInfo::default().buffer(self.ring.buffer).offset(offset).range(range)])
-        });
-        let mut writes = [vk::WriteDescriptorSet::default(); 8];
-        let fixed = [
-            vk::WriteDescriptorSet::default()
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&image_infos[0]),
-            vk::WriteDescriptorSet::default()
-                .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&image_infos[1]),
-            vk::WriteDescriptorSet::default()
-                .dst_binding(2)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&image_infos[2]),
-            vk::WriteDescriptorSet::default()
-                .dst_binding(3)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&uniform_info),
-            vk::WriteDescriptorSet::default()
-                .dst_binding(4)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&tables_info),
-        ];
-        writes[..fixed.len()].copy_from_slice(&fixed);
-        let mut count = fixed.len();
-        if let Some(infos) = &vertex_infos {
-            for (binding, info) in (5..).zip(&infos[..3]) {
-                writes[count] = vk::WriteDescriptorSet::default()
-                    .dst_binding(binding)
-                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(info);
-                count += 1;
+            let mut infos = staged
+                .ranges
+                .map(|(offset, range)| [vk::DescriptorBufferInfo::default().buffer(self.ring.buffer).offset(offset).range(range)]);
+            // the inputs, the heap's or the ring's
+            if staged.kept {
+                infos[2][0] = infos[2][0].buffer(self.heap.buffer);
             }
+            infos
+        });
+        // what each binding takes, the ones a draw the CPU placed lacks
+        // left as they were
+        let mut bound: [Option<[u64; 3]>; BINDINGS] = [None; BINDINGS];
+        for (slot, (&view, &sampler)) in bound.iter_mut().zip(r.views.iter().zip(&r.samplers)) {
+            *slot = Some([vk::Handle::as_raw(view), vk::Handle::as_raw(sampler), 0]);
+        }
+        bound[3] = Some([vk::Handle::as_raw(self.ring.buffer), r.uniforms, UNIFORM_SIZE]);
+        bound[4] = Some([vk::Handle::as_raw(self.ring.buffer), r.tables, TABLES_SIZE]);
+        if let Some(infos) = &vertex_infos {
+            for (slot, [info]) in bound[5..].iter_mut().zip(&infos[..3]) {
+                *slot = Some([vk::Handle::as_raw(info.buffer), info.offset, info.range]);
+            }
+        }
+        let mut writes = [vk::WriteDescriptorSet::default(); BINDINGS];
+        let mut count = 0;
+        for (binding, (key, pushed)) in bound.into_iter().zip(self.pushed.iter_mut()).enumerate() {
+            if key.is_none() || key == *pushed {
+                continue;
+            }
+            *pushed = key;
+            let write = vk::WriteDescriptorSet::default().dst_binding(binding as u32);
+            writes[count] = match (binding, &vertex_infos) {
+                (0..=2, _) => write.descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER).image_info(&image_infos[binding]),
+                (3, _) => write.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER).buffer_info(&uniform_info),
+                (4, _) => write.descriptor_type(vk::DescriptorType::STORAGE_BUFFER).buffer_info(&tables_info),
+                (_, Some(infos)) => write.descriptor_type(vk::DescriptorType::STORAGE_BUFFER).buffer_info(&infos[binding - 5]),
+                (_, None) => unreachable!("bound only for a draw the GPU shades"),
+            };
+            count += 1;
         }
         let writes = &writes[..count];
         let commands = self.commands;
         let face = vk::StencilFaceFlags::FRONT_AND_BACK;
         let (test, op) = r.stencil;
         let stencil_op = |raw: u32| vk::StencilOp::from_raw((raw & 7) as i32);
+        let v = r.viewport;
+        let (offset, extent) = (r.scissor.offset, r.scissor.extent);
+        let set = Set {
+            pipeline: Some(r.pipeline),
+            viewport: Some([v.x, v.y, v.width, v.height, v.min_depth, v.max_depth].map(f32::to_bits)),
+            cull: Some(r.cull),
+            topology: Some(r.topology),
+            scissor: Some([offset.x, offset.y, extent.width as i32, extent.height as i32]),
+            depth_test: Some(r.depth_test),
+            depth_compare: Some(r.depth_compare),
+            depth_write: Some(r.depth_write),
+            stencil: Some((r.stencil_test, test, op, r.writable)),
+            blend_constants: Some(r.blend_constants.map(f32::to_bits)),
+            blend: Some((r.blend, r.color_mask)),
+            logic_op: Some(r.logic_op),
+        };
+        let last = std::mem::replace(&mut self.set, set);
         // SAFETY: recording inside rendering, with everything the draw
         // reads staged in the ring and every image in the general layout
         unsafe {
             let device = &self.device;
-            device.cmd_bind_pipeline(commands, vk::PipelineBindPoint::GRAPHICS, r.pipeline);
-            device.cmd_set_viewport(commands, 0, &[r.viewport]);
-            device.cmd_set_cull_mode(commands, r.cull);
-            device.cmd_set_scissor(commands, 0, &[r.scissor]);
-            device.cmd_set_depth_test_enable(commands, r.depth_test);
-            device.cmd_set_depth_compare_op(commands, r.depth_compare);
-            device.cmd_set_depth_write_enable(commands, r.depth_write);
-            device.cmd_set_stencil_test_enable(commands, r.stencil_test);
-            device.cmd_set_stencil_op(
-                commands,
-                face,
-                stencil_op(op),
-                stencil_op(op >> 8),
-                stencil_op(op >> 4),
-                COMPARES[((test >> 4) & 7) as usize],
-            );
-            device.cmd_set_stencil_compare_mask(commands, face, (test >> 24) & 0xFF);
-            device.cmd_set_stencil_write_mask(commands, face, if r.writable { (test >> 8) & 0xFF } else { 0 });
-            device.cmd_set_stencil_reference(commands, face, (test >> 16) & 0xFF);
-            device.cmd_set_blend_constants(commands, &r.blend_constants);
+            if last.pipeline != set.pipeline {
+                device.cmd_bind_pipeline(commands, vk::PipelineBindPoint::GRAPHICS, r.pipeline);
+            }
+            if last.viewport != set.viewport {
+                device.cmd_set_viewport(commands, 0, &[r.viewport]);
+            }
+            if last.cull != set.cull {
+                device.cmd_set_cull_mode(commands, r.cull);
+            }
+            if last.topology != set.topology {
+                device.cmd_set_primitive_topology(commands, r.topology);
+            }
+            if last.scissor != set.scissor {
+                device.cmd_set_scissor(commands, 0, &[r.scissor]);
+            }
+            if last.depth_test != set.depth_test {
+                device.cmd_set_depth_test_enable(commands, r.depth_test);
+            }
+            if last.depth_compare != set.depth_compare {
+                device.cmd_set_depth_compare_op(commands, r.depth_compare);
+            }
+            if last.depth_write != set.depth_write {
+                device.cmd_set_depth_write_enable(commands, r.depth_write);
+            }
+            if last.stencil != set.stencil {
+                device.cmd_set_stencil_test_enable(commands, r.stencil_test);
+                device.cmd_set_stencil_op(
+                    commands,
+                    face,
+                    stencil_op(op),
+                    stencil_op(op >> 8),
+                    stencil_op(op >> 4),
+                    COMPARES[((test >> 4) & 7) as usize],
+                );
+                device.cmd_set_stencil_compare_mask(commands, face, (test >> 24) & 0xFF);
+                device.cmd_set_stencil_write_mask(commands, face, if r.writable { (test >> 8) & 0xFF } else { 0 });
+                device.cmd_set_stencil_reference(commands, face, (test >> 16) & 0xFF);
+            }
+            if last.blend_constants != set.blend_constants {
+                device.cmd_set_blend_constants(commands, &r.blend_constants);
+            }
             if let Some(state) = &self.blend_state {
-                state.cmd_set_color_blend_enable(commands, 0, &[r.blend.is_some().into()]);
-                state.cmd_set_color_blend_equation(commands, 0, &[blend_equation(r.blend.unwrap_or(0))]);
-                state.cmd_set_color_write_mask(commands, 0, &[vk::ColorComponentFlags::from_raw(r.color_mask)]);
-                if let Some(ops) = &self.logic_op_state {
+                if last.blend != set.blend {
+                    state.cmd_set_color_blend_enable(commands, 0, &[r.blend.is_some().into()]);
+                    state.cmd_set_color_blend_equation(commands, 0, &[blend_equation(r.blend.unwrap_or(0))]);
+                    state.cmd_set_color_write_mask(commands, 0, &[vk::ColorComponentFlags::from_raw(r.color_mask)]);
+                }
+                if let Some(ops) = self.logic_op_state.as_ref().filter(|_| last.logic_op != set.logic_op) {
                     state.cmd_set_logic_op_enable(commands, r.logic_op.is_some());
                     ops.cmd_set_logic_op(commands, r.logic_op.map_or(vk::LogicOp::COPY, self::logic_op));
                 }
             }
-            self.push.cmd_push_descriptor_set(commands, vk::PipelineBindPoint::GRAPHICS, self.layout, 0, writes);
+            if !writes.is_empty() {
+                self.push.cmd_push_descriptor_set(commands, vk::PipelineBindPoint::GRAPHICS, self.layout, 0, writes);
+            }
             self.draws += 1;
             match vertex_infos {
-                Some(infos) => {
-                    device.cmd_bind_index_buffer(commands, self.ring.buffer, infos[3][0].offset, vk::IndexType::UINT32);
-                    device.cmd_draw_indexed(commands, r.count, 1, 0, 0, 0);
-                }
+                Some(infos) => match r.shaded.and_then(|staged| staged.index_type) {
+                    Some(index_type) => {
+                        device.cmd_bind_index_buffer(commands, self.ring.buffer, infos[3][0].offset, index_type);
+                        device.cmd_draw_indexed(commands, r.count, 1, 0, 0, 0);
+                    }
+                    None => device.cmd_draw(commands, r.count, 1, 0, 0),
+                },
                 None => {
                     device.cmd_bind_vertex_buffers(commands, 0, &[self.ring.buffer], &[r.placed.0]);
                     device.cmd_bind_index_buffer(commands, self.ring.buffer, r.placed.1, vk::IndexType::UINT32);
@@ -4573,10 +4988,14 @@ impl Hardware {
     /// been put back as a saved state had it. each buffer takes memory's
     /// bytes at its next use.
     pub(crate) fn forget(&mut self) {
+        // the heap starts over before the next draw
+        self.arrays.clear();
+        self.heap_used = HEAP_SIZE;
         for surface in &mut self.surfaces {
             surface.untwin();
             surface.shadow.clear();
             surface.pixel = None;
+            surface.watch = None;
             surface.dirty = None;
             surface.guarded = None;
             surface.write_guarded = None;
@@ -4944,7 +5363,7 @@ impl Hardware {
     }
 
     /// the textures copied from surfaces, or from their twins.
-    fn copies(&mut self, twin: bool) -> &mut HashMap<DrawnTexture, Copied> {
+    fn copies(&mut self, twin: bool) -> &mut QuickMap<DrawnTexture, Copied> {
         match twin {
             true => &mut self.twin_copies,
             false => &mut self.copies,
@@ -5552,6 +5971,7 @@ impl Hardware {
         }
         self.used = 0;
         self.tables = None;
+        self.copied_tables.clear();
         self.programs.clear();
         self.uniforms.at = None;
         self.shading.at = None;
@@ -5940,6 +6360,7 @@ impl Hardware {
         if surface.stale.take().is_some() {
             surface.shadow.clear();
             surface.pixel = None;
+            surface.watch = None;
             surface.checked = false;
         }
     }
@@ -6013,12 +6434,12 @@ impl Drop for Hardware {
                 }
             }
             self.destroy_image(&self.blank);
-            for block in self.heap.borrow().iter() {
+            for block in self.picture_heap.borrow().iter() {
                 self.device.free_memory(block.memory, None);
             }
             let captures = self.surfaces.iter().flat_map(|s| [&s.capture, &s.screen]).filter_map(|c| c.as_ref().map(|c| &c.buffer));
             let rings = self.free.iter().chain(&self.in_flight).map(|frame| &frame.ring);
-            let buffers = [Some(&self.ring), self.readback.as_ref()].into_iter().flatten().chain(rings);
+            let buffers = [Some(&self.ring), Some(&self.heap), self.readback.as_ref()].into_iter().flatten().chain(rings);
             for buffer in buffers.chain(captures) {
                 self.device.destroy_buffer(buffer.buffer, None);
                 self.device.free_memory(buffer.memory, None);
@@ -6422,6 +6843,25 @@ mod tests {
         assert!(!replacement_fits(spent, oversized, oversized));
     }
 
+    /// tables apart in any one entry, in its value or its step, by any
+    /// one bit, never share a hash, and the same entries always do.
+    #[test]
+    fn tables_apart_in_an_entry_hash_apart() {
+        let table: [[f32; 2]; 256] = std::array::from_fn(|i| [i as f32 / 4095.0, -(i as f32) / 2047.0]);
+        let hash = table_hash(&table);
+        assert_eq!(table_hash(&table.clone()), hash);
+        let mut seen = std::collections::HashSet::from([hash]);
+        for entry in 0..256 {
+            for half in 0..2 {
+                for bit in [0, 1, 11, 22, 23, 31] {
+                    let mut other = table;
+                    other[entry][half] = f32::from_bits(other[entry][half].to_bits() ^ 1 << bit);
+                    assert!(seen.insert(table_hash(&other)), "entry {entry}, half {half}, bit {bit}");
+                }
+            }
+        }
+    }
+
     /// a block gathered with the words of the last one staged is read from
     /// where that went, any other is staged anew, and nothing is read from
     /// a batch handed over.
@@ -6473,6 +6913,7 @@ mod tests {
                 tiled: true,
                 shadow: Vec::new(),
                 pixel: None,
+                watch: None,
                 checked: false,
                 dirty: None,
                 guarded: None,
