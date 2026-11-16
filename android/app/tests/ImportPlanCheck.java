@@ -185,6 +185,11 @@ public final class ImportPlanCheck {
         Tree bare = new Tree(); bare.file("root", "rom", "game.3ds", romHeader(FOUR_GIB), FOUR_GIB);
         ImportPlan bareRom = ImportPlan.inspect(bare, "root");
         check(bareRom.code == null && bareRom.files.size() == 1 && bareRom.bytes == FOUR_GIB, "Bare ROM plan is wrong");
+        // The stable build refuses a ROM-only plan before copying; the nightly takes it. A plan with code passes in both.
+        rejects(() -> GameImport.requireNativeCode(bareRom, false), "ROM-only plan in the stable build");
+        GameImport.requireNativeCode(bareRom, true);
+        ImportPlan full = ImportPlan.inspect(valid(), "root");
+        GameImport.requireNativeCode(full, false); GameImport.requireNativeCode(full, true);
         // A bad library beside the ROM is still refused, not skipped.
         for (byte[] bytes : new byte[][]{elf(62), NativeFixture.elf(5, true), new byte[64]}) {
             Tree bad = new Tree(); bad.file("root", "rom", "game.3ds", romHeader(FOUR_GIB), FOUR_GIB);

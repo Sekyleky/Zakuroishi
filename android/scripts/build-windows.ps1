@@ -5,7 +5,9 @@ param(
     [string]$CMake = '',
     [string]$OutputDirectory = '',
     [string]$BuildTools = '36.0.0',
-    [string]$Platform = 'android-37.0'
+    [string]$Platform = 'android-37.0',
+    # Overrides the manifest's versionName, e.g. 0.6.0-nightly; a name ending in -nightly turns on unconfirmed features.
+    [string]$VersionName = ''
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
@@ -96,7 +98,8 @@ try {
     $sources = @(Get-ChildItem "$repo/android/app/src/main/java" -Filter '*.java' -Recurse | Sort-Object FullName | ForEach-Object FullName)
     if (!$sources.Count) { throw 'No Java sources' }
     Invoke-Tool "$tools/aapt2.exe" @('compile','--dir',"$repo/android/app/src/main/res",'-o',"$work/resources.zip")
-    Invoke-Tool "$tools/aapt2.exe" @('link','-o',"$work/unsigned.apk",'--manifest',$manifest,'-I',$androidJar,"$work/resources.zip")
+    $versionArgs = if ($VersionName) { @('--version-name',$VersionName,'--replace-version') } else { @() }
+    Invoke-Tool "$tools/aapt2.exe" (@('link','-o',"$work/unsigned.apk",'--manifest',$manifest,'-I',$androidJar) + $versionArgs + @("$work/resources.zip"))
     Invoke-Tool "$JavaHome/bin/javac.exe" (@('-nowarn','--release','11','-classpath',$androidJar,'-d',"$work/classes") + $sources)
     # One jar instead of every class path: d8.bat goes through cmd.exe, whose command line is limited to 8191 characters.
     Invoke-Tool "$JavaHome/bin/jar.exe" @('cf',"$work/classes.jar",'-C',"$work/classes",'.')

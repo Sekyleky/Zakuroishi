@@ -305,12 +305,13 @@ public final class Launcher extends Activity {
             {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."}},
             new Runnable[]{() -> SettingsDialog.show(this, GameSettings.DEFAULTS, null, "All games", false, this::showLibrary, null, null, null, null), () -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings});
     }
-    /** The tile's touch-only ⋯: Settings, Saves, and Pin where the home screen supports it. */
+    /** The tile's touch-only ⋯: Settings, Saves, and Pin where the home screen supports it (nightly build only). */
     private void more(String id) {
         String[][] items = {{"Settings", "Resolution, textures, controls and native code."}, {"Saves", "Export or restore this game's in-game saves."},
             {"Pin to home screen", "Start this game from an icon on your home screen."}};
         ShortcutManager shortcuts = getSystemService(ShortcutManager.class);
-        chooser(names.get(id), shortcuts != null && shortcuts.isRequestPinShortcutSupported() ? items : Arrays.copyOf(items, 2),
+        boolean pinnable = GameImport.nightly(this) && shortcuts != null && shortcuts.isRequestPinShortcutSupported(); // pinning not yet run on a device
+        chooser(names.get(id), pinnable ? items : Arrays.copyOf(items, 2),
             new Runnable[]{() -> options(id), () -> saves(id), () -> pin(id)});
     }
     /** A list of labelled actions; items[i] = {label, one-line effect}. */
@@ -407,7 +408,9 @@ public final class Launcher extends Activity {
         try { return GameMetadata.name(GameImport.active(this, id), id); } catch (Exception e) { return "Game " + id.substring(8); }
     }
     private void help(boolean importing) {
-        String folder = "Choose the folder with your decrypted game (.3ds, .cci or .cxi). A native code file (title.so) is optional. Without it the game runs more slowly; add it later from the game's settings.";
+        String folder = GameImport.nightly(this)
+                ? "Choose the folder with your decrypted game (.3ds, .cci or .cxi). A native code file (title.so) is optional. Without it the game runs more slowly; add it later from the game's settings."
+                : "Choose the folder with your decrypted game (.3ds, .cci or .cxi) and its Android ARM64 native code file (title.so). The native code file is required.";
         String body = importing ? folder + "\n\nOnly add games you trust. Setup help in Menu has the details."
                 : "1. " + folder + "\n\n"
                 + "2. Texture packs are optional. Leave Include texture pack off to add just the game. You can attach a pack later from the game's Settings.\n\n"

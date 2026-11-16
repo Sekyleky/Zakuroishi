@@ -20,6 +20,24 @@ final class GameImport {
     /** Held around every read or change of an import pointer, and around deleting anything the pointers could name. */
     static final Object POINTER_LOCK = new Object();
     static final String NO_SPACE = "Ran out of free space while copying. No game files were changed.";
+    static final String NEEDS_NATIVE_CODE = "No native code (title.so) found. This version needs it to add a game. "
+            + "Add the folder that has the game's title.so, or use the nightly build, which can add a game without it. No files were copied.";
+    private static Boolean nightly;
+    /**
+     * Whether this is the nightly build (versionName ends with "-nightly"). Features not yet seen working on a device are on
+     * only there. A feature moves to stable once a device check of it is recorded in docs/testing.md.
+     */
+    static boolean nightly(android.content.Context context) {
+        if (nightly == null) {
+            try { nightly = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName.endsWith("-nightly"); }
+            catch (Exception e) { nightly = false; }
+        }
+        return nightly;
+    }
+    /** Stable builds refuse a game folder without native code before anything is copied (nightly only: ROM-only import). */
+    static void requireNativeCode(ImportPlan plan, boolean nightly) throws IOException {
+        if (plan.code == null && !nightly) throw new IOException(NEEDS_NATIVE_CODE);
+    }
     /** Free space that must remain after an import or replacement: the larger of 256 MiB and 5% of what is copied. */
     static long margin(long bytes) { return Math.max(256L << 20, bytes / 20); }
     /** Android reports a full disk as "write failed: ENOSPC (No space left on device)", sometimes wrapped. */
@@ -152,6 +170,7 @@ final class GameImport {
     static String install(android.content.Context context, Uri tree, boolean includeTextures, Progress progress) throws Exception {
         DocumentsSource source = new DocumentsSource(context.getContentResolver(), tree);
         ImportPlan plan = ImportPlan.inspect(source, DocumentsContract.getTreeDocumentId(tree), includeTextures);
+        requireNativeCode(plan, nightly(context));
         File imports = new File(context.getFilesDir(), "imports");
         File stage = new File(imports, UUID.randomUUID().toString());
         plan.checkDestination(stage);
