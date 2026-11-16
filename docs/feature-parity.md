@@ -388,7 +388,7 @@ Intent extras decoded by P. New3DS details are in
 | Lifecycle, pause, focus loss, errors | **Wired** R keeps event loop active, drops audio/clears input and gates sensors; Java menu/error UI and separate game process. | Source only; device recovery needs runtime testing. |
 | PN launcher `pin/shortcut/playShortcut` | **Unsupported** home-screen game shortcut integration; Android library launch remains available. | Source only. |
 | PN launcher `play/start/playAgain` held-game task orchestration | **Partial** Android separate `:game` activity/process and pause/resume exist; no equivalent PN running-title discovery and cross-game task selection protocol. | Source only. |
-| PN launcher `update/download` | **Unsupported** in-app release lookup/APK updater. Android `Launcher.update()` updates import-task UI, not installed APKs. | Source only. |
+| PN launcher `update/download` | **Partial** nightly builds only (version name contains `-nightly`): Menu → Check for updates… looks up Sekyleky/Zakuroishi GitHub releases, verifies SHA-256 and signer, installs via PackageInstaller; optional daily auto-check. Stable builds have no updater and no network permission. `Launcher.update()` still only updates import-task UI. | Source only; not run on a device. |
 
 PN Field variants not repeated literally in this last table map to the global
 key rows: `Layout`, `Aspect`, `Resolution`, `Vulkan`, `Smooth`, `Stretch`,

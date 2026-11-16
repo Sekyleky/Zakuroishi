@@ -37,7 +37,9 @@ project's GitHub releases. A nightly build is offered the newest release (nightl
 when it is newer; a stable release is offered only when its version number is higher. Nightly
 builds are compared by the date in their version name (`0.6.0-nightly.20261116`, the date of
 the `nightly-20261116` tag); `0.6.0-nightly` without a date counts as older than any dated
-nightly. Nothing older is ever offered.
+nightly. Nothing older is ever offered. To publish a nightly, build it with
+`-VersionName X.Y.Z-nightly.YYYYMMDD` matching its tag `nightly-YYYYMMDD`; the updater refuses an
+APK whose version name differs from its tag.
 
 The APK is downloaded to the app's cache over HTTPS from GitHub only (at most 64 MiB), checked
 against the release's `SHA256SUMS` file, and checked to be Zakuroishi signed with the same key as

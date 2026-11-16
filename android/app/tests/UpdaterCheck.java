@@ -8,8 +8,8 @@ public final class UpdaterCheck {
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
     }
-    private static Updater.Release release(String tag, boolean draft, String apk) {
-        return new Updater.Release(tag, tag, draft, apk, apk == null ? null : "https://github.com/x/" + apk, 1, "https://github.com/x/SHA256SUMS.txt");
+    private static Updater.Release release(String tag, String apk) {
+        return new Updater.Release(tag, tag, apk, apk == null ? null : "https://github.com/x/" + apk, "https://github.com/x/SHA256SUMS.txt");
     }
     public static void main(String[] args) throws Exception {
         // Stable builds: higher stable X.Y.Z only; never a nightly, never the same or older.
@@ -25,15 +25,19 @@ public final class UpdaterCheck {
         for (String bad : new String[]{null, "", "0.6", "0.6.0-beta", "v0.6.0", "0.6.0-nightly.2026111", "0.6.0 "})
             check(!Updater.newer("0.6.0", bad) && !Updater.newer(bad, "9.9.9"), "unparsed version accepted: " + bad);
 
-        // The version a release's APK carries, and the newest usable release (GitHub lists newest first).
-        check("0.6.0".equals(release("android-v0.6.0", false, "Zakuroishi-0.6.0.apk").version()), "stable version");
-        check("0.6.0-nightly.20261116".equals(release("nightly-20261116", false, "Zakuroishi-0.6.0-nightly.apk").version()), "nightly version from tag date");
-        check("0.6.0-nightly".equals(release("odd-tag", false, "Zakuroishi-0.6.0-nightly.apk").version()), "nightly without a dated tag");
-        check(release("android-v0.6.0", false, "Zakuroishi-0.6.0.apk.idsig").version() == null && release("android-v0.6.0", false, null).version() == null, "foreign asset taken as the APK");
-        Updater.Release newest = release("nightly-20261118", false, "Zakuroishi-0.6.0-nightly.apk");
-        check(Updater.pick(Arrays.asList(release("nightly-20261119", true, "Zakuroishi-0.6.0-nightly.apk"), release("source-only", false, null), newest,
-            release("android-v0.6.0", false, "Zakuroishi-0.6.0.apk"))) == newest, "pick skipped the wrong releases");
-        check(Updater.pick(Arrays.asList(release("draft", true, "Zakuroishi-0.6.0.apk"))) == null && Updater.pick(Arrays.asList()) == null, "pick found a release in nothing");
+        // The version a release's APK carries, and the highest release with our APK.
+        check("0.6.0".equals(release("android-v0.6.0", "Zakuroishi-0.6.0.apk").version()), "stable version");
+        check("0.6.0-nightly.20261116".equals(release("nightly-20261116", "Zakuroishi-0.6.0-nightly.apk").version()), "nightly version from tag date");
+        check("0.6.0-nightly".equals(release("odd-tag", "Zakuroishi-0.6.0-nightly.apk").version()), "nightly without a dated tag");
+        check(release("android-v0.6.0", "Zakuroishi-0.6.0.apk.idsig").version() == null && release("android-v0.6.0", null).version() == null, "foreign asset taken as the APK");
+        Updater.Release newest = release("nightly-20261118", "Zakuroishi-0.6.0-nightly.apk");
+        check(Updater.pick(Arrays.asList(release("source-only", null), release("nightly-20261117", "Zakuroishi-0.6.0-nightly.apk"), newest,
+            release("android-v0.6.0", "Zakuroishi-0.6.0.apk"))) == newest, "pick skipped the wrong releases");
+        // A stable release published after a nightly does not hide the higher nightly, and a higher stable beats an older nightly.
+        Updater.Release nightly = release("nightly-20261120", "Zakuroishi-0.7.0-nightly.apk"), stable = release("android-v0.7.1", "Zakuroishi-0.7.1.apk");
+        check(Updater.pick(Arrays.asList(release("android-v0.6.1", "Zakuroishi-0.6.1.apk"), nightly)) == nightly, "a later stable hid a higher nightly");
+        check(Updater.pick(Arrays.asList(nightly, stable)) == stable && Updater.pick(Arrays.asList(stable, nightly)) == stable, "pick missed a higher stable");
+        check(Updater.pick(Arrays.asList(release("source-only", null))) == null && Updater.pick(Arrays.asList()) == null, "pick found a release in nothing");
 
         // SHA256SUMS lines as sha256sum writes them (text and binary mode, CRLF tolerated); only the exact file name matches.
         String a = "2c05ea18746660212fc73fa932cf74f761c2fc88ec2e0204d6f7c27a0384a6e0", b = "C2F1746352BC90F43A638AA90B503F0BE4A236B3194F5F5FE7A55510369F5B85";

@@ -33,10 +33,10 @@ public final class Updater extends BroadcastReceiver {
         VERSION = Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)(-nightly(?:\\.(\\d{8}))?)?"), SUM = Pattern.compile("([0-9a-fA-F]{64}) [ *](.+)");
 
     static final class Release {
-        final String tag, name, apk, apkUrl, sumsUrl; final boolean draft; final long size;
+        final String tag, name, apk, apkUrl, sumsUrl;
         File file; // the verified download, once check() has it
-        Release(String tag, String name, boolean draft, String apk, String apkUrl, long size, String sumsUrl) {
-            this.tag = tag; this.name = name; this.draft = draft; this.apk = apk; this.apkUrl = apkUrl; this.size = size; this.sumsUrl = sumsUrl;
+        Release(String tag, String name, String apk, String apkUrl, String sumsUrl) {
+            this.tag = tag; this.name = name; this.apk = apk; this.apkUrl = apkUrl; this.sumsUrl = sumsUrl;
         }
         /** The versionName the APK carries: X.Y.Z, or X.Y.Z-nightly.YYYYMMDD with the date from a nightly-YYYYMMDD tag; null without an APK. */
         String version() {
@@ -61,10 +61,15 @@ public final class Updater extends BroadcastReceiver {
         for (int i = 0; i < 3; i++) if (a[i] != b[i]) return b[i] > a[i];
         return a[3] == 1 && b[3] == 1 && b[4] > a[4];
     }
-    /** The newest usable release: GitHub lists newest first; drafts and releases without our APK are skipped. */
+    /** The highest release with our APK, whatever order GitHub lists them in; a stable X.Y.Z ranks as a dateless nightly of it. */
     static Release pick(List<Release> releases) {
-        for (Release r : releases) if (!r.draft && r.version() != null && r.apkUrl != null) return r;
-        return null;
+        Release best = null;
+        for (Release r : releases) {
+            if (r.version() == null || r.apkUrl == null) continue;
+            String b = best == null ? null : best.version().contains("-nightly") ? best.version() : best.version() + "-nightly";
+            if (best == null || newer(b, r.version())) best = r;
+        }
+        return best;
     }
     /** The lowercase SHA-256 a sha256sum-style file gives for file, or null. */
     static String sha256For(String sums, String file) {
@@ -91,34 +96,33 @@ public final class Updater extends BroadcastReceiver {
     /** A newer release, downloaded and verified into the cache, or null when this build is up to date. Worker thread. */
     static Release check(Context context) throws Exception {
         ByteArrayOutputStream json = new ByteArrayOutputStream();
-        fetch(RELEASES + (GameImport.nightly(context) ? "?per_page=10" : "/latest"), 1 << 20, json);
+        fetch(RELEASES + "?per_page=10", 1 << 20, json); // only the nightly build calls this
         Release r = pick(releases(new String(json.toByteArray(), StandardCharsets.UTF_8)));
         if (r == null || !newer(installed(context), r.version())) return null;
         if (r.sumsUrl == null) throw new IOException("Release " + r.tag + " has no SHA256SUMS file, so it cannot be checked.");
-        if (r.size > MAX_APK) throw new IOException("The update is larger than " + (MAX_APK >> 20) + " MiB.");
         ByteArrayOutputStream sums = new ByteArrayOutputStream(); fetch(r.sumsUrl, 64 << 10, sums);
         String want = sha256For(new String(sums.toByteArray(), StandardCharsets.UTF_8), r.apk);
         if (want == null) throw new IOException("The release's SHA256SUMS does not list " + r.apk + ".");
-        File file = new File(context.getCacheDir(), "update.apk");
+        File file = new File(context.getCacheDir(), "update.apk"); // ponytail: one left by a recreated activity is overwritten by the next check
         try {
             String got; try (OutputStream out = new FileOutputStream(file)) { got = fetch(r.apkUrl, MAX_APK, out); }
             if (!got.equals(want)) throw new IOException("The download does not match its SHA-256 checksum. Nothing was installed.");
-            verify(context, file);
+            verify(context, file, r.version());
             r.file = file; return r;
         } catch (Exception e) { file.delete(); throw e; }
     }
     private static List<Release> releases(String json) throws Exception {
-        JSONArray list = json.trim().startsWith("[") ? new JSONArray(json) : new JSONArray().put(new JSONObject(json)); // /releases or /releases/latest
+        JSONArray list = new JSONArray(json);
         List<Release> out = new ArrayList<>();
         for (int i = 0; i < list.length(); i++) {
             JSONObject release = list.getJSONObject(i); JSONArray assets = release.optJSONArray("assets");
-            String apk = null, apkUrl = null, sumsUrl = null; long size = 0;
+            String apk = null, apkUrl = null, sumsUrl = null;
             for (int j = 0; assets != null && j < assets.length(); j++) {
                 JSONObject asset = assets.getJSONObject(j); String name = asset.optString("name");
-                if (apk == null && APK.matcher(name).matches()) { apk = name; apkUrl = asset.optString("browser_download_url", null); size = asset.optLong("size"); }
+                if (apk == null && APK.matcher(name).matches()) { apk = name; apkUrl = asset.optString("browser_download_url", null); }
                 else if (name.startsWith("SHA256SUMS") && name.endsWith(".txt")) sumsUrl = asset.optString("browser_download_url", null);
             }
-            out.add(new Release(release.optString("tag_name"), release.optString("name"), release.optBoolean("draft"), apk, apkUrl, size, sumsUrl));
+            out.add(new Release(release.optString("tag_name"), release.optString("name"), apk, apkUrl, sumsUrl));
         }
         return out;
     }
@@ -147,8 +151,8 @@ public final class Updater extends BroadcastReceiver {
         }
         throw new IOException("Too many redirects.");
     }
-    /** Same package, same signing key as the installed app, and not an older version code. */
-    private static void verify(Context context, File apk) throws IOException {
+    /** Same package, same signing key as the installed app, the version its release names, and not an older version code. */
+    private static void verify(Context context, File apk, String version) throws IOException {
         PackageManager pm = context.getPackageManager(); PackageInfo got = pm.getPackageArchiveInfo(apk.getPath(), PackageManager.GET_SIGNING_CERTIFICATES), mine;
         try { mine = pm.getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES); } catch (PackageManager.NameNotFoundException e) { throw new IOException(e); }
         if (got == null || !context.getPackageName().equals(got.packageName)) throw new IOException("The download is not a Zakuroishi APK.");
@@ -156,10 +160,13 @@ public final class Updater extends BroadcastReceiver {
         if (got.signingInfo == null || mine.signingInfo == null || !Arrays.asList(got.signingInfo.hasMultipleSigners() ? got.signingInfo.getApkContentsSigners()
                 : got.signingInfo.getSigningCertificateHistory()).containsAll(Arrays.asList(mine.signingInfo.getApkContentsSigners())))
             throw new IOException("The download is not signed with this app's key. Nothing was installed.");
+        // ponytail: a mis-stamped APK (versionName not the tag's version) is refused, not installed and then offered again every day
+        if (!version.equals(got.versionName)) throw new IOException("The download is version " + got.versionName + ", not " + version + " as its release says. Nothing was installed.");
         if (got.getLongVersionCode() < mine.getLongVersionCode()) throw new IOException("The download is older than the installed app.");
     }
     /** Hands a verified APK to PackageInstaller; refuses in the game process or while a game holds its saves. Deletes the APK either way. Worker thread. */
     static void install(Context context, File apk) throws IOException {
+        // ponytail: not hashed again before install; Android itself still enforces the signer lineage and refuses a downgrade
         try {
             if (Application.getProcessName().endsWith(":game")) throw new IOException("Updates install from the library only.");
             File[] saves = new File(context.getFilesDir(), "savedata").listFiles();

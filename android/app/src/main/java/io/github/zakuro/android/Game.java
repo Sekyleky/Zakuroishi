@@ -534,6 +534,9 @@ public final class Game extends NativeActivity {
     private volatile SaveArchive.Guard saveGuard;
     /** Called before the native runtime opens any save files. */
     public String prepareSaves() {
+        // A pending update confirmed after the game starts would kill it mid-save: drop it. Never fails the launch.
+        try { android.content.pm.PackageInstaller installer = getPackageManager().getPackageInstaller();
+            for (android.content.pm.PackageInstaller.SessionInfo s : installer.getMySessions()) installer.abandonSession(s.getSessionId()); } catch (Exception ignored) { }
         try {
             String id = getIntent().getStringExtra("game_id");
             saveGuard = SaveArchive.lock(getFilesDir(), id);
