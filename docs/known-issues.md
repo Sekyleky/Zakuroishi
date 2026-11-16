@@ -9,9 +9,7 @@ with each release. Nothing here has been measured on more than one device, an AY
   own keyboard, so the dialog was not seen on a device.
 - **Mod stacking** (0.5.0) on a device. Remove mods only appeared on the Game files page.
 - **Unreleased, not run:** pinning a game to the home screen, importing a cheat file, cheat
-  switches, Remove cheats, importing a ROM-only folder, adding native code later, quick save by
-  hotkey, X and Y in the pause menu, loading from a slot with a thumbnail, touch on the
-  second-screen buttons, light theme and large font.
+  switches, Remove cheats, importing a ROM-only folder, adding native code later, touch on the second-screen buttons, light theme and large font.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.
 - **Save editor backups** (`user.backup-<ms>`, `:backups` in the picker) in a real editor.
@@ -30,9 +28,12 @@ with each release. Nothing here has been measured on more than one device, an AY
 ## Known problems
 
 - **Slow intro with frame generation:** Ultra Moon's intro ran at 75-80% speed with frame
-  generation at x4 and at 97-100% with it off (one launch each). On 2026-11-16 at x2 the first
-  300-frame window was 52.9% with the new Rest switch off and 88.4% with it on, one launch each;
-  x4 with the switch on is not measured.
+  generation at x4 and at 97-100% with it off (one launch each). On 2026-11-16 at x4 (120 Hz panel) the intro stayed at
+  88.7-93.8% after the first two windows with the new Rest switch off, and held 100.1-100.5% with
+  it on (two launches per side). With it on the panel shows about 60 distinct pictures a second
+  in the intro instead of about 107. The switch is on by default, so the slow intro at x4 now only
+  applies with the switch turned off (or a game that has it stored off). It was the better side in
+  every measured window and changed nothing in 30 FPS scenes.
 - **Unreleased builds:** Back in a game, or Save state in the pause menu, dropped to the home
   screen twice on 2026-11-15. It was not reproduced in 4 runs on 2026-11-16 (full logs, no crash
   or ANR); cause unknown. A code review found no path to the home screen.

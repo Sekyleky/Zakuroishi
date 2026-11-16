@@ -244,7 +244,7 @@ impl Default for Advanced {
             frame_generation: false,
             frame_generation_multiplier: 4,
             frame_generation_flow: 100,
-            frame_generation_rest: false,
+            frame_generation_rest: true, // measured on the Thor: 4x intro 89-93% -> 100%, no change at 30 FPS
             vsync_pacing: true,
             safe_gpu_shaders: true,
             turnip_sysmem: false,
@@ -454,7 +454,7 @@ mod tests {
         assert!(!Advanced::parse(r#"{"latch_short_presses":false}"#).unwrap().latch_short_presses);
         assert!(!settings.frame_generation && settings.frame_generation_multiplier == 4 && settings.frame_generation_flow == 100);
         assert!(Advanced::parse(r#"{"frame_generation":true}"#).unwrap().renderer_options().frame_generation);
-        assert!(!settings.frame_generation_rest && Advanced::parse(r#"{"frame_generation_rest":true}"#).unwrap().frame_generation_rest);
+        assert!(settings.frame_generation_rest && !Advanced::parse(r#"{"frame_generation_rest":false}"#).unwrap().frame_generation_rest);
         assert!(!settings.request_wait_idle);
         assert!(Advanced::parse(r#"{"request_wait_idle":true}"#).unwrap().request_wait_idle);
         assert!(!settings.short_vsync_queue);

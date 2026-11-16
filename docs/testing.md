@@ -39,11 +39,12 @@ Seen working:
   a game played the day before. The tile's touch menu offers Settings, Saves and Pin to home
   screen on this device.
 
-Not run: actually pinning a game (it changes the home screen), importing a cheat file, cheat
-switches, Remove cheats, importing a ROM-only folder, adding native code later, mod stacking, the
-software keyboard dialog (all need the system file picker or a game that asks for the keyboard);
-quick save by hotkey, X and Y in the pause menu, loading from a slot with a thumbnail, touch on the
-second-screen buttons, light theme, large font, and a live-HUD-only settings save.
+Not run in the morning session: actually pinning a game (it changes the home screen), importing a
+cheat file, cheat switches, Remove cheats, importing a ROM-only folder, adding native code later,
+mod stacking, the software keyboard dialog (all need the system file picker or a game that asks
+for the keyboard); quick save by hotkey, X and Y in the pause menu and loading from a slot with a
+thumbnail (all three seen in the afternoon, below); touch on the second-screen buttons, light
+theme, large font, and a live-HUD-only settings save.
 
 ### Rest in 60 FPS scenes
 
@@ -59,8 +60,57 @@ With the switch on and the run continued into the field (the game draws at 30), 
 150 passes per window, 60 distinct pictures/s, 100.2-100.7% speed. One window was 61.9% while the
 save loaded and the graph was first built (490 ms). A field screenshot looked correct.
 
-Not measured: 4x on a 120 Hz panel, where the intro ran at 75-80% on 2026-11-15; more than one
-launch per side; other games. The switch stays off by default.
+Not measured in this morning session: 4x on a 120 Hz panel (measured in the afternoon, below);
+more than one launch per side; other games. The switch is now on by default, set after these
+measurements: it was the better side in every measured window and changed nothing in 30 FPS scenes.
+
+### Afternoon session (2026-11-16)
+
+AYN Thor, battery 80%, display set to 120 Hz by the owner, same unreleased build. Pokémon X:
+
+- **Quick save hotkey**, bound to a spare key code through the adb hook: "Saved slot 0" was shown,
+  once per press.
+- **Pause menu shortcuts.** Y opens "Load quick state?"; B there returns to the pause menu (not to
+  the game). X quick-saves, closes the menu and shows "Saved slot 0".
+- **Load state list.** Quick slot and Slot 2 show their thumbnails; Slot 1, saved by an older
+  build, shows a blank tile. Loading Slot 2 through the confirm worked.
+
+Still not run: actually pinning a game to the home screen, importing a cheat file and the cheat
+switches, a ROM-only import and adding native code later, mod stacking, the software keyboard
+dialog.
+
+### Rest in 60 FPS scenes at 4x
+
+Ultra Moon, 3x + HD, Turnip driver, panel at 120 Hz, `frame_generation_multiplier` 4, two launches
+per side, alternating off, on, off, on. 300-frame benchmark windows from launch; the intro draws at
+60.
+
+| Run | Speed per window (%) | Presented per second | Generation passes | Audio underruns |
+| --- | --- | --- | --- | --- |
+| Off, 1 | 76.3, 80.5, 92.2, 89.4, 88.7, 93.3, 89.5 | 80-112 | 220 then 300 per window, about 5.2 ms GPU each | 4, 6, then 0 |
+| Off, 2 | 78.5, 79.7, 90.9, 90.5, 89.1, 93.8, 89.3 | 80-112 | same | 3, 7, then 0 |
+| On, 1 | 86.9, 88.4, 100.4, 100.1, 100.4, 100.3, 100.4 | about 60 | 0 | 1, 9, then 0 |
+| On, 2 | 86.3, 91.6, 100.5, 100.2, 100.4, 100.3, 100.2 | about 60 | 0 | 2, 5, then 0 |
+
+With the switch off the intro never reached full speed at 4x (88.7-93.8% after the first two
+windows). With it on it held 100.1-100.5% from the third window. The first two windows are below
+100% on both sides (launch). With the switch on the intro shows the game's own 60 pictures a
+second, so the panel shows about 60 distinct pictures there instead of about 107.
+
+Not measured: more than two launches per side, other games, the stock driver, input delay, and a
+long session moving between 60 and 30 FPS scenes many times.
+
+Continuing from the intro into the field at 4x on the 120 Hz panel (the game draws at 30 there),
+one launch per side, last six 300-frame windows:
+
+| Switch | Speed | Presented / distinct per second | Generation passes | Audio underruns |
+| --- | --- | --- | --- | --- |
+| On | 99.6-99.7% | about 119.3 / 119.3 | 150 per window, about 5.2 ms GPU | 0 |
+| Off | 99.7% | about 119.3 / 119.3 | 150 per window, about 5.3 ms GPU | 0 |
+
+Generation resumes after the rest, and the field is the same on both sides. Frame-hitch log lines
+over the whole launch: 16 with the switch on, 36 with it off. These lines are rate-limited to one
+a second, so this is an indication, not a count of hitches.
 
 ## Library, settings and pause menu rework (2026-11-15)
 
