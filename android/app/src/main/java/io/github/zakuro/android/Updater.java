@@ -152,8 +152,9 @@ public final class Updater extends BroadcastReceiver {
         PackageManager pm = context.getPackageManager(); PackageInfo got = pm.getPackageArchiveInfo(apk.getPath(), PackageManager.GET_SIGNING_CERTIFICATES), mine;
         try { mine = pm.getPackageInfo(context.getPackageName(), PackageManager.GET_SIGNING_CERTIFICATES); } catch (PackageManager.NameNotFoundException e) { throw new IOException(e); }
         if (got == null || !context.getPackageName().equals(got.packageName)) throw new IOException("The download is not a Zakuroishi APK.");
-        // ponytail: compares the current signer only; a future key rotation needs the lineage (getSigningCertificateHistory) here
-        if (got.signingInfo == null || !new HashSet<>(Arrays.asList(got.signingInfo.getApkContentsSigners())).equals(new HashSet<>(Arrays.asList(mine.signingInfo.getApkContentsSigners()))))
+        // Releases rotate keys (lineage): the installed app's current signer must be the download's signer or in its signing history.
+        if (got.signingInfo == null || mine.signingInfo == null || !Arrays.asList(got.signingInfo.hasMultipleSigners() ? got.signingInfo.getApkContentsSigners()
+                : got.signingInfo.getSigningCertificateHistory()).containsAll(Arrays.asList(mine.signingInfo.getApkContentsSigners())))
             throw new IOException("The download is not signed with this app's key. Nothing was installed.");
         if (got.getLongVersionCode() < mine.getLongVersionCode()) throw new IOException("The download is older than the installed app.");
     }
