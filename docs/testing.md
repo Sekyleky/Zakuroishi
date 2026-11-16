@@ -7,9 +7,30 @@ belong to the release or build they were taken on; the newest section is first.
 ## 0.6.0 and nightly release builds (2026-11-16, built from `b100fb0`)
 
 Published without a device run. The two release APKs (`0.6.0` and `0.6.0-nightly`, version code
-16, release certificate) were not installed or run on a device. Installing over 0.5.0, and the two
-builds over each other, was not run. The features were checked with earlier builds of this branch,
-recorded below. Host checks on the release tree: zakuro-android 47 passed, Java host checks pass.
+16, release certificate) were smoke-tested on the Thor on the same day, after publishing, see the
+next section. The features were checked with earlier builds of this branch, recorded below. Host
+checks on the release tree: zakuro-android 47 passed, Java host checks pass.
+
+### Smoke test of the release APKs (2026-11-16, after publishing)
+
+AYN Thor. Before the test the device had the earlier unreleased test build of this branch (version
+code 15), so this was not an install over the released 0.5.0; that remains not run.
+
+- `adb install -r` of `Zakuroishi-0.6.0.apk` over version code 15: Success, version code 16,
+  0.6.0. The library still listed all games. Pokémon X started and ran at full speed on the
+  language-select screen (60.2 fps, 100.6% speed). Pause menu, Exit to library worked.
+- Stable build: Setup help says the native code file is required; the tile's ⋯ list has Settings
+  and Saves, no Pin to home screen.
+- Nightly installed over stable: Success, 0.6.0-nightly. Games still listed. The ⋯ list shows Pin
+  to home screen (not selected). Setup help says `title.so` is optional.
+- Stable installed over the nightly again: Success, games still listed.
+- Not covered: play past the first screen, saves, the Pin action itself, a ROM-only import, a game
+  with the second screen on, install over the released 0.5.0.
+- Open observations, cause unknown: (a) with injected key presses held 150 ms the library
+  highlight moved unexpectedly and one A press started the neighbouring game; plain presses
+  worked; not yet tried with physical buttons. (b) A game run for about 40 s still showed "Not
+  played yet". (c) In Setup help, `title.so` is drawn as an underlined link. (d) The HUD text is
+  slightly overlapped by the corner of the pause dialog.
 
 ## Rework re-check and Rest in 60 FPS scenes (2026-11-16)
 

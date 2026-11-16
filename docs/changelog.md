@@ -4,11 +4,16 @@
 
 ## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
 
-The release APKs were not installed or run on a device. The features were checked on one device,
-an AYN Thor, on 2026-11-15 and 2026-11-16 with earlier builds of this branch, see
+The release APKs were published without a device run and smoke-tested on the Thor afterwards on
+2026-11-16: install over an earlier test build (version code 15), the stable and nightly builds
+over each other, the library, and Pokémon X on its first screen. Installing over the released 0.5.0,
+play past the first screen, saves, the Pin action, a ROM-only import and the second screen were not
+run ([testing](testing.md#smoke-test-of-the-release-apks-2026-11-16-after-publishing)). The
+features were checked on one device, an AYN Thor, on 2026-11-15 and 2026-11-16 with earlier builds
+of this branch, see
 [testing](testing.md#library-settings-and-pause-menu-rework-2026-11-15) and
 [testing](testing.md#rework-re-check-and-rest-in-60-fps-scenes-2026-11-16). Release notes:
-[0.6.0](releases/android-0.6.0.md). Two features were not run on the device and are only in the
+[0.6.0](releases/android-0.6.0.md). Two features were not run on the device beyond that and are only in the
 nightly build (version name `0.6.0-nightly`): importing a game without native code, and Pin to
 home screen. 0.6.0 refuses a folder without native code and hides Pin to home screen.
 

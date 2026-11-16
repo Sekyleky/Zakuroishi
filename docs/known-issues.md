@@ -8,6 +8,8 @@ page with each release. Nothing here has been measured on more than one device, 
 - **The software keyboard dialog** (0.5.0). Ocarina of Time 3D's file name screen uses the game's
   own keyboard, so the dialog was not seen on a device.
 - **Mod stacking** (0.5.0) on a device. Remove mods only appeared on the Game files page.
+- **Release APKs, smoke test only (2026-11-16):** installing over the released 0.5.0, play past
+  the first screen, saves, and a game with the second screen on were not run with them.
 - **Nightly build only, not run:** pinning a game to the home screen, importing a ROM-only folder
   and adding native code later. 0.6.0 hides Pin to home screen and refuses a folder without
   native code.
@@ -31,6 +33,12 @@ page with each release. Nothing here has been measured on more than one device, 
 - Code mods: only the Ocarina of Time 3D free camera was run, and not its L + R overlay.
 
 ## Known problems
+
+- **Seen once on the Thor on 2026-11-16, cause unknown, open:** with injected key presses held
+  150 ms the library highlight moved unexpectedly and one A press started the neighbouring game
+  (plain presses worked; not tried with physical buttons). A game run for about 40 s still showed
+  "Not played yet". In Setup help `title.so` is drawn as an underlined link. The HUD text is
+  slightly overlapped by the corner of the pause dialog.
 
 - **Slow intro with frame generation:** Ultra Moon's intro ran at 75-80% speed with frame
   generation at x4 and at 97-100% with it off (one launch each). On 2026-11-16 at x4 (120 Hz panel) the intro stayed at

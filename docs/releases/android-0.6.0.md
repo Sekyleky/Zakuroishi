@@ -5,10 +5,14 @@ and Default settings for every game, a pause menu with save-state lists, hotkeys
 thumbnails, cheats, and frame generation that rests in 60 FPS scenes. It is made to install over
 0.5.0 and keep games, settings and saves.
 
-**The 0.6.0 and nightly APKs themselves were not installed or run on a device.** The features were
-checked on one device, an AYN Thor, on 2026-11-15 and 2026-11-16, with earlier builds of the same
-branch, mostly with Pokémon X and Pokémon Ultra Moon. Installing over 0.5.0, and installing the
-stable and nightly builds over each other, was not run. Both APKs were built from commit `b100fb0`;
+**The 0.6.0 and nightly APKs were published without a device run.** The features were checked on
+one device, an AYN Thor, on 2026-11-15 and 2026-11-16, with earlier builds of the same branch,
+mostly with Pokémon X and Pokémon Ultra Moon. Afterwards, on 2026-11-16, both APKs were
+smoke-tested on the Thor: installed over an earlier test build (version code 15, not the released
+0.5.0), the library listed all games, Pokémon X ran at full speed on its first screen, and the
+stable and nightly builds installed over each other and kept the games. Installing over the
+released 0.5.0, play past the first screen, saves, the Pin action and a ROM-only import were not
+run. Both APKs were built from commit `b100fb0`;
 later commits change only docs. What was and was not seen is in the verification record:
 [2026-11-15](https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/testing.md#library-settings-and-pause-menu-rework-2026-11-15)
 and
@@ -70,8 +74,8 @@ Two features that were not run on the device are only in the nightly build, see 
 ## In the nightly build only
 
 The nightly build (version name `0.6.0-nightly`) is the same code with two more features turned
-on. Neither was run on a device. It has the same version code and signing key as 0.6.0, so either
-should install over the other and keep games, settings and saves; that was not run on a device.
+on. Neither was run on a device. It has the same version code and signing key as 0.6.0, and either
+installed over the other on the Thor with the games still listed.
 
 - **Importing a game without native code.** A folder with only a decrypted ROM can be added. The
   game runs in the interpreter, and native code can be added later from its settings. Interpreter
@@ -97,8 +101,9 @@ should install over the other and keep games, settings and saves; that was not r
 
 ## Limits
 
-- The release APKs were not installed or run on a device; the checks below used earlier builds of
-  the same branch. Installing over 0.5.0 or over the nightly was not run.
+- The release APKs got only a short smoke test on the Thor after publishing (see above); the
+  checks below used earlier builds of the same branch. Installing over the released 0.5.0 was not
+  run.
 - One device (an AYN Thor), mostly two games (Pokémon X and Pokémon Ultra Moon). Driven with
   controller keys over adb; touch was not used. The hotkeys were bound through the adb settings
   hook, not through the Button mapping page.
