@@ -4,6 +4,13 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## 0.6.0 and nightly release builds (2026-11-16, built from `b100fb0`)
+
+Published without a device run. The two release APKs (`0.6.0` and `0.6.0-nightly`, version code
+16, release certificate) were not installed or run on a device. Installing over 0.5.0, and the two
+builds over each other, was not run. The features were checked with earlier builds of this branch,
+recorded below. Host checks on the release tree: zakuro-android 47 passed, Java host checks pass.
+
 ## Rework re-check and Rest in 60 FPS scenes (2026-11-16)
 
 AYN Thor, unreleased build of branch `audit-fixes` at the commit after `1a6b8e8`, driven with

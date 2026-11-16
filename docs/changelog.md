@@ -4,7 +4,8 @@
 
 ## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
 
-Checked on one device, an AYN Thor, on 2026-11-15 and 2026-11-16, see
+The release APKs were not installed or run on a device. The features were checked on one device,
+an AYN Thor, on 2026-11-15 and 2026-11-16 with earlier builds of this branch, see
 [testing](testing.md#library-settings-and-pause-menu-rework-2026-11-15) and
 [testing](testing.md#rework-re-check-and-rest-in-60-fps-scenes-2026-11-16). Release notes:
 [0.6.0](releases/android-0.6.0.md). Two features were not run on the device and are only in the

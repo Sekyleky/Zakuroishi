@@ -2,11 +2,14 @@
 
 A new library with game tiles and details on the second screen, a short settings page with presets
 and Default settings for every game, a pause menu with save-state lists, hotkeys, save-state
-thumbnails, cheats, and frame generation that rests in 60 FPS scenes. Installs over 0.5.0 and keeps
-games, settings and saves.
+thumbnails, cheats, and frame generation that rests in 60 FPS scenes. It is made to install over
+0.5.0 and keep games, settings and saves.
 
-**Checked on one device**, an AYN Thor, on 2026-11-15 and 2026-11-16, mostly with Pokémon X and
-Pokémon Ultra Moon. What was and was not seen is in the verification record:
+**The 0.6.0 and nightly APKs themselves were not installed or run on a device.** The features were
+checked on one device, an AYN Thor, on 2026-11-15 and 2026-11-16, with earlier builds of the same
+branch, mostly with Pokémon X and Pokémon Ultra Moon. Installing over 0.5.0, and installing the
+stable and nightly builds over each other, was not run. Both APKs were built from commit `b100fb0`;
+later commits change only docs. What was and was not seen is in the verification record:
 [2026-11-15](https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/testing.md#library-settings-and-pause-menu-rework-2026-11-15)
 and
 [2026-11-16](https://github.com/Sekyleky/Zakuroishi/blob/android-handheld/docs/testing.md#rework-re-check-and-rest-in-60-fps-scenes-2026-11-16).
@@ -68,7 +71,7 @@ Two features that were not run on the device are only in the nightly build, see 
 
 The nightly build (version name `0.6.0-nightly`) is the same code with two more features turned
 on. Neither was run on a device. It has the same version code and signing key as 0.6.0, so either
-installs over the other and keeps games, settings and saves.
+should install over the other and keep games, settings and saves; that was not run on a device.
 
 - **Importing a game without native code.** A folder with only a decrypted ROM can be added. The
   game runs in the interpreter, and native code can be added later from its settings. Interpreter
@@ -94,6 +97,8 @@ installs over the other and keeps games, settings and saves.
 
 ## Limits
 
+- The release APKs were not installed or run on a device; the checks below used earlier builds of
+  the same branch. Installing over 0.5.0 or over the nightly was not run.
 - One device (an AYN Thor), mostly two games (Pokémon X and Pokémon Ultra Moon). Driven with
   controller keys over adb; touch was not used. The hotkeys were bound through the adb settings
   hook, not through the Button mapping page.
