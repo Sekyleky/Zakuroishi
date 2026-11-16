@@ -114,6 +114,7 @@ public final class Launcher extends Activity {
             public void afterTextChanged(Editable s) {}
         });
         showLibrary(); update();
+        if (state == null && Updater.due(this)) task.checkUpdate(getApplicationContext(), false); // nightly build only: self-update not yet run on a device
         View first = ids.isEmpty() ? null : list.findViewWithTag(ids.get(0) + ".play"); if (first == null || !first.requestFocus()) add.requestFocus();
     }
     int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
@@ -295,15 +296,37 @@ public final class Launcher extends Activity {
     boolean busy() { return task != null && task.busy; }
     /** The header's Menu (also Start). */
     private void tools() {
-        chooser("Menu", new String[][]{
+        String[][] items = {
             {"Default settings…", "Settings every game starts with until you change them in that game's Settings."},
             {"Setup help", "What a game folder needs, and how to play."},
             {"Frontends…", "Export launch files so another game frontend can start your games."},
             {"Storage…", "See free space and delete old imports and backups you no longer need."},
             {"Export diagnostics…", "Save a text file with app, device and log details to attach to a bug report. It contains no games, saves or textures."},
             {"Export settings…", "Save every game's settings and controller mapping to a file."},
-            {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."}},
-            new Runnable[]{() -> SettingsDialog.show(this, GameSettings.DEFAULTS, null, "All games", false, this::showLibrary, null, null, null, null), () -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings});
+            {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."},
+            {"Check for updates…", "Look for a newer Zakuroishi on GitHub, and choose whether to check when the app opens."}};
+        chooser("Menu", GameImport.nightly(this) ? items : Arrays.copyOf(items, 7), // nightly build only: self-update not yet run on a device
+            new Runnable[]{() -> SettingsDialog.show(this, GameSettings.DEFAULTS, null, "All games", false, this::showLibrary, null, null, null, null), () -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings, this::updates});
+    }
+    /** Menu > Check for updates (nightly build only): the launch check switch and a check now. */
+    private void updates() {
+        SharedPreferences prefs = Updater.preferences(this);
+        LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
+        content.addView(text("This is version " + Updater.installed(this) + ". Checking contacts GitHub and sends nothing about you or your games. "
+                + "An update installs over this app; your games, saves and settings stay.", 16, p.ink));
+        CheckBox auto = new CheckBox(this); auto.setText("Check for updates when the app opens"); auto.setTextColor(p.ink); auto.setMinHeight(dp(56));
+        auto.setChecked(prefs.getBoolean("auto", true)); auto.setOnCheckedChangeListener((v, on) -> prefs.edit().putBoolean("auto", on).apply()); content.addView(auto);
+        ScrollView scroll = new ScrollView(this); scroll.addView(content);
+        controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Updates").setView(scroll)
+                .setPositiveButton("Check now", (d, w) -> task.checkUpdate(getApplicationContext(), true)).setNegativeButton("Close", null).create()).show();
+    }
+    /** Install / Later for a downloaded, verified update; Later is lit. */
+    private void offer(Updater.Release update) {
+        controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Version " + update.version() + " is available")
+                .setMessage(update.name + "\n\nInstalling replaces this app in place: your games, saves and settings stay. Exit a running game to the library first. "
+                        + "Android may ask you to allow installs from Zakuroishi and to confirm the update.")
+                .setPositiveButton("Install", (d, w) -> task.install(getApplicationContext(), update.file))
+                .setNegativeButton("Later", (d, w) -> update.file.delete()).setOnCancelListener(d -> update.file.delete()).create(), true).show();
     }
     /** The tile's touch-only ⋯: Settings, Saves, and Pin where the home screen supports it (nightly build only). */
     private void more(String id) {
@@ -622,6 +645,7 @@ public final class Launcher extends Activity {
         if (task.error != null && !isFinishing()) { String error = task.error; task.error = null;
             String title = task.errorTitle == null ? "Couldn't complete the operation" : task.errorTitle; task.errorTitle = null;
             controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle(title).setMessage(error).setPositiveButton("OK", null).create()).show(); }
+        if (task.update != null && !task.busy && !isFinishing()) { Updater.Release ready = task.update; task.update = null; offer(ready); }
     }
     /** Returns the text for the success dialog: the driver library's SHA-256. */
     private static String installDriver(Context context, String id, Uri uri) throws Exception {
@@ -701,6 +725,31 @@ public final class Launcher extends Activity {
         void importLossless(Context context, Uri uri) { run(context, null, uri, 7, false); }
         void importCheats(Context context, String id, Uri uri) { run(context, id, uri, 8, false); }
         void transferSave(Context context, String id, Uri uri, boolean restore) { run(context, id, uri, restore ? 5 : 4, false); }
+        Updater.Release update; // a verified download waiting for its Install / Later prompt
+        private boolean checking, loud;
+        /** Looks for a newer build and downloads it. From Menu it shows progress and every outcome; at launch it stays silent unless an update is ready. */
+        void checkUpdate(Context context, boolean manual) {
+            if (busy) return;
+            // A Menu check during the silent one takes over its result.
+            if (manual) { busy = true; loud = true; error = null; errorTitle = "Checking for updates failed"; message = "Checking for updates…"; refresh(false); }
+            if (checking) return; checking = true;
+            Updater.preferences(context).edit().putLong("checked", System.currentTimeMillis()).apply();
+            new Thread(() -> {
+                Updater.Release found = null; String failure = null;
+                try { found = Updater.check(context); }
+                catch (java.net.UnknownHostException | java.net.SocketTimeoutException | java.net.ConnectException e) { failure = "Couldn't reach GitHub. Check the connection and try again."; }
+                catch (Exception e) { failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(); }
+                final Updater.Release result = found; final String problem = failure;
+                main.post(() -> { checking = false; update = result;
+                    if (loud) { loud = false; busy = false; message = "";
+                        if (problem != null) error = problem;
+                        else if (result == null) { errorTitle = "Up to date"; error = "Version " + Updater.installed(context) + " is the newest."; } }
+                    refresh(false); });
+            }, "update-check").start();
+        }
+        void install(Context context, File apk) {
+            simple("Installing the update failed", "Preparing the update…", false, () -> { Updater.install(context, apk); return "Update handed to Android. Follow its prompt if one appears."; });
+        }
         interface Job { String run() throws Exception; }
         /** Runs a short job off the main thread; the job returns the status line for success. */
         private void simple(String failTitle, String working, boolean libraryChanged, Job job) {

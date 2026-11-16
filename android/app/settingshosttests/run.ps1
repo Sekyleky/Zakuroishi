@@ -19,6 +19,7 @@ $sources += "$repo/android/app/tests/NativeFixture.java"
 $sources += "$repo/android/app/tests/GameImportCheck.java"
 $sources += "$repo/android/app/tests/ImportPlanCheck.java"
 $sources += "$repo/android/app/tests/NativeLibraryCheck.java"
+$sources += "$repo/android/app/tests/UpdaterCheck.java"
 & "$JavaHome/bin/javac$exe" --release 11 -classpath $jar -d $classes @sources "$PSScriptRoot/GameSettingsCheck.java" "$PSScriptRoot/SettingsBridgeCheck.java" "$PSScriptRoot/DriverPackageCheck.java"
 if ($LASTEXITCODE -ne 0) { throw 'Java compilation failed' }
 # class name, extra argument, failure text
@@ -30,7 +31,8 @@ $checks = @(
     @('DebugSettingsCheck', $null, 'Debug settings checks failed'),
     @('GameImportCheck', $null, 'Game import checks failed'),
     @('ImportPlanCheck', $null, 'Import plan checks failed'),
-    @('NativeLibraryCheck', $null, 'Native library checks failed')
+    @('NativeLibraryCheck', $null, 'Native library checks failed'),
+    @('UpdaterCheck', $null, 'Updater checks failed')
 )
 foreach ($c in $checks) {
     & "$JavaHome/bin/java$exe" -cp $cp "io.github.zakuro.android.$($c[0])" @(if ($c[1]) { $c[1] })

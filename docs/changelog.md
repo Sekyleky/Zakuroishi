@@ -3,6 +3,19 @@
 ## Unreleased
 
 - **Fixes:** Exit to library no longer crashes the game process (which also lost the play time), and "title.so" in the help text is no longer a link.
+- **Updates from inside the app (nightly build only, not run on a device):** Menu → Check for
+  updates… finds a newer release on GitHub, downloads it, checks it against the release's
+  `SHA256SUMS` and the app's own package name and signing key, and offers Install / Later.
+  Check for updates when the app opens (on by default) does this at most once a day and stays
+  silent on failure. Nothing older is offered. Install is refused while a game is running.
+  See [android](android.md#updates-from-inside-the-app-nightly-build-only).
+- **Nightly builds contact GitHub:** the nightly APK now has `INTERNET`,
+  `REQUEST_INSTALL_PACKAGES` and `UPDATE_PACKAGES_WITHOUT_USER_ACTION`; the stable APK still
+  has no permissions. `build-windows.ps1` adds them only when the version name contains
+  `-nightly` and fails if a stable APK has `INTERNET`.
+- **Build:** nightly version names carry their tag date, `-VersionName 0.6.0-nightly.YYYYMMDD`
+  for tag `nightly-YYYYMMDD`, so the updater can tell nightlies apart. A name containing
+  `-nightly` (no longer only ending in it) turns on the nightly features.
 
 ## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
 

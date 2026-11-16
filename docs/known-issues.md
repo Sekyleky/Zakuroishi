@@ -13,6 +13,11 @@ page with each release. Nothing here has been measured on more than one device, 
 - **Nightly build only, not run:** pinning a game to the home screen, importing a ROM-only folder
   and adding native code later. 0.6.0 hides Pin to home screen and refuses a folder without
   native code.
+- **Updates from inside the app (nightly build only, not run):** the GitHub check, download,
+  checksum and signer checks, the Install / Later prompt, the system install confirmation, the
+  skipped confirmation on Android 12+ after a self-installed update, and the refusal while a game
+  is running. Only the version comparison, release choice, checksum-line parsing and allowed hosts
+  are host-checked (`UpdaterCheck`); reading GitHub's JSON needs a device.
 - **0.6.0, not run:** touch on the second-screen buttons, light theme, large font, and saving
   settings while only the HUD changed in a running game. For cheats: keeping the file across a
   re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.

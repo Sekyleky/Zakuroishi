@@ -6,7 +6,8 @@ param(
     [string]$OutputDirectory = '',
     [string]$BuildTools = '36.0.0',
     [string]$Platform = 'android-37.0',
-    # Overrides the manifest's versionName, e.g. 0.6.0-nightly; a name ending in -nightly turns on unconfirmed features.
+    # Overrides the manifest's versionName, e.g. 0.6.0-nightly.20261116 (the date of its nightly-YYYYMMDD tag, which the
+    # updater compares); a name containing -nightly turns on unconfirmed features and adds the updater's permissions.
     [string]$VersionName = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -95,6 +96,13 @@ try {
     Invoke-Tool "$ndkBin/llvm-strip.exe" @('-o',"$work/lib/arm64-v8a/libzakuro_android.so",
         "$env:CARGO_TARGET_DIR/aarch64-linux-android/release/libzakuro_android.so")
     $manifest = Join-Path $repo 'android/app/src/main/AndroidManifest.xml'
+    $nightly = $VersionName -match '-nightly'
+    # Nightly only: the updater's permissions. Stable keeps no INTERNET, so a title.so there cannot open network connections (SECURITY.md).
+    if ($nightly) {
+        $permissions = (@('INTERNET','REQUEST_INSTALL_PACKAGES','UPDATE_PACKAGES_WITHOUT_USER_ACTION') | ForEach-Object { "<uses-permission android:name=`"android.permission.$_`" />" }) -join ''
+        $text = (Get-Content -Raw -LiteralPath $manifest) -replace '(<uses-sdk [^>]*/>)', "`$1$permissions"
+        $manifest = Join-Path $work 'AndroidManifest.xml'; Set-Content -LiteralPath $manifest -Value $text -NoNewline -Encoding utf8NoBOM
+    }
     $sources = @(Get-ChildItem "$repo/android/app/src/main/java" -Filter '*.java' -Recurse | Sort-Object FullName | ForEach-Object FullName)
     if (!$sources.Count) { throw 'No Java sources' }
     Invoke-Tool "$tools/aapt2.exe" @('compile','--dir',"$repo/android/app/src/main/res",'-o',"$work/resources.zip")
@@ -156,6 +164,7 @@ try {
     $badging | Add-Content $log
     if (!($badging -match "package: name='io.github.zakuro.android'") -or
         !($badging -match "launchable-activity: name='io.github.zakuro.android.Launcher'")) { throw 'APK identity mismatch' }
+    if ([bool]($badging -match "uses-permission: name='android.permission.INTERNET'") -ne $nightly) { throw 'INTERNET must be in the nightly build only' }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [IO.Compression.ZipFile]::OpenRead($apk)
     try {

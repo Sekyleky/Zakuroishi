@@ -39,6 +39,11 @@ network connections. That limits sending your files away from the device. It doe
 a bad library from damaging or deleting what the app can reach, such as saves and imported
 games, or from crashing the device's graphics driver. Android's sandbox still applies.
 
+This holds for the stable APK only. The nightly APK (version name containing `-nightly`) adds
+`INTERNET`, `REQUEST_INSTALL_PACKAGES` and `UPDATE_PACKAGES_WITHOUT_USER_ACTION` for its
+in-app updater. Android grants a permission to the whole app, so in the nightly build a
+`title.so` can open network connections too. Use the stable APK if that matters to you.
+
 ## Saves and the file picker
 
 Each game's in-game saves are offered as **Zakuroishi saves** in Android's file picker, for

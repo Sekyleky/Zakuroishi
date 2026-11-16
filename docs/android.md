@@ -30,6 +30,32 @@ signed differently and will not update over them); do not uninstall to repair a 
 as uninstalling can delete saves. This app has its own package
 `io.github.zakuro.android` and does not replace Pocket Native.
 
+### Updates from inside the app (nightly build only)
+
+Not run on a device yet. In the nightly build, **Menu → Check for updates…** looks at this
+project's GitHub releases. A nightly build is offered the newest release (nightly or stable)
+when it is newer; a stable release is offered only when its version number is higher. Nightly
+builds are compared by the date in their version name (`0.6.0-nightly.20261116`, the date of
+the `nightly-20261116` tag); `0.6.0-nightly` without a date counts as older than any dated
+nightly. Nothing older is ever offered.
+
+The APK is downloaded to the app's cache over HTTPS from GitHub only (at most 64 MiB), checked
+against the release's `SHA256SUMS` file, and checked to be Zakuroishi signed with the same key as
+the installed app. Only then does **Install** hand it to Android's installer; **Later** deletes
+it. It installs over the app like any update, so games, saves and settings stay. Exit a running
+game to the library first: the install is refused while a game holds its saves open. Android asks
+once to allow installs from Zakuroishi and shows its own confirmation; on Android 12 and later
+that confirmation may be skipped after the first update the app installed itself.
+
+The same dialog has **Check for updates when the app opens**, on by default. Then the nightly
+build contacts `api.github.com` at most once a day when the library opens, says nothing on
+failure, and when there is a newer version downloads and checks it in the background and shows
+the same Install / Later prompt. Untick it to stop the automatic check; the app then contacts
+GitHub only when you choose **Check now**. Requests carry a generic user agent and no device,
+game or account details. The nightly APK declares `INTERNET`, `REQUEST_INSTALL_PACKAGES` and
+`UPDATE_PACKAGES_WITHOUT_USER_ACTION` for this; the stable APK declares none of them and makes no
+network request (see [SECURITY](../SECURITY.md#network)).
+
 With authorized USB debugging:
 
 ```powershell
@@ -63,7 +89,7 @@ Other build outputs, source files and unrelated files are not copied.
 
 ## Without native code (nightly build only)
 
-In the nightly build (version name ending in `-nightly`), a folder holding only the decrypted ROM
+In the nightly build (version name containing `-nightly`), a folder holding only the decrypted ROM
 can be imported. This import has not been run on a device yet. Installing 0.6.0 over the nightly
 keeps a game imported this way; only new imports need native code. The game runs in the interpreter, which
 is slower. Measured once on one device (an AYN Thor), one scene each, interpreter only: New Super
@@ -152,7 +178,8 @@ The library shows games as tiles with their own icon, most recently played first
 time. The focused game's details show under the header and, when a second screen is available,
 large there with **Play**, **Settings** and **Saves** buttons. The header has **Add game** and
 **Menu** (Start button). **Menu** holds **Default settings…**, Setup help, Frontends…, Storage…, Export diagnostics…,
-Export settings… and Import settings…. On a tile, the touch-only **⋯** opens Settings and Saves. In the nightly build it
+Export settings… and Import settings…; the nightly build adds **Check for updates…** (see
+[Install or update](#updates-from-inside-the-app-nightly-build-only)). On a tile, the touch-only **⋯** opens Settings and Saves. In the nightly build it
 also offers, where the home screen supports it, **Pin to home screen**, which adds an icon that
 starts that game. The entry was offered on the Thor; actually pinning was not run.
 

@@ -24,12 +24,12 @@ final class GameImport {
             + "Add the folder that has the game's title.so, or use the nightly build, which can add a game without it. No files were copied.";
     private static Boolean nightly;
     /**
-     * Whether this is the nightly build (versionName ends with "-nightly"). Features not yet seen working on a device are on
-     * only there. A feature moves to stable once a device check of it is recorded in docs/testing.md.
+     * Whether this is the nightly build (versionName X.Y.Z-nightly or X.Y.Z-nightly.YYYYMMDD). Features not yet seen working on a
+     * device are on only there. A feature moves to stable once a device check of it is recorded in docs/testing.md.
      */
     static boolean nightly(android.content.Context context) {
         if (nightly == null) {
-            try { nightly = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName.endsWith("-nightly"); }
+            try { nightly = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName.contains("-nightly"); }
             catch (Exception e) { nightly = false; }
         }
         return nightly;
