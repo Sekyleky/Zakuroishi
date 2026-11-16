@@ -4,6 +4,64 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Rework re-check and Rest in 60 FPS scenes (2026-11-16)
+
+AYN Thor, unreleased build of branch `audit-fixes` at the commit after `1a6b8e8`, driven with
+`adb shell input keyevent`. The battery was 4-12% while charging on AC. The panel stayed at 60 Hz
+all session, so frame generation ran at 2x, never 4x. One device.
+
+Seen working:
+
+- **Pause menu.** Back, D-pad down, A (Save state), repeated 4 times on Pokémon X (2 with the
+  library open first, 2 from a force-stop), with full logs kept (main, system, events, crash). The
+  Save state list opened every time. No crash, ANR, process death or activity finish. The drop to
+  the home screen from 2026-11-15 did not reproduce; its cause is still unknown. A code review
+  found no path from Back or Save state to the home screen in a live game window.
+- **Save-state thumbnail.** Saving to an empty slot put a thumbnail in the list for that slot.
+  Older states show a blank tile and are listed normally.
+- **HUD tile.** Clock and battery appeared at once, with no restart.
+- **Screenshot tile.** A PNG was written to `Pictures/Zakuroishi`: both 3DS screens of the top
+  display, correct colours, no menu or HUD in it.
+- **Hotkeys**, bound through the adb settings hook to spare key codes: swap screens, screenshot
+  (file written), quick load (opens "Load quick state?" with Cancel focused; B cancels and the game
+  resumes) and pause menu. Each fired once per press.
+- **adb settings hook.** `controller_bindings` was set and cleared.
+- **Default settings** (Menu, Start). Toggling "Swap top and bottom screens" there and saving
+  changed the value read back for two games with no value of their own (Pokémon Rutile Ruby and
+  Ultra Moon); toggling it back restored both.
+- **Settings migration on real data.** Ultra Moon's settings read back the same as the day before
+  for every key the tests did not touch.
+- **Game settings.** Simple page, "changed" markers, the All settings / Button mapping / Game
+  files rows, and "Use defaults for this game" (it changes the draft only; Cancel then Discard left
+  the game unchanged). The Game files page showed Import texture pack, Import mod, Remove mods,
+  Import cheats, Add or replace native game code, Manage saves and Clear shader cache.
+- **Library.** Tile grid with focus colours on the labels, play time, and "Played 20 hours ago" on
+  a game played the day before. The tile's touch menu offers Settings, Saves and Pin to home
+  screen on this device.
+
+Not run: actually pinning a game (it changes the home screen), importing a cheat file, cheat
+switches, Remove cheats, importing a ROM-only folder, adding native code later, mod stacking, the
+software keyboard dialog (all need the system file picker or a game that asks for the keyboard);
+quick save by hotkey, X and Y in the pause menu, loading from a slot with a thumbnail, touch on the
+second-screen buttons, light theme, large font, and a live-HUD-only settings save.
+
+### Rest in 60 FPS scenes
+
+Ultra Moon, 3x + HD, Turnip driver, panel at 60 Hz (so 2x), one launch per side, 300-frame
+benchmark windows from launch.
+
+| Switch | Speed per window | Generation passes |
+| --- | --- | --- |
+| Off | 52.9%, 92.9%, 100.6%, 100.1%, 100.4%, 100.0% | 212 then 300 per window, about 2.8 ms GPU each (the intro draws at 60) |
+| On | 88.4%, 89.7%, 100.6%, 100.2%, 100.4%, 100.0% | 0 in every intro window |
+
+With the switch on and the run continued into the field (the game draws at 30), generation resumed:
+150 passes per window, 60 distinct pictures/s, 100.2-100.7% speed. One window was 61.9% while the
+save loaded and the graph was first built (490 ms). A field screenshot looked correct.
+
+Not measured: 4x on a 120 Hz panel, where the intro ran at 75-80% on 2026-11-15; more than one
+launch per side; other games. The switch stays off by default.
+
 ## Library, settings and pause menu rework (2026-11-15)
 
 AYN Thor, unreleased builds of this branch, driven with `adb shell input keyevent` (no touch).
@@ -16,10 +74,11 @@ The Java host checks pass. Screenshots were read on both displays.
 | Start opens Menu, X opens Saves, dialogs open with a button lit | Seen |
 | Settings simple page, "changed" markers, preset list | Seen |
 | Pause menu layout, Save state list with Quick slot first | Seen |
-| Back from the game, or Save state, dropped to the home screen | Seen in two of four runs, not from a clean start. **Cause not found** |
-| Screenshot tile, HUD tile, live HUD save | Not run |
-| Default settings reaching a game, the one-time settings migration on real data | Not run |
-| Pin to home screen | Not run |
+| Back from the game, or Save state, dropped to the home screen | Seen in two of four runs on 2026-11-15, not from a clean start. Not reproduced in 4 runs on 2026-11-16. **Cause not found** |
+| Screenshot tile, HUD tile | Seen on 2026-11-16 (see above) |
+| Live HUD save (changing the HUD tile and saving settings while the game runs) | Not run |
+| Default settings reaching a game, the one-time settings migration on real data | Seen on 2026-11-16 (see above) |
+| Pin to home screen | Offered in the tile menu on 2026-11-16; actually pinning was not run |
 | Importing a ROM-only folder and adding native code later | Not run (needs the file picker) |
 | Touch on the second-screen buttons, light theme, large font | Not run |
 

@@ -22,15 +22,18 @@ Not released. What was seen on the Thor and what was not is in
   the interpreter; native code can be added later from the game's settings. See
   [native library](native-library.md).
 - **Hotkeys:** a controller key can be mapped to quick save, quick load (asks first), swap
-  screens, screenshot or the pause menu. Not run on a device.
-- **Save-state thumbnails:** each slot shows a small picture of where it was saved. Not run on a
-  device.
+  screens, screenshot or the pause menu. Swap screens, screenshot, quick load and the pause menu
+  were seen on the Thor; quick save was not pressed.
+- **Save-state thumbnails:** each slot shows a small picture of where it was saved. Seen on the
+  Thor for a new save; loading from a slot with a thumbnail was not run.
 - **Cheats:** Game files has Import cheats (one text file in the common cheat format), a switch
-  per cheat and Remove cheats; the file is kept when the game is imported again. Not run on a
+  per cheat and Remove cheats; the file is kept when the game is imported again. The Game files
+  page showing Import cheats was seen; importing, the switches and Remove cheats were not run on a
   device.
 - **Frame generation:** new switch **Rest in 60 FPS scenes** (`frame_generation_rest`, off by
   default). At 4× a title or intro the game draws at 60 ran at 75-80% speed; with the switch the
-  game's own pictures are shown there. Not yet measured.
+  game's own pictures are shown there. On the Thor at 2× (the panel stayed at 60 Hz), Ultra Moon's
+  first intro window was 88.4% with it on and 52.9% off, one launch each; 4× is not measured.
 - **Fixed:** importing your Lossless.dll from the in-game settings closed the game; the button
   is now only in the library.
 - **Build:** the Windows APK build passes the classes to the dexer as one jar. The class list

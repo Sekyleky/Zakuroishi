@@ -7,7 +7,11 @@ with each release. Nothing here has been measured on more than one device, an AY
 
 - **The software keyboard dialog** (0.5.0). Ocarina of Time 3D's file name screen uses the game's
   own keyboard, so the dialog was not seen on a device.
-- **Mod stacking and Remove mods** (0.5.0) on a device.
+- **Mod stacking** (0.5.0) on a device. Remove mods only appeared on the Game files page.
+- **Unreleased, not run:** pinning a game to the home screen, importing a cheat file, cheat
+  switches, Remove cheats, importing a ROM-only folder, adding native code later, quick save by
+  hotkey, X and Y in the pause menu, loading from a slot with a thumbnail, touch on the
+  second-screen buttons, light theme and large font.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.
 - **Save editor backups** (`user.backup-<ms>`, `:backups` in the picker) in a real editor.
@@ -26,9 +30,16 @@ with each release. Nothing here has been measured on more than one device, an AY
 ## Known problems
 
 - **Slow intro with frame generation:** Ultra Moon's intro ran at 75-80% speed with frame
-  generation at x4 and at 97-100% with it off (one launch each).
-- **Unreleased builds:** Back in a game, or Save state in the pause menu, sometimes dropped to
-  the home screen in testing. Not reproduced from a clean start; cause unknown.
+  generation at x4 and at 97-100% with it off (one launch each). On 2026-11-16 at x2 the first
+  300-frame window was 52.9% with the new Rest switch off and 88.4% with it on, one launch each;
+  x4 with the switch on is not measured.
+- **Unreleased builds:** Back in a game, or Save state in the pause menu, dropped to the home
+  screen twice on 2026-11-15. It was not reproduced in 4 runs on 2026-11-16 (full logs, no crash
+  or ANR); cause unknown. A code review found no path to the home screen.
+- **Discard changes?** in game settings opens with no button lit; the first D-pad press lights
+  "Keep editing" (unreleased builds).
+- **Play time** is recorded when a game is left normally; a game that is killed loses that
+  session's time (unreleased builds).
 - **Save slot list in 0.5.0:** press the D-pad once before A; no row is selected when the list
   opens. Fixed for the next release.
 - **Town Map lines** show on the Town Map in Ultra Moon, with the second-display sharing
@@ -50,4 +61,7 @@ with each release. Nothing here has been measured on more than one device, an AY
   may not match a stock device.
 - **Signing:** APKs published up to 0.3.1 use a development certificate; later ones use the release
   certificate with a lineage from the old one. See the [README](../README.md#verify-the-signing-certificate).
-- **Setup is developer-only:** each game needs a native build made on a PC.
+- **Full speed needs a PC build:** in 0.5.0 every game needs a native build made on a PC. In the
+  unreleased code a game can be imported without one and runs in the interpreter, which is slower
+  (one scene each, one device: New Super Mario Bros. 2 100%, Super Mario 3D Land 97-98%, Ultra Moon
+  about 74%). Other games and scenes were not run.

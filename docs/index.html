@@ -39,7 +39,7 @@ footer{color:var(--mute);font-size:.9rem;margin-top:3rem}
 <p class="lead">An experimental Nintendo 3DS emulator for Android, built for dual-screen handhelds such as the
 <strong>AYN Thor</strong>. Games run as ahead-of-time recompiled native ARM64 code, with a Vulkan renderer,
 HD texture packs, frame generation and each screen on its own display. Nothing is decompiled: each game's code
-is recompiled once on a PC with <a href="https://github.com/fearkov/3dsrecomp">3dsrecomp</a>.</p>
+is recompiled once on a PC (for full speed) with <a href="https://github.com/fearkov/3dsrecomp">3dsrecomp</a>.</p>
 
 <p>
 <a class="btn" href="https://github.com/Sekyleky/Zakuroishi/releases/latest">Download the latest release</a>
@@ -52,9 +52,9 @@ is recompiled once on a PC with <a href="https://github.com/fearkov/3dsrecomp">3
 <table>
 <thead><tr><th>A good fit if</th><th>Not for you yet if</th></tr></thead>
 <tbody>
-<tr><td>You have a dual-screen handheld like the AYN Thor</td><td>You want to install the app and play right away</td></tr>
+<tr><td>You have a dual-screen handheld like the AYN Thor</td><td>You want full speed without building anything on a PC (the unreleased code can import a game without native code, but slower)</td></tr>
 <tr><td>You want HD texture packs at up to 3x, frame generation, and native recompiled game code</td><td>You need broad, tested game compatibility</td></tr>
-<tr><td>You're comfortable building each game's native code on a PC once</td><td>You don't want to use a PC at all</td></tr>
+<tr><td>You're comfortable building each game's native code on a PC once, or you accept the slower interpreter</td><td>You need every game at full speed with no PC at all</td></tr>
 </tbody>
 </table>
 </div>
@@ -63,7 +63,7 @@ is recompiled once on a PC with <a href="https://github.com/fearkov/3dsrecomp">3
 <ul>
 <li>64-bit ARM Android 11 or newer with Vulkan 1.3.</li>
 <li>A legally obtained, decrypted 3DS game.</li>
-<li>Native game code built on a computer (Rust and the Android NDK). The app does not compile games on your handheld. See the <a href="native-library.html">native library guide</a>.</li>
+<li>For full speed, native game code built on a computer (Rust and the Android NDK). The app does not compile games on your handheld. In the unreleased code (not in 0.5.0), a game can also be imported without it and runs in the interpreter, which is slower. See the <a href="native-library.html">native library guide</a>.</li>
 <li>HD texture packs are optional.</li>
 </ul>
 

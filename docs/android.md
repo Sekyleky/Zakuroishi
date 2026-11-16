@@ -5,8 +5,9 @@ the existing Zakuro Android installation in place; do not uninstall to rename it
 The package, game imports and save paths are unchanged.
 
 Zakuro Android is an experimental ARM64 frontend merged with upstream Zakuro v0.2.32
-(`c856685`). It is a developer preview: each
-game needs a native build made on a PC. It requires Android 11 or newer and a Vulkan 1.3 driver with the
+(`c856685`). It is a developer preview. In 0.5.0 each
+game needs a native build made on a PC; the unreleased code can also import a game without one
+(slower, see below). It requires Android 11 or newer and a Vulkan 1.3 driver with the
 renderer features described in [Development](development.md). The app includes
 no ROMs, native game code, firmware, keys, or texture packs.
 
@@ -39,7 +40,9 @@ adb -s DEVICE_SERIAL shell am start -n io.github.zakuro.android/.Launcher
 ## Add a game
 
 1. Prepare one folder containing your original decrypted `.3ds`, `.cci` or `.cxi`
-   ROM and its matching Android ARM64 **ABI 5** `title.so` (ABI 4 builds still run).
+   ROM and, for full speed, its matching Android ARM64 **ABI 5** `title.so` (ABI 4 builds still run).
+   The 0.5.0 download needs the `title.so`. In the unreleased code the folder may hold only the ROM
+   (see **Without native code** below).
 2. Choose **Add game** and select that folder. Leave **Include texture pack** off
    for the original graphics. Textures are optional and can be attached later.
 3. The app inspects the ROM, native interface, selected asset headers and sizes,
@@ -49,12 +52,23 @@ adb -s DEVICE_SERIAL shell am start -n io.github.zakuro.android/.Launcher
 
 The importer accepts a nested build folder but rejects multiple games or multiple
 compatible native libraries. Keep desktop, Linux and old Pocket Native builds out
-of the selected folder. It does not compile a ROM on the handheld. Native code
+of the selected folder. It does not compile a ROM on the handheld. A folder with a `title.so` that is the wrong
+architecture or ABI, or one of several, is refused, never imported as ROM-only. Native code
 executes inside the app: use only builds you trust (see [Security](../SECURITY.md)).
 
 Optional `textures/` PNGs and `pack.json` are imported only when selected;
 `sysdata/shared_font.bin` and `sysdata/CFL_Res.dat` are recognized when supplied.
 Other build outputs, source files and unrelated files are not copied.
+
+## Without native code (unreleased code, not in 0.5.0)
+
+A folder holding only the decrypted ROM can be imported. The game runs in the interpreter, which
+is slower. Measured once on one device (an AYN Thor), one scene each, interpreter only: New Super
+Mario Bros. 2 100%, Super Mario 3D Land 97-98%, Pokémon Ultra Moon about 74%. Other games and
+scenes will differ. To add native code later, open the game's **Settings → Game files** and choose
+**Replace native game code** with a `title.so` built for that game (see
+[native library](native-library.md#importing-without-native-code)). A PC build is what gives full
+speed.
 
 ## Mods
 
@@ -129,6 +143,16 @@ Only enhancements supported for that title/build are applied. A presentation cap
 of 120 is not a 120 FPS game patch: guest timing is unchanged. Games require
 compatible enhancement codes to change their own frame rate or remove outlines.
 
+## Library and menu (unreleased code)
+
+The library shows games as tiles with their own icon, most recently played first, with play
+time. The focused game's details show under the header and, when a second screen is available,
+large there with **Play**, **Settings** and **Saves** buttons. The header has **Add game** and
+**Menu** (Start button). **Menu** holds **Default settings…**, Setup help, Frontends…, Storage…, Export diagnostics…,
+Export settings… and Import settings…. On a tile, the touch-only **⋯** opens Settings, Saves and,
+where the home screen supports it, **Pin to home screen**, which adds an icon that starts that
+game. The entry was offered on the Thor; actually pinning was not run.
+
 ## Settings and controls
 
 A game's settings open on a simple page: preset, resolution, HD pack, twelve
@@ -137,7 +161,7 @@ everyday settings, then **All settings…**, **Button mapping…** and **Game fi
 Presets (Battery, Balanced, Quality) set resolution, HD textures, frame cap and
 in-between pictures at once and store nothing of their own; the row shows the
 matching preset or Custom. Their values are proposals not yet measured on a device.
-**Settings for all games** apply to every game; a game keeps only what it changes,
+**Default settings** (in **Menu**, also called Settings for all games) apply to every game; a game keeps only what it changes,
 marked *changed*, and **Use defaults for this game** drops those. Name, HD pack
 switch, driver and enhancements stay per game.
 
@@ -266,6 +290,15 @@ sound/tap latching (Audio/Controls):
 
 Scripted A/B on a device: `android/scripts/device-test.sh` (see its header).
 
+For developers: the adb settings hook (`.DebugSettings`, see `DebugSettings.java`) also takes
+`controller_bindings` in its `set` JSON, as an object of Android key code to target, for example
+`{"controller_bindings":{"96":"a","102":"quick_save"}}`. Targets are `fast_forward`, `a`, `b`,
+`x`, `y`, `l`, `r`, `zl`, `zr`, `start`, `select`, `up`, `down`, `left`, `right`, `none`,
+`motion_gate`, `quick_save`, `quick_load`, `swap_screens`, `screenshot` and `pause_menu`. The
+object replaces the whole set, as Save on the Button mapping page does. A key code that is not
+1-4 digits or an unknown target refuses the whole call and nothing is written. Changes apply at
+the next launch. The hook ran no test on a device for this key.
+
 Driver results depend on the scene and whether emulation is capped. Earlier
 normal-speed tests on an AYN Thor (Ultra Moon, 3× + HD, 0.1.7) found:
 
@@ -364,7 +397,8 @@ Files app. Back up saves before uninstalling or clearing app data.
 
 ## Tools menu
 
-The library header has a **Tools** menu:
+In 0.5.0 the library header has a **Tools** menu; in the unreleased code the same items are
+in **Menu**:
 
 - **Storage** lists old imports, previous native code, texture and mod backups and
   unfinished imports with their sizes, and deletes one at a time after a confirm. It never
