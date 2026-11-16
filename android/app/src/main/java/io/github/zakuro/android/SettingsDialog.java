@@ -64,7 +64,7 @@ final class SettingsDialog {
     }
     private void show(AlertDialog dialog) { show(dialog, null, false); }
     private void show(AlertDialog dialog, BooleanSupplier dirty) { show(dialog, dirty, false); }
-    private void focusCancel(AlertDialog dialog) { Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); cancel.post(cancel::requestFocus); }
+    private void focusCancel(AlertDialog dialog) { Button cancel = dialog.getButton(DialogInterface.BUTTON_NEGATIVE); cancel.post(cancel::requestFocusFromTouch); } // FromTouch: plain requestFocus lit nothing in touch mode, so confirms opened with no button selected
     // The Thor stays in touch mode under a controller: FromTouch leaves it, so the ring shows and A acts at once.
     private static void focusFirst(ViewGroup content) {
         for (int i = 0; i < content.getChildCount(); i++) {

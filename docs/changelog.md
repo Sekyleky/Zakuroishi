@@ -27,9 +27,10 @@ Not released. What was seen on the Thor and what was not is in
 - **Save-state thumbnails:** each slot shows a small picture of where it was saved. Seen on the
   Thor for a new save and in the Load state list; an older state shows a blank tile.
 - **Cheats:** Game files has Import cheats (one text file in the common cheat format), a switch
-  per cheat and Remove cheats; the file is kept when the game is imported again. The Game files
-  page showing Import cheats was seen; importing, the switches and Remove cheats were not run on a
-  device.
+  per cheat and Remove cheats; the file is kept when the game is imported again. Seen on the
+  Thor with a harmless two-cheat file: import through the file picker, the Cheats… list with a
+  switch each, the core logging "2 cheats in <file>, 1 of them on" at the next start, and Remove
+  cheats (no cheat line at the next start). Not run: keeping the file across a re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
 - **Frame generation:** new switch **Rest in 60 FPS scenes** (`frame_generation_rest`, on by
   default; it is on because it was the better side in every measured window and changed nothing in 30 FPS scenes; a game with the setting stored keeps its value). At 4× a title or intro the game draws at 60 ran at 75-80% speed; with the switch the
   game's own pictures are shown there. On the Thor with the panel at 120 Hz and 4×, Ultra Moon's intro held 100.1-100.5% with it on and
@@ -37,6 +38,9 @@ Not released. What was seen on the Thor and what was not is in
   then shows about 60 distinct pictures a second there instead of about 107. At 2× on a 60 Hz
   panel the first window was 88.4% on and 52.9% off, one launch each. Other games, the stock
   driver and input delay are not measured.
+- **Fixed:** confirmation dialogs inside game settings (Discard changes?, Remove cheats?, Clear
+  shader cache?) opened with no button lit; they now select Cancel or Keep editing on opening. Seen on
+  the Thor for Discard changes?.
 - **Fixed:** importing your Lossless.dll from the in-game settings closed the game; the button
   is now only in the library.
 - **Build:** the Windows APK build passes the classes to the dexer as one jar. The class list

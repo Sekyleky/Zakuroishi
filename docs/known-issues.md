@@ -8,8 +8,9 @@ with each release. Nothing here has been measured on more than one device, an AY
 - **The software keyboard dialog** (0.5.0). Ocarina of Time 3D's file name screen uses the game's
   own keyboard, so the dialog was not seen on a device.
 - **Mod stacking** (0.5.0) on a device. Remove mods only appeared on the Game files page.
-- **Unreleased, not run:** pinning a game to the home screen, importing a cheat file, cheat
-  switches, Remove cheats, importing a ROM-only folder, adding native code later, touch on the second-screen buttons, light theme and large font.
+- **Unreleased, not run:** pinning a game to the home screen, importing a ROM-only folder, adding
+  native code later, touch on the second-screen buttons, light theme and large font. For cheats:
+  keeping the file across a re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.
 - **Save editor backups** (`user.backup-<ms>`, `:backups` in the picker) in a real editor.
@@ -37,8 +38,6 @@ with each release. Nothing here has been measured on more than one device, an AY
 - **Unreleased builds:** Back in a game, or Save state in the pause menu, dropped to the home
   screen twice on 2026-11-15. It was not reproduced in 4 runs on 2026-11-16 (full logs, no crash
   or ANR); cause unknown. A code review found no path to the home screen.
-- **Discard changes?** in game settings opens with no button lit; the first D-pad press lights
-  "Keep editing" (unreleased builds).
 - **Play time** is recorded when a game is left normally; a game that is killed loses that
   session's time (unreleased builds).
 - **Save slot list in 0.5.0:** press the D-pad once before A; no row is selected when the list

@@ -40,7 +40,7 @@ Seen working:
   screen on this device.
 
 Not run in the morning session: actually pinning a game (it changes the home screen), importing a
-cheat file, cheat switches, Remove cheats, importing a ROM-only folder, adding native code later,
+cheat file, cheat switches, Remove cheats (all four seen in the afternoon, below), importing a ROM-only folder, adding native code later,
 mod stacking, the software keyboard dialog (all need the system file picker or a game that asks
 for the keyboard); quick save by hotkey, X and Y in the pause menu and loading from a slot with a
 thumbnail (all three seen in the afternoon, below); touch on the second-screen buttons, light
@@ -75,9 +75,21 @@ AYN Thor, battery 80%, display set to 120 Hz by the owner, same unreleased build
 - **Load state list.** Quick slot and Slot 2 show their thumbnails; Slot 1, saved by an older
   build, shows a blank tile. Loading Slot 2 through the confirm worked.
 
-Still not run: actually pinning a game to the home screen, importing a cheat file and the cheat
-switches, a ROM-only import and adding native code later, mod stacking, the software keyboard
-dialog.
+- **Cheats, end to end** on Pokémon X with a harmless two-cheat test file in Downloads. Game files >
+  Import cheats… opened the system file picker; picking the file returned to the library with
+  "Cheats imported…" in the status line. Reopening Game files showed two new rows, Cheats… and
+  Remove cheats. Cheats… listed both cheats by name with a switch each; A switched the first one
+  on. Starting the game, the core logged "2 cheats in <file>, 1 of them on". Remove cheats asked
+  first, naming the game and saying what is kept; after it, the next start logged no cheat line.
+
+Not run for cheats: keeping the file across a re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
+
+Fixed, and seen on the Thor for Discard changes? (Keep editing lit on opening): confirmation dialogs inside game settings (Discard
+changes?, Remove cheats?, Clear shader cache?) opened with no button lit; they now select Cancel or
+Keep editing on opening.
+
+Still not run: actually pinning a game to the home screen, a ROM-only import and adding native
+code later, mod stacking, the software keyboard dialog.
 
 ### Rest in 60 FPS scenes at 4x
 
