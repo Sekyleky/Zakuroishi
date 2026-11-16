@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fixes:** Exit to library no longer crashes the game process (which also lost the play time), and "title.so" in the help text is no longer a link.
+
 ## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
 
 The release APKs were published without a device run and smoke-tested on the Thor afterwards on

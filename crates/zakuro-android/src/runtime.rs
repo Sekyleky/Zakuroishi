@@ -644,7 +644,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     paused = false;
                     next_frame = Instant::now();
                 }
-                Command::Exit => destroy = true,
+                // Java calls finish() right after; leave on its MainEvent::Destroy. Returning
+                // here freed this thread's looper while the input queue was still attached,
+                // and NativeActivity.onPause then crashed detaching it.
+                Command::Exit => paused = true,
                 Command::Restart => {
                     system = None;
                     if let Some(s) = &mut surface {

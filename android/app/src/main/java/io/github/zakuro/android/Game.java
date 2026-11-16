@@ -644,11 +644,13 @@ public final class Game extends NativeActivity {
     private long playStart;
     /** Play time and last-played for the library, in a file only this process writes. */
     @Override protected void onPause() {
-        super.onPause();
-        String id=getIntent().getStringExtra("game_id"); if(id==null) return;
-        android.content.SharedPreferences played=getSharedPreferences("played",MODE_MULTI_PROCESS);
-        played.edit().putLong(id+".ms",played.getLong(id+".ms",0)+android.os.SystemClock.elapsedRealtime()-playStart)
-                .putLong(id+".last",System.currentTimeMillis()).commit(); // not apply(): the launcher reads this file in its onResume
+        String id=getIntent().getStringExtra("game_id");
+        if(id!=null) {
+            android.content.SharedPreferences played=getSharedPreferences("played",MODE_MULTI_PROCESS);
+            played.edit().putLong(id+".ms",played.getLong(id+".ms",0)+android.os.SystemClock.elapsedRealtime()-playStart)
+                    .putLong(id+".last",System.currentTimeMillis()).commit(); // not apply(): the launcher reads this file in its onResume
+        }
+        super.onPause(); // last: a native fault in here must not lose the record
     }
     private void fullscreen() {
         getWindow().setDecorFitsSystemWindows(false);

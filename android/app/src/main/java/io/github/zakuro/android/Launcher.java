@@ -420,7 +420,8 @@ public final class Launcher extends Activity {
                 + "Use the D-pad to move and your controller's confirm button to select. Hold the handheld still briefly after a game resumes to calibrate motion.\n\n"
                 + "Native library interface documentation:\nhttps://github.com/fearkov/3dsrecomp/blob/73b8f9caf3700991c290dd84bccffb92294d6b15/docs/interface.md";
         LinearLayout content = column(); content.setPadding(dp(24), dp(8), dp(24), dp(12));
-        TextView instructions = text(body, 16, p.ink); instructions.setAutoLinkMask(android.text.util.Linkify.WEB_URLS);
+        TextView instructions = text(body, 16, p.ink); // only real URLs: WEB_URLS took "title.so" for a domain
+        android.text.util.Linkify.addLinks(instructions, java.util.regex.Pattern.compile("https://\\S+"), null);
         instructions.setMovementMethod(android.text.method.LinkMovementMethod.getInstance()); content.addView(instructions);
         CheckBox include = new CheckBox(this); include.setText("Include texture pack (optional)"); include.setTextColor(p.ink); include.setMinHeight(dp(56));
         include.setChecked(false); if (importing) content.addView(include);
