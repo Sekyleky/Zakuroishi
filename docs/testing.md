@@ -4,6 +4,23 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Nightly updater, first run on the Thor (unreleased, 2026-11-16, build `9c2be49`)
+
+AYN Thor, `zakuro-android-test-20261116-221121-b5f9ee59.apk` (0.6.1-nightly.20261116, version
+code 16).
+
+- `adb install -r` over the installed stable 0.6.0 (version code 16, release key): Success, data
+  kept, `INTERNET` granted.
+- Menu → Check for updates… opens the Updates dialog with the version and the "check when the app
+  opens" box, on by default.
+- Check now contacted GitHub and answered "Up to date — Version 0.6.1-nightly.20261116 is the
+  newest." That is correct: the newest published nightly is 0.6.0.
+- Pokémon X still launched afterwards (the new install-session cancel in `Game.prepareSaves` did
+  not break launch); no FATAL in logcat.
+- Not verified: downloading and installing a real update (needs a newer nightly release on
+  GitHub), the signing-history check on a downloaded APK, the install confirm screen, the cancel
+  of a pending install by a game start, the version-mismatch refusal.
+
 ## 0.6.0 and nightly release builds (2026-11-16, built from `b100fb0`)
 
 Published without a device run. The two release APKs (`0.6.0` and `0.6.0-nightly`, version code
