@@ -28,7 +28,13 @@ public final class DebugSettings extends BroadcastReceiver {
             String set = intent.getStringExtra("set");
             if (set != null) {
                 JSONObject object = new JSONObject(set); Map<String, Object> changes = new LinkedHashMap<>();
-                for (Iterator<String> keys = object.keys(); keys.hasNext();) { String key = keys.next(); changes.put(key, object.get(key)); }
+                for (Iterator<String> keys = object.keys(); keys.hasNext();) { String key = keys.next(); Object value = object.get(key);
+                    if (value instanceof JSONObject) { // controller_bindings: {"<Android key code>":"<target>"}
+                        Map<String, Object> map = new LinkedHashMap<>(); JSONObject inner = (JSONObject) value;
+                        for (Iterator<String> names = inner.keys(); names.hasNext();) { String name = names.next(); map.put(name, inner.get(name)); }
+                        value = map;
+                    }
+                    changes.put(key, value); }
                 settings = settings.copy(); apply(settings, changes); settings.save(context);
             }
             setResult(0, json(settings), null);
@@ -82,6 +88,12 @@ public final class DebugSettings extends BroadcastReceiver {
                     if (!(value instanceof String) || !(((String) value).isEmpty() || ((String) value).matches("[0-9a-fA-F-]{36}")))
                         throw new IllegalArgumentException("driver must be an imported driver id or empty");
                     staged.put(key, value); break;
+                case "controller_bindings": // replaces the whole set, like the Button mapping page's Save
+                    if (!(value instanceof Map)) throw new IllegalArgumentException("controller_bindings must be an object of key code to target");
+                    for (Map.Entry<?, ?> binding : ((Map<?, ?>) value).entrySet())
+                        if (!String.valueOf(binding.getKey()).matches("[0-9]{1,4}") || !Arrays.asList(GameSettings.BINDING_TARGETS).contains(binding.getValue()))
+                            throw new IllegalArgumentException("controller_bindings maps a key code to one of " + String.join("|", GameSettings.BINDING_TARGETS));
+                    staged.put(key, value); break;
                 default: {
                     GameSettings.Setting setting = null;
                     for (GameSettings.Setting candidate : GameSettings.ALL) if (candidate.key.equals(key)) setting = candidate;
@@ -95,6 +107,10 @@ public final class DebugSettings extends BroadcastReceiver {
                 case "resolution": s.resolution = (Integer) change.getValue(); break;
                 case "textures": s.textures = (Boolean) change.getValue(); break;
                 case "driver": s.driver = (String) change.getValue(); break;
+                case "controller_bindings":
+                    s.controllerBindings.clear();
+                    for (Map.Entry<?, ?> binding : ((Map<?, ?>) change.getValue()).entrySet()) s.controllerBindings.put(String.valueOf(binding.getKey()), (String) binding.getValue());
+                    break;
                 default: s.values.put(change.getKey(), change.getValue());
             }
         }

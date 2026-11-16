@@ -20,5 +20,11 @@ public final class DebugSettingsCheck {
         require(!rejected(s, "resolution", 3L, "textures", false, "layout", "top_only", "aot", false, "speed_limit", 200, "volume", 0.5, "driver", ""));
         require(s.resolution == 3 && !s.textures && s.values.get("layout").equals("top_only") && s.values.get("speed_limit").equals(200));
         require(s.values.get("volume").equals(0.5f) && Boolean.FALSE.equals(s.values.get("aot")));
+        // bindings: the whole set is replaced; a bad key code or target changes nothing
+        Map<String,Object> keys = new LinkedHashMap<>(); keys.put("131", "swap_screens"); keys.put("96", "a");
+        require(!rejected(s, "controller_bindings", keys) && s.controllerBindings.size() == 2 && s.controllerBindings.get("131").equals("swap_screens"));
+        require(rejected(s, "controller_bindings", Collections.singletonMap("131", "fly")) && rejected(s, "controller_bindings", Collections.singletonMap("x", "a"))
+            && rejected(s, "controller_bindings", "a") && s.controllerBindings.size() == 2);
+        require(!rejected(s, "controller_bindings", new HashMap<String,Object>()) && s.controllerBindings.isEmpty());
     }
 }
