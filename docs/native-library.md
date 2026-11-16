@@ -7,9 +7,12 @@ the app's private process and can access the app's files and saves.
 
 ## Importing without native code
 
-A game can be imported with just its decrypted ROM (`.3ds`, `.cci` or `.cxi`) and no
-`title.so`. The game then runs in the interpreter, which is slower. Measured once on
-the single test device, one scene each, interpreter only:
+Nightly build only. In 0.6.0 a game folder without a `title.so` is refused before
+anything is copied. In the nightly build a game can be imported with just its decrypted
+ROM (`.3ds`, `.cci` or `.cxi`) and no `title.so`; that import has not been run on a
+device yet. The game then runs in the interpreter, which is slower. Measured once on
+the single test device, one scene each, interpreter only (the `aot` switch off on games
+that have native code):
 
 | Game | Speed |
 | --- | --- |
@@ -59,12 +62,13 @@ can establish that a particular library loads and runs on that architecture.
 ## App, ABI and generator
 
 From the `Cargo.lock` of each release tag. The generator is `recomp-abi` and `recomp3ds`
-from 3dsrecomp. From the unreleased changes on, the commit is also pinned in `Cargo.toml`.
+from 3dsrecomp. From 0.4.0 on, the commit is also pinned in `Cargo.toml`.
 
 | App versions | Generator commit | Libraries the app runs | `build-title` makes |
 | --- | --- | --- | --- |
 | 0.1.4 to 0.1.9 | `cec1270` | ABI 4 | ABI 4 |
 | 0.2.0, 0.3.0, 0.3.1 | `73b8f9c` | ABI 5 and ABI 4 | ABI 5 (generation 5) |
+| 0.4.0, 0.5.0, 0.6.0 | `73b8f9c` | ABI 5 and ABI 4 | ABI 5 (generation 5) |
 
 An ABI-4 library runs on 0.2.0 and later without svcs in place; rebuild it to get ABI 5.
 Releases before 0.1.4 are not covered here. Pocket Native's own ABI-5 libraries are

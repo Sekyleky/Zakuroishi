@@ -1,5 +1,8 @@
 # Release notes
 
+- [Zakuroishi 0.6.0](android-0.6.0.md) (two features only in the nightly build, see the notes)
+- [Zakuroishi 0.5.0](android-0.5.0.md)
+- [Zakuroishi 0.4.0](android-0.4.0.md)
 - [Zakuroishi 0.3.1](android-0.3.1.md)
 - [Zakuroishi 0.3.0](android-0.3.0.md)
 - [Zakuroishi 0.2.0](android-0.2.0.md)

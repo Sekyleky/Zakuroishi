@@ -2,13 +2,20 @@
 
 ## Unreleased
 
-Not released. What was seen on the Thor and what was not is in
-[testing](testing.md#library-settings-and-pause-menu-rework-2026-11-15).
+## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
+
+Checked on one device, an AYN Thor, on 2026-11-15 and 2026-11-16, see
+[testing](testing.md#library-settings-and-pause-menu-rework-2026-11-15) and
+[testing](testing.md#rework-re-check-and-rest-in-60-fps-scenes-2026-11-16). Release notes:
+[0.6.0](releases/android-0.6.0.md). Two features were not run on the device and are only in the
+nightly build (version name `0.6.0-nightly`): importing a game without native code, and Pin to
+home screen. 0.6.0 refuses a folder without native code and hides Pin to home screen.
 
 - **Library:** games are tiles with their own icon, most recently played first, with play time.
   The focused game's details show under the header and, on a second screen, large with Play,
   Settings and Saves buttons. The header is Add game and Menu (Start); Setup help, Frontends,
-  Storage and the exports are in Menu. A game can be pinned to the home screen.
+  Storage and the exports are in Menu. In the nightly build only, a game can be pinned to the
+  home screen.
 - **Settings:** a game's settings open on a short page with a preset (Battery, Balanced, Quality),
   resolution, the texture pack and twelve common settings; everything else is under
   All settings. **Default settings** in Menu apply to every game until a game changes them, and
@@ -18,9 +25,14 @@ Not released. What was seen on the Thor and what was not is in
   X saves and Y loads the quick slot (seen on the Thor). Cancel or B goes back to the pause menu instead of
   resuming. New tiles: HUD on/off (clock and battery, no restart) and Screenshot (top screen,
   saved to Pictures/Zakuroishi).
-- **Games without native code:** a folder with only a decrypted ROM can be imported and runs in
-  the interpreter; native code can be added later from the game's settings. See
-  [native library](native-library.md).
+- **Games without native code (nightly build only):** a folder with only a decrypted ROM can be
+  imported and runs in the interpreter; native code can be added later from the game's settings.
+  Not run on a device. 0.6.0 refuses such a folder before copying anything and says the nightly
+  build can import it. See [native library](native-library.md#importing-without-native-code).
+- **Build:** `build-windows.ps1 -VersionName 0.6.0-nightly` builds the nightly from the same
+  tree. A version name ending in `-nightly` turns on the features above that were not run on a
+  device; the stable and nightly APKs share version code 16 and the signing key, so either
+  installs over the other.
 - **Hotkeys:** a controller key can be mapped to quick save, quick load (asks first), swap
   screens, screenshot or the pause menu. Swap screens, screenshot, quick load, the pause menu
   and quick save were seen on the Thor.

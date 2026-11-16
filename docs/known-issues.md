@@ -1,16 +1,20 @@
 # Known issues and untested areas
 
-As of the 2026-11-07 Thor re-test ([verification record](testing.md)). Update this page
-with each release. Nothing here has been measured on more than one device, an AYN Thor.
+As of 0.6.0 and the 2026-11-15/16 Thor checks ([verification record](testing.md)). Update this
+page with each release. Nothing here has been measured on more than one device, an AYN Thor.
 
 ## Not tested
 
 - **The software keyboard dialog** (0.5.0). Ocarina of Time 3D's file name screen uses the game's
   own keyboard, so the dialog was not seen on a device.
 - **Mod stacking** (0.5.0) on a device. Remove mods only appeared on the Game files page.
-- **Unreleased, not run:** pinning a game to the home screen, importing a ROM-only folder, adding
-  native code later, touch on the second-screen buttons, light theme and large font. For cheats:
-  keeping the file across a re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
+- **Nightly build only, not run:** pinning a game to the home screen, importing a ROM-only folder
+  and adding native code later. 0.6.0 hides Pin to home screen and refuses a folder without
+  native code.
+- **0.6.0, not run:** touch on the second-screen buttons, light theme, large font, and saving
+  settings while only the HUD changed in a running game. For cheats: keeping the file across a
+  re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
+- **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.
 - **Save editor backups** (`user.backup-<ms>`, `:backups` in the picker) in a real editor.
@@ -35,13 +39,14 @@ with each release. Nothing here has been measured on more than one device, an AY
   in the intro instead of about 107. The switch is on by default, so the slow intro at x4 now only
   applies with the switch turned off (or a game that has it stored off). It was the better side in
   every measured window and changed nothing in 30 FPS scenes.
-- **Unreleased builds:** Back in a game, or Save state in the pause menu, dropped to the home
-  screen twice on 2026-11-15. It was not reproduced in 4 runs on 2026-11-16 (full logs, no crash
-  or ANR); cause unknown. A code review found no path to the home screen.
+- **Drop to the home screen:** Back in a game, or Save state in the pause menu, dropped to the home
+  screen twice on 2026-11-15 with builds before 0.6.0. It was not reproduced in 4 runs on
+  2026-11-16 (full logs, no crash or ANR); cause unknown. A code review found no path to the home
+  screen.
 - **Play time** is recorded when a game is left normally; a game that is killed loses that
-  session's time (unreleased builds).
+  session's time.
 - **Save slot list in 0.5.0:** press the D-pad once before A; no row is selected when the list
-  opens. Fixed for the next release.
+  opens. Fixed in 0.6.0.
 - **Town Map lines** show on the Town Map in Ultra Moon, with the second-display sharing
   switch on or off. That switch was dropped (see the testing record) and the lines remain.
 - **Second display:** the bottom screen shows the game's native 320x240 picture, upscaled,
@@ -61,7 +66,8 @@ with each release. Nothing here has been measured on more than one device, an AY
   may not match a stock device.
 - **Signing:** APKs published up to 0.3.1 use a development certificate; later ones use the release
   certificate with a lineage from the old one. See the [README](../README.md#verify-the-signing-certificate).
-- **Full speed needs a PC build:** in 0.5.0 every game needs a native build made on a PC. In the
-  unreleased code a game can be imported without one and runs in the interpreter, which is slower
-  (one scene each, one device: New Super Mario Bros. 2 100%, Super Mario 3D Land 97-98%, Ultra Moon
-  about 74%). Other games and scenes were not run.
+- **Every game needs a PC build:** in 0.6.0 every new game needs a native build made on a PC. The
+  nightly build can import a game without one, which then runs in the interpreter and is slower
+  (interpreter only, one scene each, one device: New Super Mario Bros. 2 100%, Super Mario 3D Land
+  97-98%, Ultra Moon about 74%). Other games and scenes were not run, and the import itself was
+  not run on a device.

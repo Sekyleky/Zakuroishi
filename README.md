@@ -3,34 +3,35 @@
 An experimental Nintendo 3DS emulator for Android, built for dual-screen handhelds such as the
 **AYN Thor**. Games run as ahead-of-time recompiled native ARM64 code, with a Vulkan renderer, HD
 texture packs, frame generation and each screen on its own display. Nothing is decompiled: each
-game's code is recompiled once on a PC (for full speed) with [3dsrecomp](https://github.com/fearkov/3dsrecomp).
+game's code is recompiled once on a PC with [3dsrecomp](https://github.com/fearkov/3dsrecomp).
 
 **[Download the latest Android release](https://github.com/Sekyleky/Zakuroishi/releases/latest)** ·
 [Setup guide](docs/android.md) · [Report a problem](https://github.com/Sekyleky/Zakuroishi/issues/new/choose)
 
 | A good fit if | Not for you yet if |
 | --- | --- |
-| You have a dual-screen handheld like the AYN Thor | You want full speed without building anything on a PC (the unreleased code can import a game without native code, but slower) |
+| You have a dual-screen handheld like the AYN Thor | You don't want to build anything on a PC (only the nightly build can import a game without native code, and it runs slower) |
 | You want HD texture packs at up to 3x, frame generation, and native recompiled game code | You need broad, tested game compatibility |
-| You're comfortable building each game's native code on a PC once, or you accept the slower interpreter | You need every game at full speed with no PC at all |
+| You're comfortable building each game's native code on a PC once | You need every game at full speed with no PC at all |
 
 An unofficial community fork, not an official release from the Zakuro developers.
 Previously named Zakuro Android. Existing installs update in place; the Android
 package, imported games and save locations are unchanged.
-Requires **64-bit ARM Android 11+ and Vulkan 1.3**. In the 0.5.0 download, games need a decrypted ROM and
-matching Android ABI-5 native code built on a computer (ABI-4 builds still run). In the unreleased
-code, a folder with only a decrypted ROM can also be imported and runs in the interpreter, which is
-slower; native code can be added later. The APK does not compile games on your handheld. **HD texture packs are optional.**
+Requires **64-bit ARM Android 11+ and Vulkan 1.3**. Games need a decrypted ROM and matching Android
+ABI-5 native code built on a computer (ABI-4 builds still run); only the nightly build can import a
+folder with just the ROM, which then runs more slowly in the interpreter. The APK does not compile
+games on your handheld. **HD texture packs are optional.**
 
 Experimental Android frontend for [Zakuro](https://github.com/fearkov/zakuro), merged with
 upstream v0.2.32 (`c856685`). It runs legally obtained
 decrypted 3DS games with separately built native game code. It includes no games,
 firmware, keys or texture packs.
 
-**This is a developer preview.** For full speed, a game needs a native build made on a PC, with Rust and
-the Android NDK installed; the APK does not make one. In the unreleased code (not in 0.5.0), a game
-can be imported without it and runs in the interpreter: 100% in New Super Mario Bros. 2, 97-98% in
-Super Mario 3D Land and about 74% in Pokémon Ultra Moon, one scene each, interpreter only
+**This is a developer preview.** Each game needs a native build made on a PC, with Rust and
+the Android NDK installed; the APK does not make one. The nightly build (not 0.6.0) can import a
+game without it, which then runs in the interpreter: 100% in New Super Mario Bros. 2, 97-98% in
+Super Mario 3D Land and about 74% in Pokémon Ultra Moon, one scene each, interpreter only. That
+import has not been run on a device yet
 ([details](docs/native-library.md#importing-without-native-code)).
 Everything here was tested on one device (an AYN Thor), mostly with one game
 (Pokémon Ultra Moon).
@@ -64,7 +65,7 @@ fastmem generator's own ABI 5 needs a fast-memory context this host lacks.
 ## Current scope
 
 The Android app is `io.github.zakuro.android`, with a native Android library UI,
-validate-first game import (with or without native code, the latter only in the unreleased code) and the existing Zakuro Vulkan renderer. Per-game
+validate-first game import (without native code only in the nightly build) and the existing Zakuro Vulkan renderer. Per-game
 settings control HD texture replacement, display layout/stretch/stereo, compiled
 code, supported shader/debug paths, motion, controllers, audio and console mode.
 A pause menu provides save/load, restart, screen swap and gyro recalibration.
