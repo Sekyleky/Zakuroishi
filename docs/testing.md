@@ -4,6 +4,32 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Upstream 0.2.32+mic1 merge and the intro stall (unreleased, 2026-11-17, build `b08f214`)
+
+AYN Thor, Turnip, `zakuro-android-test-20261117-103752-6c778dec.apk`, installed with
+`adb install -r` over 0.6.1-nightly; data kept.
+
+- `kept_arrays` A/B: Ultra Moon at 3x with HD, wild battle through `device-test.sh`, frame
+  generation off, 2 runs each, alternating. Battle worst core ms: on 41.3 / 29.5, off 34.2 / 30.7.
+  Battle mean core ms: on 5.16 / 4.59, off 4.64 / 4.56. Speed about 100.4% both ways; intro
+  windows the same (98.3% vs 98.1%). The heap flush never fired (`flush_ms` 0). No measurable
+  difference; it stays on (the upstream default).
+- Old save state: the Pokémon X quick state from 0.6.0, quick load says it was saved by Zakuro
+  0.2.32 and this is 0.2.32+mic1. The game keeps running and the file is kept.
+- Intro slowdown with frame generation. Three causes ruled out from logs and code: shader JIT and
+  pipeline compiles (the pipeline cache loads before frame 1, 0 compiles after, the JIT compiles
+  off-thread); the bottom-screen / second-display copy (`cpu_bottom` 300 in every window whatever
+  the game fps); the vertex path (vertices, upload and flush about 0 in the intro). Confirmed by
+  A/B, 2 launches each, generation x4 with rest on vs off: intro window 1 91.2% / 90.6% vs 98.5% /
+  98.5%; window 2 98.2% / 97.6% vs 96.5% / 96.8%; from window 3 about 100.4% both. Window 1 differs
+  only in the worst frame, 493 ms vs 123 ms: the generation graph is built on the presenting thread
+  at the first GPU top picture ("graph of 3 pictures at 1200x720 … built in 464.7 ms", then a 478
+  ms present hitch). Code: `vulkan.rs:778-789` into `framegen.rs:195-214`; resting does not avoid
+  it, since it is decided later in the tick (`framegen.rs:281`). The earlier 86-91% in window 2
+  does not reproduce on this build.
+- Proposed, not built: build the generation graph before the first frame, behind a switch for one
+  A/B.
+
 ## Nightly updater, first run on the Thor (unreleased, 2026-11-16, build `9c2be49`)
 
 AYN Thor, `zakuro-android-test-20261116-221121-b5f9ee59.apk` (0.6.1-nightly.20261116, version
