@@ -2006,6 +2006,8 @@ pub struct Hardware {
     pooled_uploads: bool,
     upload_size_budget: bool,
     threaded_picture_copy: bool,
+    /// the kept_arrays switch: off stages every array in the ring.
+    kept_arrays: bool,
     /// device memory blocks pictures are carved from.
     picture_heap: std::cell::RefCell<Vec<HeapBlock>>,
     /// staging buffers the GPU is done with, kept for the next big picture.
@@ -2284,6 +2286,7 @@ impl Hardware {
                 pooled_uploads: crate::backend::renderer_options().map_or(true, |options| options.pooled_uploads),
                 upload_size_budget: crate::backend::renderer_options().map_or(true, |options| options.upload_size_budget),
                 threaded_picture_copy: crate::backend::renderer_options().map_or(true, |options| options.threaded_picture_copy),
+                kept_arrays: crate::backend::renderer_options().map_or(true, |options| options.kept_arrays),
                 picture_heap: std::cell::RefCell::new(Vec::new()),
                 spare: Vec::new(),
                 copying: HashMap::new(),
@@ -4386,6 +4389,9 @@ impl Hardware {
     /// written over it, as most of a title's models are, and the ring takes
     /// those a title writes each frame.
     fn kept<M: GpuMemory>(&mut self, memory: &mut M, raw: &RawInputs) -> Option<[u32; 12]> {
+        if !self.kept_arrays {
+            return None;
+        }
         let mut starts = [0u32; 12];
         let mut kept = true;
         for (start, &(addr, len)) in starts.iter_mut().zip(&raw.arrays) {

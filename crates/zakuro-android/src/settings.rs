@@ -172,6 +172,8 @@ pub struct Advanced {
     pub warm_before_start: bool,
     /// upstream 0.2.31: shade a command list's draws ahead on other threads.
     pub shade_ahead: bool,
+    /// upstream after 0.2.32: keep unchanged vertex arrays on the GPU across batches.
+    pub kept_arrays: bool,
     /// the desktop queue (~125 ms target, drift trim, time stretch, fades); off is 0.2.0's.
     pub audio_queue_managed: bool,
     /// AAudio FAST track: allocated session (no RAW flag) and Game usage. Off: the Thor's
@@ -257,6 +259,7 @@ impl Default for Advanced {
             warm_pipelines: true,
             warm_before_start: false,
             shade_ahead: true,
+            kept_arrays: true,
             audio_queue_managed: true,
             low_latency_audio: false,
             latch_short_presses: true,
@@ -291,6 +294,7 @@ impl Advanced {
             warm_pipelines: self.warm_pipelines,
             // upstream 0.2.31's default; no Android setting for it yet
             shade_ahead: self.shade_ahead,
+            kept_arrays: self.kept_arrays,
             frame_generation: self.frame_generation,
         }
     }
@@ -470,6 +474,8 @@ mod tests {
         assert!(Advanced::parse(r#"{"warm_before_start":true}"#).unwrap().warm_before_start);
         assert!(options.shade_ahead);
         assert!(!Advanced::parse(r#"{"shade_ahead":false}"#).unwrap().renderer_options().shade_ahead);
+        assert!(options.kept_arrays);
+        assert!(!Advanced::parse(r#"{"kept_arrays":false}"#).unwrap().renderer_options().kept_arrays);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
         assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
     }

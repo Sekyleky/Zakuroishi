@@ -310,6 +310,9 @@ sound/tap latching (Audio/Controls):
   on a device yet.
 - **Shade draws on other threads**, on: the shade-ahead for the CPU vertex path,
   ported from upstream 0.2.31; off only to compare.
+- **Keep vertex arrays on the GPU** (`kept_arrays`), on: upstream's vertex-array heap after 0.2.32,
+  which keeps unchanged model data in GPU memory across batches; off stages every array each draw,
+  to compare. Not measured on the Thor.
 - **Keep sound in step with the picture** (`audio_queue_managed`), on: the desktop
   queue (~125 ms, drift trim, time stretch, fades); off is 0.2.0's, ~230 ms behind.
 - **Low-latency sound output** (`low_latency_audio`), off: asks AAudio for a FAST track

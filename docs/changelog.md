@@ -26,6 +26,11 @@
   accepts ABI 4 to 8 and the mutex lending is used only for ABI 8 code; rebuilding with
   `build-title` gets the new speedups. Import and Replace native game code now accept ABI 4 to 8.
   Left out: the macOS Pro Controller reader (`4bae63f`), desktop only.
+- **Save states from earlier versions no longer load:** the microphone service changed what a state
+  holds, so loading an older state shows "it was saved by Zakuro 0.2.32, and this is 0.2.32+mic1"
+  and changes nothing; the file is kept. In-game saves are not affected.
+- **New switch, Advanced → Keep vertex arrays on the GPU** (`kept_arrays`, on): upstream's
+  vertex-array heap; turn off to compare. See [android](android.md).
 
 ## 0.6.0 — Library tiles, simple settings, pause menu lists, hotkeys, cheats, Rest in 60 FPS scenes (2026-11-16)
 
