@@ -2,8 +2,14 @@
 
 ## Unreleased
 
-- **Updater:** more than one nightly a day is now offered (tag `nightly-YYYYMMDD.N`); builds from
-  before this see only the next day's nightly.
+## 0.6.1 — Faster intro with frame generation, upstream Zakuro merge, clearer save-state messages (2026-11-17)
+
+Release notes: [0.6.1](releases/android-0.6.1.md). Tested on one device, an AYN Thor; see
+[testing](testing.md). Make an in-game save before updating: save states from 0.6.0 and earlier no
+longer load.
+
+- **Updater (nightly build only):** more than one nightly a day is now offered (tag
+  `nightly-YYYYMMDD.N`); builds from before this see only the next day's nightly.
 - **Frame generation:** new switch **Prepare while the game loads**
   (`frame_generation_prebuild`, Advanced, on by default) builds the generation graph before the
   game's first picture instead of at it. On the Thor the build took 465 ms and stalled Ultra Moon's
@@ -17,11 +23,11 @@
   Check for updates when the app opens (on by default) does this at most once a day and stays
   silent on failure. Nothing older is offered. Install is refused while a game is running.
   See [android](android.md#updates-from-inside-the-app-nightly-build-only).
-- **Nightly builds contact GitHub:** the nightly APK now has `INTERNET`,
+- **Nightly builds contact GitHub (nightly build only):** the nightly APK now has `INTERNET`,
   `REQUEST_INSTALL_PACKAGES` and `UPDATE_PACKAGES_WITHOUT_USER_ACTION`; the stable APK still
   has no permissions. `build-windows.ps1` adds them only when the version name contains
   `-nightly` and fails if a stable APK has `INTERNET`.
-- **Build:** nightly version names carry their tag date, `-VersionName 0.6.0-nightly.YYYYMMDD`
+- **Build (affects nightly builds only):** nightly version names carry their tag date, `-VersionName 0.6.0-nightly.YYYYMMDD`
   for tag `nightly-YYYYMMDD`, so the updater can tell nightlies apart. A name containing
   `-nightly` (no longer only ending in it) turns on the nightly features.
 - **Upstream Zakuro after 0.2.32 (run on the Thor, build `b08f214`):** merged `fearkov/zakuro` up to `3fe7b15`:
