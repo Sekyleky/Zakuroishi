@@ -72,6 +72,12 @@ code 16).
   installs from this source" prompt. The install itself was not tested (that permission is the
   owner's to grant), so the install confirm screen and the signing-history check on the result
   are still not verified.
+- 2026-11-17, several nightlies a day (`c43e792`): a build named `0.6.1-nightly.20261117.2`
+  answered "Up to date" while GitHub's newest was `nightly-20261117`. After
+  `nightly-20261117.2` was published, the same code named `0.6.1-nightly.20261117` was offered
+  "Version 0.6.1-nightly.20261117.2 is available" with Later / Install (shown only after the
+  download and SHA-256 check). Later was chosen; the published APK was then installed with
+  `adb install -r`, data kept. Not verified: the install from inside the app.
 
 ## 0.6.0 and nightly release builds (2026-11-16, built from `b100fb0`)
 
