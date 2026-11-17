@@ -29,8 +29,8 @@ import org.json.JSONObject;
 public final class Updater extends BroadcastReceiver {
     static final String RELEASES = "https://api.github.com/repos/Sekyleky/Zakuroishi/releases";
     static final long MAX_APK = 64L << 20, DAY = 24L * 60 * 60 * 1000;
-    private static final Pattern APK = Pattern.compile("Zakuroishi-(\\d+\\.\\d+\\.\\d+)(-nightly)?\\.apk"), NIGHTLY_TAG = Pattern.compile("nightly-(\\d{8})"),
-        VERSION = Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)(-nightly(?:\\.(\\d{8}))?)?"), SUM = Pattern.compile("([0-9a-fA-F]{64}) [ *](.+)");
+    private static final Pattern APK = Pattern.compile("Zakuroishi-(\\d+\\.\\d+\\.\\d+)(-nightly)?\\.apk"), NIGHTLY_TAG = Pattern.compile("nightly-(\\d{8})(?:\\.(\\d+))?"),
+        VERSION = Pattern.compile("(\\d+)\\.(\\d+)\\.(\\d+)(-nightly(?:\\.(\\d{8})(?:\\.(\\d+))?)?)?"), SUM = Pattern.compile("([0-9a-fA-F]{64}) [ *](.+)");
 
     static final class Release {
         final String tag, name, apk, apkUrl, sumsUrl;
@@ -38,28 +38,31 @@ public final class Updater extends BroadcastReceiver {
         Release(String tag, String name, String apk, String apkUrl, String sumsUrl) {
             this.tag = tag; this.name = name; this.apk = apk; this.apkUrl = apkUrl; this.sumsUrl = sumsUrl;
         }
-        /** The versionName the APK carries: X.Y.Z, or X.Y.Z-nightly.YYYYMMDD with the date from a nightly-YYYYMMDD tag; null without an APK. */
+        /** The versionName the APK carries: X.Y.Z, or X.Y.Z-nightly.YYYYMMDD[.N] from a nightly-YYYYMMDD[.N] tag; null without an APK. */
         String version() {
             Matcher m = APK.matcher(apk == null ? "" : apk); if (!m.matches()) return null;
             if (m.group(2) == null) return m.group(1);
-            Matcher date = NIGHTLY_TAG.matcher(tag); return m.group(1) + "-nightly" + (date.matches() ? "." + date.group(1) : "");
+            Matcher date = NIGHTLY_TAG.matcher(tag); return m.group(1) + "-nightly" + (date.matches() ? "." + date.group(1) + (date.group(2) == null ? "" : "." + date.group(2)) : "");
         }
     }
 
-    /** {major, minor, patch, nightly 0/1, date or 0}; null when the name is not ours. */
+    /**
+     * {major, minor, patch, nightly 0/1, date or 0, build or 0}; null when the name is not ours. A dated nightly without .N is build 1.
+     * Builds from before .N existed cannot parse a .N name, so they only see the next day's nightly.
+     */
     private static long[] parse(String name) {
         Matcher m = VERSION.matcher(name == null ? "" : name); if (!m.matches()) return null;
-        return new long[]{Long.parseLong(m.group(1)), Long.parseLong(m.group(2)), Long.parseLong(m.group(3)), m.group(4) == null ? 0 : 1, m.group(5) == null ? 0 : Long.parseLong(m.group(5))};
+        return new long[]{Long.parseLong(m.group(1)), Long.parseLong(m.group(2)), Long.parseLong(m.group(3)), m.group(4) == null ? 0 : 1, m.group(5) == null ? 0 : Long.parseLong(m.group(5)), m.group(5) == null ? 0 : m.group(6) == null ? 1 : Long.parseLong(m.group(6))};
     }
     /**
      * Whether candidate is an update for installed. A stable build only takes a higher stable X.Y.Z. A nightly takes a higher
-     * X.Y.Z of either kind, or a later-dated nightly of the same X.Y.Z (a dateless nightly is older than any dated one).
+     * X.Y.Z of either kind, or a later-dated or later-numbered nightly of the same X.Y.Z (a dateless nightly is older than any dated one).
      */
     static boolean newer(String installed, String candidate) {
         long[] a = parse(installed), b = parse(candidate);
         if (a == null || b == null || (a[3] == 0 && b[3] == 1)) return false;
         for (int i = 0; i < 3; i++) if (a[i] != b[i]) return b[i] > a[i];
-        return a[3] == 1 && b[3] == 1 && b[4] > a[4];
+        return a[3] == 1 && b[3] == 1 && (b[4] > a[4] || (b[4] == a[4] && b[5] > a[5]));
     }
     /** The highest release with our APK, whatever order GitHub lists them in; a stable X.Y.Z ranks as a dateless nightly of it. */
     static Release pick(List<Release> releases) {

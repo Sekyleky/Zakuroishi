@@ -6,8 +6,8 @@ param(
     [string]$OutputDirectory = '',
     [string]$BuildTools = '36.0.0',
     [string]$Platform = 'android-37.0',
-    # Overrides the manifest's versionName, e.g. 0.6.0-nightly.20261116 (the date of its nightly-YYYYMMDD tag, which the
-    # updater compares); a name containing -nightly turns on unconfirmed features and adds the updater's permissions.
+    # Overrides the manifest's versionName, e.g. 0.6.0-nightly.20261116 or .20261116.2 (the date and build of its nightly-YYYYMMDD[.N]
+    # tag, which the updater compares); a name containing -nightly turns on unconfirmed features and adds the updater's permissions.
     [string]$VersionName = ''
 )
 $ErrorActionPreference = 'Stop'

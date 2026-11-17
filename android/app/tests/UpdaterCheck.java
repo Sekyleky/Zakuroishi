@@ -22,6 +22,11 @@ public final class UpdaterCheck {
             && !Updater.newer("0.6.0-nightly.20261117", "0.6.0-nightly") && !Updater.newer("0.6.0-nightly", "0.6.0-nightly"), "nightly offered an older nightly");
         check(Updater.newer("0.6.0-nightly.20261117", "0.6.1") && Updater.newer("0.6.0-nightly", "0.7.0-nightly"), "nightly missed a higher version");
         check(!Updater.newer("0.6.0-nightly.20261117", "0.6.0") && !Updater.newer("0.7.0-nightly.20261117", "0.6.9-nightly.20261201"), "nightly offered a downgrade");
+        // Several nightlies a day: no .N counts as 1.
+        check(Updater.newer("0.6.0-nightly.20261117", "0.6.0-nightly.20261117.2") && Updater.newer("0.6.0-nightly.20261117.2", "0.6.0-nightly.20261117.3")
+            && Updater.newer("0.6.0-nightly.20261117.9", "0.6.0-nightly.20261118") && Updater.newer("0.6.0-nightly", "0.6.0-nightly.20261117.2"), "nightly missed a newer build");
+        check(!Updater.newer("0.6.0-nightly.20261117.3", "0.6.0-nightly.20261117.2") && !Updater.newer("0.6.0-nightly.20261118", "0.6.0-nightly.20261117.5")
+            && !Updater.newer("0.6.0", "0.6.1-nightly.20261117.2") && !Updater.newer("0.6.0-nightly.20261117.2", "0.6.0-nightly.20261117"), "nightly offered an older build");
         for (String bad : new String[]{null, "", "0.6", "0.6.0-beta", "v0.6.0", "0.6.0-nightly.2026111", "0.6.0 "})
             check(!Updater.newer("0.6.0", bad) && !Updater.newer(bad, "9.9.9"), "unparsed version accepted: " + bad);
 
@@ -30,6 +35,9 @@ public final class UpdaterCheck {
         check("0.6.0-nightly.20261116".equals(release("nightly-20261116", "Zakuroishi-0.6.0-nightly.apk").version()), "nightly version from tag date");
         check("0.6.0-nightly".equals(release("odd-tag", "Zakuroishi-0.6.0-nightly.apk").version()), "nightly without a dated tag");
         check(release("android-v0.6.0", "Zakuroishi-0.6.0.apk.idsig").version() == null && release("android-v0.6.0", null).version() == null, "foreign asset taken as the APK");
+        check("0.6.1-nightly.20261117.2".equals(release("nightly-20261117.2", "Zakuroishi-0.6.1-nightly.apk").version()), "nightly version with build number");
+        Updater.Release second = release("nightly-20261117.2", "Zakuroishi-0.6.1-nightly.apk"), first = release("nightly-20261117", "Zakuroishi-0.6.1-nightly.apk");
+        check(Updater.pick(Arrays.asList(first, second)) == second && Updater.pick(Arrays.asList(second, first)) == second, "pick missed the later build");
         Updater.Release newest = release("nightly-20261118", "Zakuroishi-0.6.0-nightly.apk");
         check(Updater.pick(Arrays.asList(release("source-only", null), release("nightly-20261117", "Zakuroishi-0.6.0-nightly.apk"), newest,
             release("android-v0.6.0", "Zakuroishi-0.6.0.apk"))) == newest, "pick skipped the wrong releases");

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Updater:** more than one nightly a day is now offered (tag `nightly-YYYYMMDD.N`); builds from
+  before this see only the next day's nightly.
 - **Frame generation:** new switch **Prepare while the game loads**
   (`frame_generation_prebuild`, Advanced, on by default) builds the generation graph before the
   game's first picture instead of at it. On the Thor the build took 465 ms and stalled Ultra Moon's
