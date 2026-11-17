@@ -4,6 +4,21 @@ Paths starting with `build/` below are on the maintainer's machine and are not i
 repository. Only [`docs/evidence/`](evidence/) holds files you can read. Counts and results
 belong to the release or build they were taken on; the newest section is first.
 
+## Frame generation built before the first frame (unreleased, 2026-11-17, build `e9d3d51`)
+
+AYN Thor, Turnip, `zakuro-android-test-20261117-153516-ada6b578.apk`. Ultra Moon at 3x with HD,
+frame generation x4 with rest on, `device-test.sh ab`, 2 launches each, alternating.
+`e9c365e` only adds a gate so Software 3D does not prebuild; that was not run on the device.
+
+- `frame_generation_prebuild` on: graph built before the first frame in 417.5 / 494.1 ms. Intro
+  window 1 speed 99.5% / 98.2%, worst frame 45.5 / 121.7 ms; window 2 96.4% / 96.8%.
+- Off (the old build at the first frame, 498 / 498 ms): window 1 90.8% / 90.4%, worst frame
+  525.9 / 526.3 ms; window 2 98.3% / 97.6%.
+- The intro stall is gone; prebuild stays on by default. The cost moves into load time, about
+  0.4-0.5 s before the first frame.
+- Not checked: Software 3D, stereo 3D, a 60 Hz panel. Ultra Moon's frame generation was set back
+  to off afterwards (the owner's setting).
+
 ## Upstream 0.2.32+mic1 merge and the intro stall (unreleased, 2026-11-17, build `b08f214`)
 
 AYN Thor, Turnip, `zakuro-android-test-20261117-103752-6c778dec.apk`, installed with
