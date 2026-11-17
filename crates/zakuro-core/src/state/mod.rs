@@ -21,7 +21,9 @@ use crate::{GuestMemory, Pacing, System, HISTORY_LENGTH};
 
 const MAGIC: &[u8; 8] = b"ZAKUROST";
 /// what a state holds changes from one version to the next.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// +mic1: the microphone service joined the services, so states of the
+/// same crate version from before it are refused rather than misread.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "+mic1");
 
 /// everything but memory, as it is written.
 #[derive(Serialize)]
@@ -349,6 +351,23 @@ mod tests {
         system.kernel.program_id = 0x0004_0000_0000_1234;
         assert!(system.load_state(&state).is_err());
         assert!(system.load_state(b"nothing").is_err());
+        assert_eq!(system.cpu.regs[0], 5);
+    }
+
+    /// a state of the same crate version from before the microphone is
+    /// turned down by its header, and nothing changes.
+    #[test]
+    fn a_state_from_before_the_microphone_is_turned_down() {
+        let (mut system, _) = system_with_thread();
+        let state = system.save_state().unwrap();
+        let old = env!("CARGO_PKG_VERSION");
+        let mut bytes = super::MAGIC.to_vec();
+        bytes.extend_from_slice(&(old.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(old.as_bytes());
+        bytes.extend_from_slice(&state[super::MAGIC.len() + 4 + super::VERSION.len()..]);
+        system.cpu.regs[0] = 5;
+        let error = system.load_state(&bytes).unwrap_err();
+        assert!(error.contains(&format!("saved by Zakuro {old},")), "{error}");
         assert_eq!(system.cpu.regs[0], 5);
     }
 }
