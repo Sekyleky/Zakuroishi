@@ -31,6 +31,12 @@ AYN Thor, Turnip, `zakuro-android-test-20261117-103752-6c778dec.apk`, installed 
   difference; it stays on (the upstream default).
 - Old save state: the Pokémon X quick state from 0.6.0, quick load says it was saved by Zakuro
   0.2.32 and this is 0.2.32+mic1. The game keeps running and the file is kept.
+- Friendlier message (2026-11-17, `zakuro-android-test-20261117-174504-b10db32f.apk`, release
+  key, `adb install -r` over 0.6.1-nightly, data kept): the same quick load now shows "Quick
+  state not loaded: it was made by another version of Zakuroishi" in full on the toast. A first
+  try ("Slot 0 not loaded: … In-game saves still work") was cut off at two lines and named the
+  quick slot "Slot 0"; both fixed. Not seen on the device: the save-failure text and a numbered
+  slot's text.
 - Intro slowdown with frame generation. Three causes ruled out from logs and code: shader JIT and
   pipeline compiles (the pipeline cache loads before frame 1, 0 compiles after, the JIT compiles
   off-thread); the bottom-screen / second-display copy (`cpu_bottom` 300 in every window whatever
@@ -61,6 +67,11 @@ code 16).
 - Not verified: downloading and installing a real update (needs a newer nightly release on
   GitHub), the signing-history check on a downloaded APK, the install confirm screen, the cancel
   of a pending install by a game start, the version-mismatch refusal.
+- 2026-11-17, after `nightly-20261117` (0.6.1-nightly.20261117) was published: on the same
+  install, Check for updates found it, downloaded it, verified it and reached Android's "allow
+  installs from this source" prompt. The install itself was not tested (that permission is the
+  owner's to grant), so the install confirm screen and the signing-history check on the result
+  are still not verified.
 
 ## 0.6.0 and nightly release builds (2026-11-16, built from `b100fb0`)
 

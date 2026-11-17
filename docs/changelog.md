@@ -2,12 +2,14 @@
 
 ## Unreleased
 
-- **Frame generation (not run on a device yet):** new switch **Prepare while the game loads**
+- **Frame generation:** new switch **Prepare while the game loads**
   (`frame_generation_prebuild`, Advanced, on by default) builds the generation graph before the
   game's first picture instead of at it. On the Thor the build took 465 ms and stalled Ultra Moon's
-  intro (window 1 at ~91% speed vs 98.5% with generation off); now it happens during loading.
+  intro (window 1 at ~91% speed vs 98.5% with generation off); now it happens during loading. On
+  the Thor, intro window 1 ran at 99.5% / 98.2% instead of 90.8% / 90.4%, and the worst frame fell
+  from 526 ms to 46-122 ms; loading takes about 0.4-0.5 s longer.
 - **Fixes:** Exit to library no longer crashes the game process (which also lost the play time), and "title.so" in the help text is no longer a link.
-- **Updates from inside the app (nightly build only, not run on a device):** Menu → Check for
+- **Updates from inside the app (nightly build only; on the Thor it found, downloaded and verified a newer nightly, install not tested):** Menu → Check for
   updates… finds a newer release on GitHub, downloads it, checks it against the release's
   `SHA256SUMS` and the app's own package name and signing key, and offers Install / Later.
   Check for updates when the app opens (on by default) does this at most once a day and stays
@@ -20,7 +22,7 @@
 - **Build:** nightly version names carry their tag date, `-VersionName 0.6.0-nightly.YYYYMMDD`
   for tag `nightly-YYYYMMDD`, so the updater can tell nightlies apart. A name containing
   `-nightly` (no longer only ending in it) turns on the nightly features.
-- **Upstream Zakuro after 0.2.32 (not run on a device):** merged `fearkov/zakuro` up to `3fe7b15`:
+- **Upstream Zakuro after 0.2.32 (run on the Thor, build `b08f214`):** merged `fearkov/zakuro` up to `3fe7b15`:
   recompiled code that reads the clock, takes and lets go of a mutex and skips clock-polling loops
   itself (`spin.rs`); GPU draws that set, copy and hash only what changed (vertex arrays kept across
   batches, strips drawn as strips, lighting tables found by hash, descriptors pushed only when they
@@ -29,10 +31,12 @@
   `730fbac` (ABI 8, generation 6). Existing ABI 4/5 `title.so` files still load and run: 3dsrecomp
   accepts ABI 4 to 8 and the mutex lending is used only for ABI 8 code; rebuilding with
   `build-title` gets the new speedups. Import and Replace native game code now accept ABI 4 to 8.
-  Left out: the macOS Pro Controller reader (`4bae63f`), desktop only.
+  Left out: the macOS Pro Controller reader (`4bae63f`), desktop only. On the Thor, the
+  `kept_arrays` A/B showed no difference and an old state was refused.
 - **Save states from earlier versions no longer load:** the microphone service changed what a state
-  holds, so loading an older state shows "it was saved by Zakuro 0.2.32, and this is 0.2.32+mic1"
-  and changes nothing; the file is kept. In-game saves are not affected.
+  holds, so loading an older state shows "Quick state not loaded: it was made by another version
+  of Zakuroishi" (or "Slot N …") and changes nothing; the file is kept. In-game saves are not
+  affected. Save and load messages now name the quick state instead of calling it slot 0.
 - **New switch, Advanced → Keep vertex arrays on the GPU** (`kept_arrays`, on): upstream's
   vertex-array heap; turn off to compare. See [android](android.md).
 

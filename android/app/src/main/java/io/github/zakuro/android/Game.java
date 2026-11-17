@@ -327,7 +327,7 @@ public final class Game extends NativeActivity {
     public void runHotkey(String name) { runOnUiThread(() -> {
         if(menuOpen || errorDialog!=null || isFinishing()) return;
         switch(name) {
-            case "quick_save": thumbnail(shot -> saveThumbnail(0,shot)); nativeCommand(SAVE); break; // native shows "Saved slot 0"
+            case "quick_save": thumbnail(shot -> saveThumbnail(0,shot)); nativeCommand(SAVE); break; // native shows "Quick state saved"
             case "quick_load": confirmLoad(true); break;
             case "swap_screens": nativeCommand(SWAP); break;
             case "screenshot": screenshot(); break;

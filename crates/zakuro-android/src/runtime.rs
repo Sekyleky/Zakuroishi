@@ -695,19 +695,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                         } else {
                             crate::storage::load(&path).and_then(|bytes| system.load_state(&bytes))
                         };
+                        let what = if slot == 0 { "Quick state".to_string() } else { format!("Slot {slot}") };
+                        let done = if matches!(command, Command::Save(_)) { "saved" } else { "loaded" };
                         match result {
-                            Ok(()) => platform::message(
-                                app,
-                                &format!(
-                                    "{} slot {slot}",
-                                    if matches!(command, Command::Save(_)) {
-                                        "Saved"
-                                    } else {
-                                        "Loaded"
-                                    }
-                                ),
-                            ),
-                            Err(error) => platform::message(app, &error),
+                            Ok(()) => platform::message(app, &format!("{what} {done}")),
+                            Err(error) => platform::message(app, &format!("{what} not {done}: {error}")),
                         }
                         audio = None;
                         input = Input::default();
