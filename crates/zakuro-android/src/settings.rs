@@ -153,6 +153,8 @@ pub struct Advanced {
     pub frame_generation_flow: i32,
     /// Make no pictures in scenes the game draws at 60 FPS.
     pub frame_generation_rest: bool,
+    /// Build the frame generation graph while the game loads, not at its first picture.
+    pub frame_generation_prebuild: bool,
     /// FIFO at normal speed and the 60 FPS cap, mailbox otherwise; off keeps mailbox (0.1.8).
     pub vsync_pacing: bool,
     /// Stock Qualcomm drivers abort on GPU vertex shaders; fall back to Auto there.
@@ -247,6 +249,7 @@ impl Default for Advanced {
             frame_generation_multiplier: 4,
             frame_generation_flow: 100,
             frame_generation_rest: true, // measured on the Thor: 4x intro 89-93% -> 100%, no change at 30 FPS
+            frame_generation_prebuild: true, // moves the ~465 ms graph build out of the intro on the Thor; A/B pending
             vsync_pacing: true,
             safe_gpu_shaders: true,
             turnip_sysmem: false,
@@ -459,6 +462,7 @@ mod tests {
         assert!(!settings.frame_generation && settings.frame_generation_multiplier == 4 && settings.frame_generation_flow == 100);
         assert!(Advanced::parse(r#"{"frame_generation":true}"#).unwrap().renderer_options().frame_generation);
         assert!(settings.frame_generation_rest && !Advanced::parse(r#"{"frame_generation_rest":false}"#).unwrap().frame_generation_rest);
+        assert!(settings.frame_generation_prebuild && !Advanced::parse(r#"{"frame_generation_prebuild":false}"#).unwrap().frame_generation_prebuild);
         assert!(!settings.request_wait_idle);
         assert!(Advanced::parse(r#"{"request_wait_idle":true}"#).unwrap().request_wait_idle);
         assert!(!settings.short_vsync_queue);

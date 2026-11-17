@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Frame generation (not run on a device yet):** new switch **Prepare while the game loads**
+  (`frame_generation_prebuild`, Advanced, on by default) builds the generation graph before the
+  game's first picture instead of at it. On the Thor the build took 465 ms and stalled Ultra Moon's
+  intro (window 1 at ~91% speed vs 98.5% with generation off); now it happens during loading.
 - **Fixes:** Exit to library no longer crashes the game process (which also lost the play time), and "title.so" in the help text is no longer a link.
 - **Updates from inside the app (nightly build only, not run on a device):** Menu → Check for
   updates… finds a newer release on GitHub, downloads it, checks it against the release's

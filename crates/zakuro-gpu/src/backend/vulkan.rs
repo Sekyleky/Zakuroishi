@@ -187,6 +187,8 @@ pub struct VulkanPresenter {
     frame_generation: Option<FrameGenOptions>,
     framegen: Option<FrameGen>,
     framegen_failed: bool,
+    /// the graph was built before the first picture, at a guessed size the first picture checks.
+    framegen_prebuilt: bool,
 }
 
 impl VulkanPresenter {
@@ -490,6 +492,7 @@ impl VulkanPresenter {
             frame_generation: None,
             framegen: None,
             framegen_failed: false,
+            framegen_prebuilt: false,
         };
 
         presenter.build_swapchain()?;
@@ -765,6 +768,38 @@ impl VulkanPresenter {
         self.framegen_failed
     }
 
+    fn make_framegen(&self, options: &FrameGenOptions, width: u32, height: u32) -> Result<FrameGen, String> {
+        let on = framegen::Device {
+            entry: &self._entry,
+            instance: &self.instance,
+            physical: self.physical_device,
+            device: &self.device,
+            family: self.queue_family,
+            queue: self.queue,
+            memory: &self.memory_properties,
+        };
+        FrameGen::new(on, options, width, height)
+    }
+
+    /// builds the graph now for top pictures of this size, so the game's first picture does not wait
+    /// for it; on this thread, as the graph takes the queue. a first picture of another size rebuilds it.
+    pub fn prebuild_frame_generation(&mut self, options: &FrameGenOptions, width: u32, height: u32) {
+        if self.framegen.is_some() || self.framegen_failed || self.shared.is_none() {
+            return;
+        }
+        let started = std::time::Instant::now();
+        match self.make_framegen(options, width, height) {
+            Ok(made) => {
+                log::info!("frame generation: prebuilt before the first frame in {:.1} ms", started.elapsed().as_secs_f64() * 1e3);
+                (self.framegen, self.framegen_prebuilt) = (Some(made), true);
+            }
+            Err(error) => {
+                log::error!("frame generation is off: {error}");
+                self.framegen_failed = true;
+            }
+        }
+    }
+
     /// the pictures to present for this refresh, none when this frame goes up as it is.
     fn generated_pictures(&mut self, top: &ScreenImage<'_>, right: &ScreenImage<'_>) -> Option<Vec<(GpuScreen, bool)>> {
         let options = self.frame_generation.as_ref()?;
@@ -772,20 +807,15 @@ impl VulkanPresenter {
         if !right.is_empty() || self.framegen_failed || self.shared.is_none() {
             return None;
         }
-        if self.framegen.as_ref().is_some_and(|made| !made.follows(options)) {
+        let prebuilt = std::mem::take(&mut self.framegen_prebuilt);
+        if self.framegen.as_ref().is_some_and(|made| !made.follows(options) || (prebuilt && !made.fits(&gpu))) {
+            if prebuilt {
+                log::warn!("frame generation: the first picture is {}x{}, rebuilding the prebuilt graph", gpu.rect[2], gpu.rect[3]);
+            }
             self.framegen = None;
         }
         if self.framegen.is_none() {
-            let on = framegen::Device {
-                entry: &self._entry,
-                instance: &self.instance,
-                physical: self.physical_device,
-                device: &self.device,
-                family: self.queue_family,
-                queue: self.queue,
-                memory: &self.memory_properties,
-            };
-            match FrameGen::new(on, options, gpu.rect[2], gpu.rect[3]) {
+            match self.make_framegen(options, gpu.rect[2], gpu.rect[3]) {
                 Ok(made) => self.framegen = Some(made),
                 Err(error) => {
                     log::error!("frame generation is off: {error}");

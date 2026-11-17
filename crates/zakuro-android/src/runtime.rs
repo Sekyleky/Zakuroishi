@@ -857,6 +857,14 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             if !loaded.gpu.shows_directly() {
                 log::warn!("Vulkan renderer is not sharing the presentation device");
             }
+            // Built here, not at the first picture: the build takes ~0.5 s on the presenting thread.
+            // A top picture of another size rebuilds it there.
+            if settings.frame_generation && settings.frame_generation_prebuild && display_paced && s.shared && settings.frame_cap == 60 {
+                if let Some(options) = &frame_generation {
+                    let scale = loaded.gpu.scale();
+                    s.presenter.prebuild_frame_generation(options, Screen::Top.width() * scale, Screen::Top.height() * scale);
+                }
+            }
             system = Some(loaded);
             next_frame = Instant::now();
             hold = settings.warm_before_start.then(Instant::now);
