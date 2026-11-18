@@ -352,7 +352,8 @@ final class ImportPlan {
             if (crc.getValue() != expected) throw new IOException("Invalid PNG chunk checksum: " + name);
             at += size + 12;
             if (type == 0x49454e44) {
-                if (!data || size != 0 || at != length) throw new IOException("Incomplete PNG image: " + name);
+                // bytes after IEND are left alone, as decoders ignore them; some packs' tools append them
+                if (!data || size != 0) throw new IOException("Incomplete PNG image: " + name);
                 return header;
             }
         }

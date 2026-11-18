@@ -340,7 +340,12 @@ public final class ImportPlanCheck {
         bytes = new byte[45]; System.arraycopy(PNG, 0, bytes, 0, 33);
         System.arraycopy(PNG, PNG.length - 12, bytes, 33, 12);
         rejectedPng(bytes, "IEND without IDAT");
-        rejectedPng(Arrays.copyOf(PNG, PNG.length + 1), "bytes after IEND");
+        { // bytes after IEND are accepted: some pack tools append them and decoders ignore them
+            byte[] tail = Arrays.copyOf(PNG, PNG.length + 4096); Tree tree = valid();
+            tree.blobs.get("texture").prefix = tail; tree.blobs.get("texture").length = tail.length;
+            reportedSize(tree, "texture-sub", "texture", tail.length);
+            ImportPlan.inspect(tree, "root"); ImportPlan.texturePack(tree, "textures", TITLE);
+        }
         java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
         raw.write(PNG, 0, 33);
         NativeFixture.chunk(new java.io.DataOutputStream(raw), "vpAg", new byte[140000]);
