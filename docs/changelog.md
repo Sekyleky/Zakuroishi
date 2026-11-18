@@ -4,7 +4,7 @@
 
 - **Play time survives a crash (host-checked, not run on device):** it is saved every minute while a game plays, so a game that is killed loses at most a minute instead of the whole session.
 - **Camera picture (host-checked, not run on device):** Game files → Camera picture… chooses a picture, such as a QR code, that the game's cameras see instead of black. See [android](android.md#camera-picture).
-- **Cheat log:** when cheats change a game's code, the log names the first cheat and the address it wrote, to find what touched the code.
+- **Cheat log:** when cheats change a game's code, the log names the first cheat or enhancement and the address it wrote, and the enhancements a game's settings switch on are logged. On the AYN Thor this showed that Ultra Moon's "1 functions run in the interpreter" line came from its No Outlines enhancement patching code, as it should, not from a player's cheat.
 - **Local wireless (nightly build only; on the AYN Thor with a PC test client, not yet with two consoles in a game):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. A hosted room can be given a name, and the pause menu can leave the room or join it again. A room that cannot be opened or joined says what to change. See [android](android.md#local-wireless-nightly-build-only).
 - **Cheats in a running game (checked on the AYN Thor):** pause menu → Settings… → Cheats… switches the imported cheats, and a switch applies at once instead of at the next start. See [android](android.md#cheats).
 - **Add cheat… (checked on the AYN Thor):** type a cheat's name and codes in Game files or the Cheats… list; it is added switched on.

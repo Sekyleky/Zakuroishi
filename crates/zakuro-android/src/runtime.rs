@@ -912,6 +912,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             for cheat in loaded.cheats.iter_mut().filter(|cheat| cheat.builtin) {
                 cheat.enabled = settings.enhancements.contains(&cheat.name);
             }
+            // the loader's line counts only the core config; these are the ones that run
+            let on: Vec<&str> = loaded.cheats.iter().filter(|cheat| cheat.builtin && cheat.enabled).map(|cheat| cheat.name.as_str()).collect();
+            if !on.is_empty() {
+                log::info!("enhancements on from this game's settings: {}", on.join(", "));
+            }
             for name in &settings.enhancements {
                 if !loaded
                     .cheats
