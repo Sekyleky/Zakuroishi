@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Sturdier rooms (host-checked on Windows and Linux):** a room now turns away nicknames over 40 bytes and cuts game names to 64 bytes, drops a member that stops receiving instead of waiting on it, caps what a console keeps unread at 4 MiB, and a console refuses a malformed answer from a host instead of stopping.
+- **Sturdier rooms (tests on Windows and Linux; on the AYN Thor a hosted room took a 10-emoji nickname and cut a 300-character game name to 64):** a room now turns away nicknames over 40 bytes and cuts game names to 64 bytes, drops a member that stops receiving instead of waiting on it, caps what a console keeps unread at 4 MiB, and a console refuses a malformed answer from a host instead of stopping.
 - **Controller fixes (checked on the AYN Thor):** A on a text field (Add cheat, Game name, room settings) opens the on-screen keyboard; Start no longer confirms a destructive dialog such as Discard changes or Remove cheats; L1/R1 scroll long library dialogs such as Setup help; A acts on what had focus when it was pressed, not when it was released; the pause menu scrolls when it does not fit (large font not run on device).
 - **Play time survives a crash (checked on the AYN Thor):** it is saved every minute while a game plays, so a game that is killed loses at most a minute instead of the whole session.
 - **Camera picture (loading checked on the AYN Thor; a game scanning it not run on device):** Game files → Camera picture… chooses a picture, such as a QR code, that the game's cameras see instead of black. See [android](android.md#camera-picture).
