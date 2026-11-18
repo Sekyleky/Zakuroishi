@@ -73,6 +73,8 @@ pub struct Launch {
     pub name: String,
     /// the game's updates, DLC and Download Play child, and the game's program id to pair them.
     pub addons: Option<(PathBuf, u64)>,
+    /// the picture the game's cameras see (camera.rs), none when none was chosen.
+    pub camera: Option<PathBuf>,
     /// this install's console number (GameLaunch.consoleId), used only in a local wireless room.
     pub console_id: Option<u64>,
     /// local wireless rooms are allowed: the nightly build, which has the network permission.
@@ -100,6 +102,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         hooks,
         name,
         addons,
+        camera,
         console_id,
         rooms,
     ) = with_activity(app, |env, activity| {
@@ -128,6 +131,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         let driver_name = extra("driver_name")?;
         let name = extra("game_name")?.to_string_lossy().into_owned();
         let addons = (extra("addons")?, extra("game_id")?);
+        let camera = extra("camera")?;
         let console_id = u64::from_str_radix(&extra("console_id")?.to_string_lossy(), 16).ok().filter(|id| *id != 0);
         let info = env
             .call_method(
@@ -190,6 +194,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             PathBuf::from(hooks),
             name,
             addons,
+            camera,
             console_id,
             rooms,
         ))
@@ -228,6 +233,8 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
     let addons = u64::from_str_radix(&addons.1.to_string_lossy(), 16)
         .ok()
         .and_then(|id| Some((crate::transform::owned_path(&addons.0, &roots[..1]).ok()?, id)));
+    // private storage only, and only a file that is there
+    let camera = crate::transform::owned_path(&camera, &roots[..1]).ok().filter(|path| path.is_file());
     let rom = crate::transform::owned_path(&game.join("game.3ds"), &roots)?;
     if !rom.starts_with(&game) || !rom.is_file() {
         return Err("game/game.3ds must be a regular ROM file".into());
@@ -242,6 +249,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         driver,
         name,
         addons,
+        camera,
         console_id,
         rooms,
     })

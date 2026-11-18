@@ -367,6 +367,13 @@ final class SettingsDialog {
                     content.addView(text("Imported: " + String.join(", ", addons.subList(0, Math.min(addons.size(), 20))) + (addons.size() > 20 ? " and " + (addons.size() - 20) + " more" : ""), true));
                     Button remove = button("Remove updates and DLC"); remove.setOnClickListener(v -> removeAddons()); addButton(content, remove);
                 }
+                Button camera = button("Camera picture…"); camera.setOnClickListener(v -> ((Launcher) activity).importCamera(settings.id)); addButton(content, camera);
+                content.addView(text("Optional. A picture the game's cameras see instead of black, such as a QR code. It applies the next time the game starts.", true));
+                if (GameImport.cameraFile(activity, settings.id).isFile()) {
+                    Button drop = button("Remove camera picture"); drop.setOnClickListener(v -> {
+                        Toast.makeText(activity, GameImport.cameraFile(activity, settings.id).delete() ? "Camera picture removed. The cameras see black from the next start." : "Could not remove the picture.", Toast.LENGTH_LONG).show(); closeAll(); });
+                    addButton(content, drop);
+                }
             }
             if (repair != null) {
                 Button replace = button("Add or replace native game code…"); replace.setOnClickListener(v -> repair.run()); addButton(content, replace);

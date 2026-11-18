@@ -388,6 +388,46 @@ final class GameImport {
         finally { temp.delete(); }
         return target.getName();
     }
+    /**
+     * Camera picture, as the desktop's Choose camera picture: kept per title like updates and DLC, so a re-import keeps it, and
+     * read by the runtime at start (crates/zakuro-android/src/camera.rs). A QR code is the usual reason.
+     */
+    static final int CAMERA_LARGEST = 640;
+    static File cameraFile(android.content.Context context, String id) { return new File(context.getFilesDir(), "camera/" + id + ".rgb"); }
+    /** "ZKCAM1", width and height as little-endian ints, then red, green and blue per pixel (camera.rs reads it). */
+    static byte[] cameraBytes(int width, int height, int[] argb) {
+        if (width < 1 || height < 1 || width > CAMERA_LARGEST || height > CAMERA_LARGEST || argb.length != width * height)
+            throw new IllegalArgumentException("picture size");
+        java.nio.ByteBuffer out = java.nio.ByteBuffer.allocate(14 + argb.length * 3).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        out.put("ZKCAM1".getBytes(java.nio.charset.StandardCharsets.US_ASCII)).putInt(width).putInt(height);
+        for (int pixel : argb) out.put((byte) (pixel >> 16)).put((byte) (pixel >> 8)).put((byte) pixel);
+        return out.array();
+    }
+    /** Decodes the chosen image, shrinks it to CAMERA_LARGEST and stores it; it is seen from the game's next start. */
+    static void importCamera(android.content.Context context, String id, android.net.Uri uri) throws IOException {
+        validId(id);
+        android.content.ContentResolver resolver = context.getContentResolver();
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+        try (InputStream input = resolver.openInputStream(uri)) { android.graphics.BitmapFactory.decodeStream(input, null, bounds); }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("This is not a picture Android can open. Choose a PNG or JPEG.");
+        android.graphics.BitmapFactory.Options decode = new android.graphics.BitmapFactory.Options();
+        decode.inSampleSize = 1; // a power of two that keeps a huge photo out of memory, then the exact size below
+        while (Math.max(bounds.outWidth, bounds.outHeight) / (decode.inSampleSize * 2) >= CAMERA_LARGEST) decode.inSampleSize *= 2;
+        android.graphics.Bitmap bitmap;
+        try (InputStream input = resolver.openInputStream(uri)) { bitmap = android.graphics.BitmapFactory.decodeStream(input, null, decode); }
+        if (bitmap == null) throw new IOException("This is not a picture Android can open. Choose a PNG or JPEG.");
+        float scale = Math.min(1f, (float) CAMERA_LARGEST / Math.max(bitmap.getWidth(), bitmap.getHeight()));
+        int width = Math.max(1, Math.round(bitmap.getWidth() * scale)), height = Math.max(1, Math.round(bitmap.getHeight() * scale));
+        android.graphics.Bitmap sized = android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, true);
+        int[] pixels = new int[width * height]; sized.getPixels(pixels, 0, width, 0, 0, width, height);
+        File target = cameraFile(context, id); mkdir(target.getParentFile());
+        File temp = new File(target.getParentFile(), id + ".rgb.tmp-" + UUID.randomUUID());
+        try {
+            Files.write(temp.toPath(), cameraBytes(width, height, pixels));
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) { if (outOfSpace(e)) throw new IOException("Ran out of free space. Nothing was changed.", e); throw e; }
+        finally { temp.delete(); }
+    }
     static void removeAddons(android.content.Context context, String id) throws Exception {
         validId(id); File[] files = addonsDir(context, id).listFiles();
         if (files != null) for (File file : files) Files.deleteIfExists(file.toPath());

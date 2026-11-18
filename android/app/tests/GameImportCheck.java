@@ -255,6 +255,13 @@ public final class GameImportCheck {
         rejects(() -> GameImport.withCheat("[A]\n04000000 00000001\n", "A", "04000000 00000001")); // same name
         rejects(() -> GameImport.withCheat(null, "x]", "04000000 00000001")); rejects(() -> GameImport.withCheat(null, "", "04000000 00000001"));
         rejects(() -> GameImport.withCheat(null, "Bad", "0400 0001")); rejects(() -> GameImport.withCheat(null, "None", " \n "));
+        // Camera picture: the bytes camera.rs's TWO_PIXELS test reads (alpha dropped), and sizes it refuses
+        require(java.util.Arrays.equals(GameImport.cameraBytes(2, 1, new int[]{0xFF112233, 0x80445566}),
+            new byte[]{'Z','K','C','A','M','1', 2,0,0,0, 1,0,0,0, 0x11,0x22,0x33, 0x44,0x55,0x66}));
+        for (int[] bad : new int[][]{{0, 1, 0}, {641, 1, 641}, {2, 2, 3}}) {
+            try { GameImport.cameraBytes(bad[0], bad[1], new int[bad[2]]); throw new AssertionError("camera size accepted"); }
+            catch (IllegalArgumentException expected) { }
+        }
         // readUpTo stands in for API 33's readNBytes: the limit, a short stream, a stream that gives one byte a call
         byte[] ten = "0123456789".getBytes("UTF-8");
         require(GameImport.readUpTo(new ByteArrayInputStream(ten), 4).length == 4 && GameImport.readUpTo(new ByteArrayInputStream(ten), 64).length == 10);

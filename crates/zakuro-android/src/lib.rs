@@ -23,6 +23,8 @@ mod presentation;
 #[cfg(any(target_os = "android", test))]
 mod addons;
 #[cfg(any(target_os = "android", test))]
+mod camera;
+#[cfg(any(target_os = "android", test))]
 mod room;
 #[cfg(target_os = "android")]
 mod runtime;

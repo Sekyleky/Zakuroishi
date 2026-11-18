@@ -40,6 +40,9 @@ page with each release. Nothing here has been measured on more than one device, 
 - **Add cheat…:** typing a cheat in Game files and in game, and both refusals, were checked on
   the AYN Thor; a cheat that visibly works in game was not tried.
 - **Mods…:** the list was checked on the AYN Thor; removing one part and Remove all mods were not run on device. Parts under 0.1 MB show as 0.0 MB.
+- **Camera picture (host-checked, not run on device):** choosing a picture, a game scanning a
+  QR code from it, and very large or unusual images (HEIC, CMYK JPEG) through Android's decoder.
+  There is no live camera.
 - **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
 - **Storage screen:** the "A game is open" refusal and deleting an item were seen on the AYN Thor
   for an imported update; deleting the other kinds of item was not run on device.

@@ -21,6 +21,7 @@ final class GameLaunch {
         intent.putExtra("data",new File(version,"data").getAbsolutePath());
         intent.putExtra("console_id",consoleId(context)); // the game uses it only in a local wireless room
         intent.putExtra("addons",GameImport.addonsDir(context,id).getAbsolutePath()); // updates and DLC, kept across re-imports
+        intent.putExtra("camera",GameImport.cameraFile(context,id).getAbsolutePath()); // the cameras' picture, when one was chosen
         // stable has no network permission: no rooms. An extra, not the settings, so a restart from the game (a copy of this intent) keeps it
         intent.putExtra("rooms",GameImport.nightly(context));
         settings.apply(intent,version);

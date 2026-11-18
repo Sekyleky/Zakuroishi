@@ -36,6 +36,8 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("Room settings are not wired: RoomMode, runtime room link or the stable gate");
         if(!launch.contains("intent.putExtra(\"console_id\",consoleId(context))") || !platform.contains("extra(\"console_id\")") || !runtime.contains("system.config.console_id = id;"))
             throw new AssertionError("The install's console number does not reach the core in a room");
+        if(!launch.contains("intent.putExtra(\"camera\",GameImport.cameraFile(context,id)") || !platform.contains("extra(\"camera\")") || !runtime.contains("loaded.camera = Some(Box::new(picture));"))
+            throw new AssertionError("The camera picture does not reach the core");
         String[][] shaderFields={{"shader_mode","gpu_shaders"},{"shader_execution","translate_shaders"},
             {"cpu_shader_jit","cpu_shader_jit"},{"shader_compilation","wait_for_shaders"},
             {"generic_shaders","generic_shaders"},{"depth_blits","depth_blits"},

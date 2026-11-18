@@ -898,6 +898,16 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             if let Some(room) = &room {
                 link_room(&mut loaded, room, &room_settings, &launch);
             }
+            // without a picture the cameras see black, as before
+            if let Some(path) = &launch.camera {
+                match crate::camera::load(path) {
+                    Ok(picture) => {
+                        log::info!("the cameras see the chosen picture");
+                        loaded.camera = Some(Box::new(picture));
+                    }
+                    Err(error) => platform::message(app, &format!("Camera picture not used: {error}")),
+                }
+            }
             // The loader selected only enhancements matching this title/build.
             for cheat in loaded.cheats.iter_mut().filter(|cheat| cheat.builtin) {
                 cheat.enabled = settings.enhancements.contains(&cheat.name);

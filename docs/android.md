@@ -175,7 +175,18 @@ the Download Play child (which a game hosting a local wireless room can then sen
 another game, an encrypted one or one that is not a CIA is named in a "Not used" message. An
 update that changes the game's code needs a title.so built from the game with that update;
 otherwise the game says so and runs in the interpreter (or refuses when native code is required).
-The Storage screen lists them per game with their size and can delete them. Host-checked, not run on device.
+The Storage screen lists them per game with their size and can delete them. Import, removal and
+the Storage entry were checked on the AYN Thor with a test file; a real update or DLC was not run
+on device.
+
+## Camera picture
+
+A game's cameras see black unless a picture is chosen for them. Open the game's **Settings →
+Game files** and choose **Camera picture…**, then pick a PNG or JPEG, for example a QR code a game
+asks you to scan. It is shrunk to at most 640 pixels across, kept for that game (also when the
+game is added again) and seen by both cameras, whole, from the next start. **Remove camera
+picture** goes back to black. A damaged file is named in a "Camera picture not used" message and
+the game runs with black cameras. There is no live camera. Host-checked, not run on device.
 
 ## Cheats
 
