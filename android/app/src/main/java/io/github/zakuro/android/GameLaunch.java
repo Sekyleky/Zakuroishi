@@ -19,6 +19,7 @@ final class GameLaunch {
         intent.putExtra("game",new File(version,"game").getAbsolutePath());
         intent.putExtra("code",new File(version,"code/title.so").getAbsolutePath());
         intent.putExtra("data",new File(version,"data").getAbsolutePath());
+        intent.putExtra("addons",GameImport.addonsDir(context,id).getAbsolutePath()); // updates and DLC, kept across re-imports
         if (!GameImport.nightly(context)) settings.values.put("room_mode","off"); // stable has no network permission
         settings.apply(intent,version);
         return intent;

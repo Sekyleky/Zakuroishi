@@ -321,6 +321,8 @@ final class GameImport {
      */
     static final int CHEATS_MAX = 1 << 20;
     private static final String CHEAT_ON = "*citra_enabled";
+    /** A game's updates, DLC and Download Play child: per game, not per import, so they stay when the game is added again. */
+    static File addonsDir(android.content.Context context, String id) { return new File(context.getFilesDir(), "addons/" + id); }
     static File cheatsFile(File version, String id) { return new File(version, "data/cheats/" + id + ".txt"); }
     private static boolean cheatCode(String t) {
         if (t.length() != 17 || t.charAt(8) != ' ') return false;

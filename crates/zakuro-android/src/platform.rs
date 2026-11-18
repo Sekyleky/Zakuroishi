@@ -71,6 +71,8 @@ pub struct Launch {
     pub driver: Option<crate::driver::DriverSpec>,
     /// the game's name in the library (GameSettings.apply's game_name), what a room shows others it plays.
     pub name: String,
+    /// the game's updates, DLC and Download Play child, and the game's program id to pair them.
+    pub addons: Option<(PathBuf, u64)>,
 }
 
 pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
@@ -93,6 +95,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         driver_name,
         hooks,
         name,
+        addons,
     ) = with_activity(app, |env, activity| {
         let intent = env
             .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])?
@@ -118,6 +121,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         let driver_dir = extra("driver_dir")?;
         let driver_name = extra("driver_name")?;
         let name = extra("game_name")?.to_string_lossy().into_owned();
+        let addons = (extra("addons")?, extra("game_id")?);
         let info = env
             .call_method(
                 activity,
@@ -174,6 +178,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             driver_name,
             PathBuf::from(hooks),
             name,
+            addons,
         ))
     })?;
     let advanced = crate::settings::Advanced::parse(&advanced_json)?;
@@ -206,6 +211,10 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
     {
         return Err("game/data must be directories and code must be a .so file".into());
     }
+    // none when the game has no addons folder yet, or the id is not one
+    let addons = u64::from_str_radix(&addons.1.to_string_lossy(), 16)
+        .ok()
+        .and_then(|id| Some((crate::transform::owned_path(&addons.0, &roots[..1]).ok()?, id)));
     let rom = crate::transform::owned_path(&game.join("game.3ds"), &roots)?;
     if !rom.starts_with(&game) || !rom.is_file() {
         return Err("game/game.3ds must be a regular ROM file".into());
@@ -219,6 +228,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         advanced,
         driver,
         name,
+        addons,
     })
 }
 

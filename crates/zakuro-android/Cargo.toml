@@ -15,6 +15,7 @@ serde_json = "1"
 [dev-dependencies]
 zakuro-gpu = { path = "../zakuro-gpu", default-features = false }
 zakuro-core = { path = "../zakuro-core" }
+zakuro-fs = { path = "../zakuro-fs", features = ["testing"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
@@ -27,4 +28,5 @@ ndk-sys = "0.6"
 raw-window-handle = "0.6"
 zakuro-common = { path = "../zakuro-common" }
 zakuro-core = { path = "../zakuro-core" }
+zakuro-fs = { path = "../zakuro-fs" }
 zakuro-gpu = { path = "../zakuro-gpu", features = ["vulkan"] }

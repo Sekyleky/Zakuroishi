@@ -196,4 +196,23 @@ mod tests {
         assert!(owned_path(Path::new("relative"), std::slice::from_ref(&root)).is_err());
         assert!(owned_path(&root, &[root.join("missing-private-root")]).is_err());
     }
+
+    /// Android's filesDir is reached through /data/user/0, a symlink: a folder under the aliased
+    /// root (the game's addons) is owned, a symlink inside it that leaves the root is not.
+    #[cfg(unix)]
+    #[test]
+    fn owned_paths_follow_an_aliased_root_but_not_an_escape() {
+        let base = std::env::temp_dir().join(format!("zakuro-owned-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (real, outside) = (base.join("data/data/app/files"), base.join("outside"));
+        std::fs::create_dir_all(real.join("addons/00040000001B5100")).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::create_dir_all(base.join("data/user")).unwrap();
+        std::os::unix::fs::symlink(base.join("data/data"), base.join("data/user/0")).unwrap();
+        let alias = base.join("data/user/0/app/files");
+        std::os::unix::fs::symlink(&outside, real.join("addons/escape")).unwrap();
+        assert!(owned_path(&alias.join("addons/00040000001B5100"), std::slice::from_ref(&alias)).is_ok());
+        assert!(owned_path(&alias.join("addons/escape"), std::slice::from_ref(&alias)).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

@@ -871,7 +871,14 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 return Err("The selected custom driver cannot supply the Vulkan device required by this renderer. Choose Software 3D rendering or System driver.".into());
             }
             s.shared = device.is_some() && !settings.gpu_readback;
+            let addons = launch.addons.as_ref().map(|(dir, id)| crate::addons::find(dir, *id)).unwrap_or_default();
+            if !addons.problems.is_empty() {
+                platform::message(app, &format!("Not used: {}.", addons.problems.join("; ")));
+            }
             let config = Config {
+                update: addons.update,
+                dlc: addons.dlc,
+                dlp_child: addons.dlp_child,
                 recompiled: settings.aot.then(|| launch.code.clone()),
                 require_recompiled: settings.aot,
                 new3ds: settings.new_3ds,

@@ -4675,6 +4675,7 @@ dependencies = [
  "serde_json",
  "zakuro-common",
  "zakuro-core",
+ "zakuro-fs",
  "zakuro-gpu",
 ]
 
