@@ -21,24 +21,28 @@ page with each release. Nothing here has been measured on more than one device, 
 - **0.6.0, not run:** touch on the second-screen buttons, light theme, large font, and saving
   settings while only the HUD changed in a running game. For cheats: keeping the file across a
   re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
-- **Local wireless rooms (nightly build only, host-checked, not run on device):** hosting and
-  joining a room, two consoles trading packets, the "Hosting room on" address, the lost-room
-  message, the pause menu's Leave/Join, and the stable build hiding the settings. Two Zakuroishi
-  consoles in one room (each its own console number) have not been tried. A game that read the
-  console number before the room was joined may keep the default one. Only the settings parsing, the Java/native
-  contract and the core room tests (loopback, one PC) ran.
-- **Switching cheats in a running game (host-checked, not run on device):** the in-game Cheats…
-  list and the reload that makes a switch apply at once. Only the Java/native command contract,
-  the aarch64 check and an APK build ran.
-- **Updates and DLC (host-checked, not run on device):** importing a real update or DLC, a game
-  seeing them, an update with a matching or mismatched title.so, removal, and space running out
-  mid-copy, and deleting them from the Storage screen.
-- **Add cheat… (host-checked, not run on device):** typing a cheat in with the controller and
-  on-screen keyboard, and the cheat working in game.
-- **Mods… (host-checked, not run on device):** the list, removing one part and Remove all mods.
+- **Local wireless rooms (nightly build only):** checked on the AYN Thor against a PC test client
+  (2026-11-18): hosting (LAN address shown), a PC joining and seeing the room name and game,
+  joining a PC room, the lost-room message, every "Room not …" message, the pause menu's room
+  dialog (status line, Leave, Join, controller), joining in the background with the game at full
+  speed, and the stable build hiding the settings. Not run on device: two consoles playing a
+  game's local wireless together, and two Zakuroishi consoles in one room (each its own console
+  number). A game that read the console number before the room was joined may keep the default
+  one. A PC hosting a room may need its firewall to let the port in.
+- **Switching cheats in a running game:** the in-game Cheats… list and the reload were checked
+  on the AYN Thor (the log counts the cheats on at once); a cheat that visibly changes a game
+  was not tried.
+- **Updates and DLC:** on the AYN Thor with a generated test file: import, the "not a CIA"
+  refusal, "Not used" for another game's update, Remove, and the Storage entry (refused while a
+  game is open, deleted after). Game files lists an imported file only after it is opened again.
+  Not run on device: a real update or DLC, a game seeing them, an update with a matching or
+  mismatched title.so, and space running out mid-copy. Sizes under 1 MB show as 0 MB.
+- **Add cheat…:** typing a cheat in Game files and in game, and both refusals, were checked on
+  the AYN Thor; a cheat that visibly works in game was not tried.
+- **Mods…:** the list was checked on the AYN Thor; removing one part and Remove all mods were not run on device. Parts under 0.1 MB show as 0.0 MB.
 - **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
-- **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
-  listing and a cancelled confirm were seen.
+- **Storage screen:** the "A game is open" refusal and deleting an item were seen on the AYN Thor
+  for an imported update; deleting the other kinds of item was not run on device.
 - **Save editor backups** (`user.backup-<ms>`, `:backups` in the picker) in a real editor.
 - **The SHA-256 dialogs** for new games, replaced native code and drivers.
 - **A real out-of-space failure** during import.

@@ -156,7 +156,7 @@ Only one mod can change the game's code: if the current mods and the new one bot
 carry `code.*` or `exheader.bin`, adding is refused; replace instead. **Mods…** lists
 what the game's mods change (game data `romfs`, extra data, a code patch, replaced code,
 the exheader) with their size; remove one part, such as a code patch, or **Remove all
-mods**. The texture pack, ROM and saves stay (host-checked, not run on device). Adding the
+mods**. The texture pack, ROM and saves stay (the list checked on the AYN Thor; removing not run on device). Adding the
 game again also removes them. A folder named for a different title id is refused.
 
 Mods that change game code (`code.bin`, `code.ips`, `code.bps`, in the folder or its
@@ -477,7 +477,7 @@ Save state… and Load state… list the quick slot (slot 0, also X and Y in the
 with their save time (file modified time); overwriting and loading ask first, and empty slots cannot be loaded. Deleting an old import
 removes its whole `states` folder, so every slot goes with it.
 Each save also writes a small `N.png` thumbnail beside `N.state` (the game as the pause menu opened, or at the Quick save hotkey), shown in the slot list; states from older builds show a blank tile and load as before.
-**Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game. It can also bind a button to a Circle Pad or C-stick direction (up, down, left, right): held, it pushes that stick all the way, over what the stick itself does; two opposite buttons cancel (host-checked, not run on device).
+**Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game. It can also bind a button to a Circle Pad or C-stick direction (up, down, left, right): held, it pushes that stick all the way, over what the stick itself does; two opposite buttons cancel (checked on the AYN Thor).
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's

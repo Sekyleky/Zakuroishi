@@ -2,12 +2,12 @@
 
 ## Unreleased
 
-- **Local wireless (nightly build only, host-checked, not run on device):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. A hosted room can be given a name, and the pause menu can leave the room or join it again. A room that cannot be opened or joined says what to change. See [android](android.md#local-wireless-nightly-build-only).
-- **Cheats in a running game (host-checked, not run on device):** pause menu → Settings… → Cheats… switches the imported cheats, and a switch applies at once instead of at the next start. See [android](android.md#cheats).
-- **Add cheat… (host-checked, not run on device):** type a cheat's name and codes in Game files or the Cheats… list; it is added switched on.
-- **Stick directions on buttons (host-checked, not run on device):** Button mapping can bind a button to a Circle Pad or C-stick direction.
-- **Mods… in Game files (host-checked, not run on device):** lists what a game's mods change with their size, and removes one part (for example only the code patch) or all of them.
-- **Updates and DLC (host-checked, not run on device):** Game files → Import update or DLC… adds a game's decrypted update, DLC or Download Play child; the game uses them from its next start. See [android](android.md#updates-and-dlc).
+- **Local wireless (nightly build only; on the AYN Thor with a PC test client, not yet with two consoles in a game):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. A hosted room can be given a name, and the pause menu can leave the room or join it again. A room that cannot be opened or joined says what to change. See [android](android.md#local-wireless-nightly-build-only).
+- **Cheats in a running game (checked on the AYN Thor):** pause menu → Settings… → Cheats… switches the imported cheats, and a switch applies at once instead of at the next start. See [android](android.md#cheats).
+- **Add cheat… (checked on the AYN Thor):** type a cheat's name and codes in Game files or the Cheats… list; it is added switched on.
+- **Stick directions on buttons (checked on the AYN Thor):** Button mapping can bind a button to a Circle Pad or C-stick direction.
+- **Mods… in Game files (list checked on the AYN Thor; removing a part not run on device):** lists what a game's mods change with their size, and removes one part (for example only the code patch) or all of them.
+- **Updates and DLC (import, refusal, removal and Storage checked on the AYN Thor with a test file; a real update or DLC not run on device):** Game files → Import update or DLC… adds a game's decrypted update, DLC or Download Play child; the game uses them from its next start. See [android](android.md#updates-and-dlc).
 - **Fixed (host-checked, not run on device):** importing cheats or settings, reading a driver's header and exporting or patching frontend files used Java stream methods that exist only from Android 13; on Android 11 and 12 they would have stopped with an error. A host check now refuses those methods in the app's source.
 
 ## 0.6.1 — Faster intro with frame generation, upstream Zakuro merge, clearer save-state messages (2026-11-17)
