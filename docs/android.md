@@ -115,6 +115,7 @@ In a game's **Settings → Advanced → Local wireless**:
 - **Room address**: to join, the host's address and port, like `192.168.0.10:24873` (no port
   means 24873). To host, a port, or empty for 24873.
 - **Nickname**: the name others see, and the console's own while in a room. Empty is Player.
+- **Room name**: when hosting, the name the room shows. Empty is "<nickname>'s room".
 - **Room password**: empty for none; host and guests use the same one.
 
 When hosting, the game shows "Hosting room on <address>:<port>"; enter that on the other console.

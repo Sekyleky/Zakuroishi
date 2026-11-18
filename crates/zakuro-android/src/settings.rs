@@ -195,6 +195,8 @@ pub struct Advanced {
     pub room_mode: RoomMode,
     pub room_address: String,
     pub room_nickname: String,
+    /// the hosted room's name, empty for "<nickname>'s room" as on the desktop.
+    pub room_name: String,
     pub room_password: String,
     pub enhancements: Vec<String>,
 }
@@ -278,6 +280,7 @@ impl Default for Advanced {
             room_mode: RoomMode::Off,
             room_address: String::new(),
             room_nickname: String::new(),
+            room_name: String::new(),
             room_password: String::new(),
             enhancements: Vec::new(),
         }
@@ -545,7 +548,9 @@ mod tests {
         assert!(settings.room_address.is_empty() && settings.room_nickname.is_empty() && settings.room_password.is_empty());
         let join = Advanced::parse(r#"{"room_mode":"join","room_address":"192.168.0.10:24873","room_nickname":"Thor","room_password":"pw"}"#).unwrap();
         assert_eq!((join.room_mode, join.room_address.as_str(), join.room_nickname.as_str(), join.room_password.as_str()), (RoomMode::Join, "192.168.0.10:24873", "Thor", "pw"));
-        assert_eq!(Advanced::parse(r#"{"room_mode":"host"}"#).unwrap().room_mode, RoomMode::Host);
+        let host = Advanced::parse(r#"{"room_mode":"host","room_name":"Thor room"}"#).unwrap();
+        assert_eq!((host.room_mode, host.room_name.as_str()), (RoomMode::Host, "Thor room"));
+        assert!(settings.room_name.is_empty());
         assert!(Advanced::parse(r#"{"room_mode":"fake"}"#).is_err());
     }
     #[test]

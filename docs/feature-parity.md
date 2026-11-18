@@ -308,7 +308,7 @@ not to a claim that the desktop settings file is read on Android.
 | `nickname` | **Partial (nightly only)** `room_nickname`, the room name and console name while in a room; not a general console-name setting. |
 | `console_id` | **Unsupported** Android identity editor/launch override. |
 | `room_address` | **Wired (nightly only)** `room_mode` join + `room_address`, `room_password`; set at game start, no in-game join/leave. Host-checked, not run on device. |
-| `room_name` | **Partial (nightly only)** `room_mode` host names the room "<nickname>'s room"; no name setting. |
+| `room_name` | **Wired (nightly only)** `room_name`, empty is "<nickname>'s room". Host-checked, not run on device. |
 | `room_port` | **Wired (nightly only)** `room_address` holds the host port, empty is 24873. |
 
 All binding field names are accounted for:

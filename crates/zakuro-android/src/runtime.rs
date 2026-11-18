@@ -428,7 +428,11 @@ fn join_room(app: &AndroidApp, settings: &crate::settings::Advanced) -> (Option<
         RoomMode::Join => (None, format!("{address}:{DEFAULT_PORT}")),
         RoomMode::Host => {
             let port = address.rsplit(':').next().and_then(|port| port.trim().parse().ok()).unwrap_or(DEFAULT_PORT);
-            match Server::start(port, &format!("{nickname}'s room"), &settings.room_password, 16) {
+            let name = match settings.room_name.trim() {
+                "" => format!("{nickname}'s room"),
+                name => name.to_owned(),
+            };
+            match Server::start(port, &name, &settings.room_password, 16) {
                 Ok(server) => {
                     let local = format!("127.0.0.1:{}", server.port());
                     (Some(server), local)
