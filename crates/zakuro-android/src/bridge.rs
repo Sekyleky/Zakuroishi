@@ -2,7 +2,7 @@
 use android_activity::{AndroidApp, AndroidAppWaker};
 use jni::{
     objects::{JObject, JString},
-    sys::{jboolean, jfloat, jint},
+    sys::{jboolean, jfloat, jint, jstring},
     JNIEnv,
 };
 use std::{collections::VecDeque, sync::Mutex};
@@ -93,6 +93,16 @@ pub fn clear_input() {
     state.second_touch = None;
 }
 
+/// what the pause menu's room dialog shows, kept current by the runtime (room::status).
+static ROOM_STATUS: Mutex<String> = Mutex::new(String::new());
+pub fn set_room_status(text: String) {
+    *ROOM_STATUS.lock().unwrap_or_else(|e| e.into_inner()) = text;
+}
+#[no_mangle]
+pub extern "system" fn Java_io_github_zakuro_android_Game_nativeRoomStatus(env: JNIEnv<'_>, _: JObject<'_>) -> jstring {
+    let text = ROOM_STATUS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    env.new_string(text).map_or(std::ptr::null_mut(), |text| text.into_raw())
+}
 /// the software keyboard's answer, once the dialog closed.
 pub fn keyboard_answer() -> Option<(String, usize)> {
     STATE.lock().unwrap_or_else(|e| e.into_inner()).keyboard.take()

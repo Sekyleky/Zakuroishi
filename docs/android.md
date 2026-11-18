@@ -123,7 +123,7 @@ If the room cannot be opened or joined, the game says why and what to change (po
 wrong password, a nickname already in the room, an address it cannot reach) and runs without
 local wireless; the same happens
 if the room closes or the connection drops while playing. In the pause menu, **Local wireless
-room…** leaves the room, or joins (or hosts) it again with the room settings the game started
+room…** shows the room's name and who is in it, playing what, and leaves the room, or joins (or hosts) it again with the room settings the game started
 with; when the room was Off it joins Room address.
 
 Joining happens in the background while the game loads or plays (up to about 10 seconds for an

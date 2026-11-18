@@ -36,6 +36,22 @@ pub fn open(settings: &Advanced) -> Result<Joined, String> {
     Ok((server, connection, said))
 }
 
+/// the line the pause menu's room dialog shows: the room's name and who is in it, playing what.
+pub fn status(room: Option<(&str, &[zakuro_core::room::Member])>, joining: bool) -> String {
+    match room {
+        _ if joining => "Joining a room…".into(),
+        None => "Not in a room.".into(),
+        Some((name, [])) => format!("In the room {name}."),
+        Some((name, members)) => {
+            let who: Vec<String> = members
+                .iter()
+                .map(|member| if member.game.is_empty() { member.nickname.clone() } else { format!("{} ({})", member.nickname, member.game) })
+                .collect();
+            format!("In the room {name}: {}.", who.join(", "))
+        }
+    }
+}
+
 /// open on a thread of its own; the runtime polls the receiver once a frame.
 pub fn open_in_background(settings: &Advanced) -> Option<std::sync::mpsc::Receiver<Result<Joined, String>>> {
     if settings.room_mode == RoomMode::Off {
@@ -150,6 +166,16 @@ mod tests {
         assert!(join_error("the room turned you away, the password is wrong").contains("Check Room password"));
         assert!(join_error("could not reach 10.0.0.2:24873, refused").contains("same network"));
         assert_eq!(join_error("the room turned you away, the room is full"), "Room not joined: the room turned you away, the room is full.");
+    }
+
+    #[test]
+    fn status_names_the_room_and_who_plays_what() {
+        use zakuro_core::room::Member;
+        let member = |nickname: &str, game: &str| Member { nickname: nickname.into(), mac: [0; 6], game: game.into() };
+        assert_eq!(status(None, false), "Not in a room.");
+        assert_eq!(status(None, true), "Joining a room…");
+        assert_eq!(status(Some(("Den", &[])), false), "In the room Den.");
+        assert_eq!(status(Some(("Den", &[member("Thor", "Ultra Moon"), member("Pc", "")])), false), "In the room Den: Thor (Ultra Moon), Pc.");
     }
 
     /// open() hosts on a free port and joins its own room, and joins another one by address

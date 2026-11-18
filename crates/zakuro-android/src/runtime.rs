@@ -460,6 +460,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let mut joining = crate::room::open_in_background(&settings);
     // the settings the room was joined with, for linking a restarted game
     let mut room_settings = settings.clone();
+    let mut room_status_at = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(Instant::now);
     // Declared before surfaces/core so custom libraries outlive every Vulkan object.
     let driver = crate::driver::Driver::load(launch.driver.as_ref())?;
     let mut paused = false;
@@ -664,6 +665,12 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 }
                 Err(message) => platform::message(app, &message),
             }
+        }
+        // once a second is enough for a dialog the player opens by hand
+        if room_status_at.elapsed() >= Duration::from_secs(1) {
+            room_status_at = Instant::now();
+            let members = room.as_ref().map(|room| room.members()).unwrap_or_default();
+            bridge::set_room_status(crate::room::status(room.as_ref().map(|room| (room.room(), members.as_slice())), joining.is_some()));
         }
         // as the desktop does: a room that went away is left, said once, and the game plays on alone
         if room.as_ref().is_some_and(|room| !room.open()) {

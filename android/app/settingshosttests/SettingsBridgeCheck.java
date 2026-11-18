@@ -77,6 +77,8 @@ public final class SettingsBridgeCheck {
         for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch","nativeKeyboard"})
             if(!java.contains("void "+method+"(") || !rust.contains("Game_"+method+"("))
                 throw new AssertionError("Missing JNI export: "+method);
+        if(!java.contains("native String nativeRoomStatus(") || !rust.contains("Game_nativeRoomStatus("))
+            throw new AssertionError("Missing JNI export: nativeRoomStatus");
         System.out.println("Java/native contracts passed: eleven command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
     }
 }
