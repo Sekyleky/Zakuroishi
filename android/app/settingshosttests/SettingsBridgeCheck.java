@@ -15,6 +15,13 @@ public final class SettingsBridgeCheck {
         String runtime=Files.readString(root.resolve("crates/zakuro-android/src/runtime.rs"));
         String hardware=Files.readString(root.resolve("crates/zakuro-gpu/src/raster/hardware.rs"));
         String jit=Files.readString(root.resolve("crates/zakuro-gpu/src/shader/jit.rs"));
+        // the app runs from API 30: InputStream.readNBytes/readAllBytes/transferTo are API 33 (GameImport.readUpTo instead)
+        try(java.util.stream.Stream<Path> sources=Files.list(root.resolve("android/app/src/main/java/io/github/zakuro/android"))) {
+            for(Path source:(Iterable<Path>)sources::iterator) {
+                java.util.regex.Matcher late=Pattern.compile("\\.readNBytes\\(|\\.transferTo\\(|(?<!Files)\\.readAllBytes\\(\\)").matcher(Files.readString(source));
+                if(late.find()) throw new AssertionError(source.getFileName()+" calls an API 33 stream method: "+late.group());
+            }
+        }
         if(!runtime.contains("set_renderer_options(settings.renderer_options())"))
             throw new AssertionError("Runtime does not install advanced renderer options");
         if(!runtime.contains("request_wait_idle: settings.request_wait_idle"))

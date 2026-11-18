@@ -239,6 +239,11 @@ public final class GameImportCheck {
     }
     /** Cheat files: what is accepted, switching one cheat touches only its marker line, the write replaces atomically. */
     static void checkCheats(File dir) throws Exception {
+        // readUpTo stands in for API 33's readNBytes: the limit, a short stream, a stream that gives one byte a call
+        byte[] ten = "0123456789".getBytes("UTF-8");
+        require(GameImport.readUpTo(new ByteArrayInputStream(ten), 4).length == 4 && GameImport.readUpTo(new ByteArrayInputStream(ten), 64).length == 10);
+        InputStream trickle = new ByteArrayInputStream(ten) { @Override public synchronized int read(byte[] b, int off, int len) { return super.read(b, off, Math.min(len, 1)); } };
+        require(new String(GameImport.readUpTo(trickle, 7), "UTF-8").equals("0123456") && GameImport.readUpTo(new ByteArrayInputStream(new byte[0]), 5).length == 0);
         String on = "*citra_enabled", a = "[Money]\r\n" + on + "\r\n*note\r\n04000000 00000001\r\n\r\n", b = "[Health]\r\n  0A000000 0000FFFF  \r\n# keep\r\n";
         String ok = "[Money]\n04000000 00000001\n";
         require(GameImport.cheatText(ok.getBytes("UTF-8")).equals(ok));

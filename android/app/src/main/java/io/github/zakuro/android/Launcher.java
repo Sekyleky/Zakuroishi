@@ -663,7 +663,7 @@ public final class Launcher extends Activity {
             }
             String library = GameSettings.driverLibrary(stage);
             try (java.io.InputStream input = new java.io.FileInputStream(new File(stage,library))) {
-                byte[] header = input.readNBytes(64);
+                byte[] header = GameImport.readUpTo(input, 64);
                 if (!arm64Driver(header)) throw new java.io.IOException("Driver library must be an Android ARM64 shared library");
             }
             report = GameImport.identity("the driver library (" + library + ")", GameImport.sha256(new File(stage,library)));
@@ -779,7 +779,7 @@ public final class Launcher extends Activity {
                 String text;
                 try (java.io.InputStream input = context.getContentResolver().openInputStream(uri)) {
                     if (input == null) throw new java.io.IOException("Cannot read the selected file.");
-                    byte[] bytes = input.readNBytes(SettingsTransfer.MAX_BYTES + 1);
+                    byte[] bytes = GameImport.readUpTo(input, SettingsTransfer.MAX_BYTES + 1);
                     if (bytes.length > SettingsTransfer.MAX_BYTES) throw new java.io.IOException("This is not a Zakuroishi settings file: it is too large.");
                     text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
                 }
@@ -796,7 +796,7 @@ public final class Launcher extends Activity {
                     byte[] patched;
                     try(java.io.InputStream input=context.getContentResolver().openInputStream(source)) {
                         if(input==null) throw new java.io.IOException("Cannot read iiSU catalog");
-                        patched=FrontendExport.patchIisu(input.readNBytes(1024*1024+1));
+                        patched=FrontendExport.patchIisu(GameImport.readUpTo(input,1024*1024+1));
                     }
                     try(java.io.OutputStream output=context.getContentResolver().openOutputStream(destination,"wt")) {
                         if(output==null) throw new java.io.IOException("Cannot write iiSU catalog copy"); output.write(patched);

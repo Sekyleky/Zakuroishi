@@ -41,6 +41,12 @@ final class GameImport {
     /** Free space that must remain after an import or replacement: the larger of 256 MiB and 5% of what is copied. */
     static long margin(long bytes) { return Math.max(256L << 20, bytes / 20); }
     /** Android reports a full disk as "write failed: ENOSPC (No space left on device)", sometimes wrapped. */
+    /** Up to max bytes of the stream, fewer at its end. InputStream.readNBytes is API 33 and the app runs from API 30. */
+    static byte[] readUpTo(InputStream input, int max) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(Math.min(max, 1 << 16)); byte[] buffer = new byte[8192]; int n;
+        while (out.size() < max && (n = input.read(buffer, 0, Math.min(buffer.length, max - out.size()))) > 0) out.write(buffer, 0, n);
+        return out.toByteArray();
+    }
     static boolean outOfSpace(Throwable error) {
         for (int depth = 0; error != null && depth < 8; depth++, error = error.getCause()) {
             String message = error.getMessage();
@@ -413,7 +419,7 @@ final class GameImport {
         validId(id); File version = active(context, id); byte[] bytes;
         try (InputStream input = context.getContentResolver().openInputStream(uri)) {
             if (input == null) throw new IOException("Cannot read the selected file.");
-            bytes = input.readNBytes(CHEATS_MAX + 1);
+            bytes = readUpTo(input, CHEATS_MAX + 1);
         }
         byte[] text = cheatText(bytes).getBytes(java.nio.charset.StandardCharsets.UTF_8);
         synchronized (POINTER_LOCK) {

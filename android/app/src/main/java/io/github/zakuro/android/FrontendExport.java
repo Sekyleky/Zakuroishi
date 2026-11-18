@@ -44,7 +44,7 @@ final class FrontendExport {
         // Never overwrite an unrelated document, even in the user-selected export folder.
         try(InputStream in=context.getContentResolver().openInputStream(file)) {
             if(in==null) throw new IOException("Cannot check frontend file");
-            byte[] current=in.readNBytes(65537);
+            byte[] current=GameImport.readUpTo(in,65537);
             boolean owned=current.length==0 || Arrays.equals(current,bytes);
             if(!owned && current.length<=65536 && !name.endsWith(".zkr")) {
                 String text=new String(current,StandardCharsets.UTF_8);
