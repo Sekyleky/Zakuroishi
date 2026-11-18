@@ -27,6 +27,10 @@ layout(push_constant) uniform Crop {
     vec4 right_area;
     vec4 right_bounds;
 #endif
+    // the picture effect, 0 none, 1 sharpen, 2 vivid colours, 3 scanlines,
+    // 4 smooth edges, and how strongly it applies, 0 to 1
+    int fx;
+    float fx_strength;
 } crop;
 
 // a screen drawn bigger than the window shows it is averaged over every
@@ -65,10 +69,77 @@ vec3 shown(sampler2D image, vec4 area, vec4 bounds) {
     return sum / float(taps.x * taps.y);
 }
 
+float luma(vec3 c) {
+    return dot(c, vec3(0.299, 0.587, 0.114));
+}
+
+// one bilinear sample, kept within the screen like shown's
+vec3 tap(sampler2D image, vec4 bounds, vec2 at) {
+    return textureLod(image, clamp(at, bounds.xy, bounds.zw), 0.0).rgb;
+}
+
+// the screen as shown, then the picture effect over it. none returns it
+// untouched and samples nothing more. neighbours are a window pixel away, or
+// a texel when the screen is drawn bigger than its pixels, so the effects
+// still find the picture's edges then.
+vec3 picture(sampler2D image, vec4 area, vec4 bounds) {
+    vec3 c = shown(image, area, bounds);
+    float s = crop.fx_strength;
+    if (crop.fx == 0 || s <= 0.0) {
+        return c;
+    }
+    vec2 at = area.xy + uv * area.zw;
+    vec2 step = max(fwidth(at), 1.0 / vec2(textureSize(image, 0)));
+    // the console's 240 lines down the screen, as uv runs down it
+    float line = uv.y * 240.0;
+    float lines = fwidth(line);
+    if (crop.fx == 1) {
+        // contrast adaptive sharpening: a cross of neighbours pulls the
+        // middle away from them, less where the contrast is already high
+        vec3 n = tap(image, bounds, at - vec2(0.0, step.y));
+        vec3 so = tap(image, bounds, at + vec2(0.0, step.y));
+        vec3 w = tap(image, bounds, at - vec2(step.x, 0.0));
+        vec3 e = tap(image, bounds, at + vec2(step.x, 0.0));
+        vec3 low = min(c, min(min(n, so), min(w, e)));
+        vec3 high = max(c, max(max(n, so), max(w, e)));
+        vec3 amount = sqrt(clamp(min(low, 1.0 - high) / max(high, vec3(1e-4)), 0.0, 1.0));
+        vec3 weight = -amount * 0.2 * s;
+        return clamp((c + weight * (n + so + w + e)) / (1.0 + 4.0 * weight), 0.0, 1.0);
+    } else if (crop.fx == 2) {
+        // more saturation, then a little more contrast about the middle grey
+        vec3 vivid = mix(vec3(luma(c)), c, 1.0 + 0.6 * s);
+        return clamp((vivid - 0.5) * (1.0 + 0.25 * s) + 0.5, 0.0, 1.0);
+    } else if (crop.fx == 3) {
+        // each console line bright in its middle and dark at its edges,
+        // fading out once a line is too few window pixels to show it
+        float middle = 0.5 - 0.5 * cos(6.2831853 * fract(line));
+        float fade = clamp(1.5 - 2.0 * lines, 0.0, 1.0);
+        return c * (1.0 - 0.5 * s * fade * (1.0 - middle));
+    } else if (crop.fx == 4) {
+        // a light FXAA: where the corners' luma shows an edge, blend along it
+        float nw = luma(tap(image, bounds, at + vec2(-step.x, -step.y)));
+        float ne = luma(tap(image, bounds, at + vec2(step.x, -step.y)));
+        float sw = luma(tap(image, bounds, at + vec2(-step.x, step.y)));
+        float se = luma(tap(image, bounds, at + vec2(step.x, step.y)));
+        float middle = luma(c);
+        float low = min(middle, min(min(nw, ne), min(sw, se)));
+        float high = max(middle, max(max(nw, ne), max(sw, se)));
+        if (high - low < max(0.0312, high * 0.125)) {
+            return c;
+        }
+        vec2 along = vec2(sw + se - nw - ne, nw + sw - ne - se);
+        float reduce = max((nw + ne + sw + se) * 0.03125, 1.0 / 128.0);
+        along = clamp(along / (min(abs(along.x), abs(along.y)) + reduce), -2.0, 2.0) * step;
+        vec3 blended = 0.5 * (tap(image, bounds, at - along / 6.0) + tap(image, bounds, at + along / 6.0));
+        return mix(c, blended, s);
+    }
+    return c;
+}
+
 void main() {
 #ifdef STEREO
-    vec3 left = shown(screen, crop.area, crop.bounds);
-    vec3 right = shown(right_eye, crop.right_area, crop.right_bounds);
+    vec3 left = picture(screen, crop.area, crop.bounds);
+    vec3 right = picture(right_eye, crop.right_area, crop.right_bounds);
     if (crop.swap != 0) {
         vec3 other = left;
         left = right;
@@ -85,6 +156,6 @@ void main() {
         colour = vec4((int(gl_FragCoord.y) & 1) == 0 ? left : right, 1.0);
     }
 #else
-    colour = vec4(shown(screen, crop.area, crop.bounds), 1.0);
+    colour = vec4(picture(screen, crop.area, crop.bounds), 1.0);
 #endif
 }

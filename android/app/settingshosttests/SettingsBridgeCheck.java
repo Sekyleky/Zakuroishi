@@ -30,6 +30,12 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("Runtime does not give dump_textures' folder to the texture dump");
         if(!runtime.contains("geometry::spacing(settings)") || !settings.contains("self.screen_gap.clamp(0, 40)") || !settings.contains("self.small_screen.clamp(25, 100)"))
             throw new AssertionError("screen_gap/small_screen are not clamped like the Java ranges or not given to the presenter");
+        // picture effect: the Java choices are the Rust PictureEffect, strength clamped like the Java range and given to the presenter
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("picture_effect") && !String.join("|",setting.choices).equals("none|sharpen|vivid_colours|scanlines|smooth_edges"))
+            throw new AssertionError("picture_effect choices differ from Rust PictureEffect");
+        if(!settings.contains("choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges);") || !settings.contains("self.effect_strength.clamp(0, 100)")
+                || !runtime.contains("set_picture_effect(effect, strength)"))
+            throw new AssertionError("Picture effect settings are not wired: PictureEffect, strength clamp or the presenter");
         // local wireless: the Java choices are the Rust RoomMode, the runtime gives the game the room, stable never asks for one
         String launch=Files.readString(root.resolve("android/app/src/main/java/io/github/zakuro/android/GameLaunch.java"));
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("room_mode") && !String.join("|",setting.choices).equals("off|join|host"))

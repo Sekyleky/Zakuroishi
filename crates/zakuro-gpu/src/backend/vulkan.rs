@@ -9,7 +9,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::framegen::{self, FrameGen, FrameGenOptions};
 use super::vulkan_overlay::OverlayPainter;
-use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, ScreenSpacing, Shown, Stereo, StereoMode, Viewport};
+use super::{place_configured, GpuScreen, Overlay, PictureEffect, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, ScreenSpacing, Shown, Stereo, StereoMode, Viewport};
 use crate::raster::hardware::{can_render, render_device};
 use crate::SharedDevice;
 
@@ -25,9 +25,10 @@ const FRAG_CONSTANTS_OFFSET: u32 = 16;
 
 /// the bytes of push constants the fragment shader reads: where the screen
 /// lies in its image, the bounds its samples keep in and the filter, and
-/// for 3D how the eyes show and the right eye's place in its image.
-const CONSTANTS: u32 = 36;
-const STEREO_CONSTANTS: u32 = 80;
+/// for 3D how the eyes show and the right eye's place in its image, then
+/// the picture effect and its strength.
+const CONSTANTS: u32 = 44;
+const STEREO_CONSTANTS: u32 = 88;
 
 /// how many frames may be recorded before waiting on the oldest.
 const FRAMES_IN_FLIGHT: usize = 2;
@@ -178,6 +179,8 @@ pub struct VulkanPresenter {
     top_width: f32,
     filter: ScreenFilter,
     integer: bool,
+    effect: PictureEffect,
+    effect_strength: f32,
     stereo: Stereo,
     stretch: bool,
     swap_screens: bool,
@@ -197,6 +200,12 @@ impl VulkanPresenter {
         self.stretch = stretch;
         self.swap_screens = swap_screens;
         self.spacing = spacing;
+    }
+
+    /// the picture effect over the screens and how strongly, 0 to 1, from the next frame on.
+    pub fn set_picture_effect(&mut self, effect: PictureEffect, strength: f32) {
+        self.effect = effect;
+        self.effect_strength = if strength.is_finite() { strength.clamp(0.0, 1.0) } else { 0.0 };
     }
     pub fn new(
         window: &(impl HasDisplayHandle + HasWindowHandle),
@@ -487,6 +496,8 @@ impl VulkanPresenter {
             top_width: super::TOP_WIDTH,
             filter: ScreenFilter::default(),
             integer: false,
+            effect: PictureEffect::None,
+            effect_strength: 0.0,
             stereo: Stereo::default(),
             stretch: false,
             swap_screens: false,
@@ -1037,6 +1048,9 @@ impl VulkanPresenter {
                 } else {
                     (self.pipeline, self.pipeline_layout, descriptor)
                 };
+                constants.extend_from_slice(&self.effect.mode().to_le_bytes());
+                constants.extend_from_slice(&self.effect_strength.to_le_bytes());
+                debug_assert_eq!(constants.len() as u32, if shown == Shown::Both { STEREO_CONSTANTS } else { CONSTANTS });
                 set_viewport(device, command_buffer, viewport, self.extent);
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline);
                 device.cmd_bind_descriptor_sets(command_buffer, vk::PipelineBindPoint::GRAPHICS, layout, 0, &[set], &[]);

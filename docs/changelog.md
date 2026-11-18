@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Picture effects (host-checked, not run on device):** Display → Picture effect applies Sharpen, Vivid colours, Scanlines or Smooth edges to the screens, with a strength setting; off by default, and off costs nothing extra.
 - **Texture packs with extra bytes in their pictures import (host-checked, not run on device):** a PNG with bytes after its end marker, which some pack tools leave, was refused as "Incomplete PNG image"; such bytes are now ignored, while truncated pictures, a missing end and bad checksums are still refused. Found with a Majora's Mask 3D HD pack where 89 of 1,624 pictures had them.
 - **Dump textures (host-checked, not run on device):** an Advanced setting saves each new texture a game uses as a PNG named for a texture pack, in the app's folder under `Android/data`, as a start for making HD packs.
 - **Controller polish (host-checked, not run on device):** Add cheat opens with the name field selected; L1/R1 in library dialogs scroll without moving the selection off the button; an open Game files page shows a finished import (update or DLC, camera picture, cheats) without reopening it; button-hint chips grow with large font instead of clipping.

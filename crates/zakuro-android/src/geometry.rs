@@ -1,4 +1,4 @@
-use crate::settings::{Advanced, Filter, Layout, StereoMode};
+use crate::settings::{Advanced, Filter, Layout, PictureEffect, StereoMode};
 use zakuro_gpu::{ScreenFilter, ScreenLayout, Shown, Stereo, Viewport};
 
 pub fn display(settings: &Advanced, external: bool, connected: bool) -> Advanced {
@@ -40,6 +40,17 @@ pub fn filter(settings: &Advanced) -> ScreenFilter {
         Filter::Sharp => ScreenFilter::Sharp,
         Filter::Pixels => ScreenFilter::Pixels,
     }
+}
+pub fn effect(settings: &Advanced) -> (zakuro_gpu::PictureEffect, f32) {
+    use zakuro_gpu::PictureEffect as Effect;
+    let effect = match settings.picture_effect {
+        PictureEffect::None => Effect::None,
+        PictureEffect::Sharpen => Effect::Sharpen,
+        PictureEffect::VividColours => Effect::Vivid,
+        PictureEffect::Scanlines => Effect::Scanlines,
+        PictureEffect::SmoothEdges => Effect::Smooth,
+    };
+    (effect, settings.effect_strength as f32 / 100.0)
 }
 pub fn stereo(settings: &Advanced) -> Stereo {
     use zakuro_gpu::StereoMode as Mode;

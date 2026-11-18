@@ -10,6 +10,7 @@ macro_rules! choice {
 }
 choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop);
 choice!(Filter, Smooth, Smooth, Sharp, Pixels);
+choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges);
 choice!(ButtonMapping, Nintendo, Nintendo, Xbox);
 choice!(LeftStick, CirclePad, CirclePad, Dpad);
 choice!(RightStick, CStick, CStick, Cursor);
@@ -115,6 +116,9 @@ pub struct Advanced {
     pub screen_gap: i32,
     /// the bottom screen's size in large top, percent of the console's.
     pub small_screen: i32,
+    /// the picture effect over the screens, and its strength in percent.
+    pub picture_effect: PictureEffect,
+    pub effect_strength: i32,
     pub stretch: bool,
     pub swap_screens: bool,
     pub dual_display: bool,
@@ -230,6 +234,8 @@ impl Default for Advanced {
             top_width: 400.0,
             screen_gap: 0,
             small_screen: 50,
+            picture_effect: PictureEffect::None,
+            effect_strength: 50,
             stretch: false,
             swap_screens: false,
             dual_display: false,
@@ -366,6 +372,7 @@ impl Advanced {
         self.top_width = bounded(self.top_width, 320.0, 800.0, 400.0);
         self.screen_gap = self.screen_gap.clamp(0, 40);
         self.small_screen = self.small_screen.clamp(25, 100);
+        self.effect_strength = self.effect_strength.clamp(0, 100);
         self.gyro_sensitivity = bounded(self.gyro_sensitivity, 0.0, 5.0, 1.0);
         self.stick_motion_sensitivity = bounded(self.stick_motion_sensitivity, 0.0, 5.0, 1.0);
         self.cursor_speed = bounded(self.cursor_speed, 0.1, 5.0, 1.0);
@@ -578,6 +585,19 @@ mod tests {
         assert_eq!((settings.screen_gap, settings.small_screen), (40, 25));
         let settings = Advanced::parse(r#"{"screen_gap":-3,"small_screen":400}"#).unwrap();
         assert_eq!((settings.screen_gap, settings.small_screen), (0, 100));
+    }
+    #[test]
+    fn picture_effect_defaults_parses_and_clamps() {
+        let settings = Advanced::parse("{}").unwrap();
+        assert_eq!((settings.picture_effect, settings.effect_strength), (PictureEffect::None, 50));
+        let settings = Advanced::parse(r#"{"picture_effect":"vivid_colours","effect_strength":80}"#).unwrap();
+        assert_eq!((settings.picture_effect, settings.effect_strength), (PictureEffect::VividColours, 80));
+        for (name, effect) in [("sharpen", PictureEffect::Sharpen), ("scanlines", PictureEffect::Scanlines), ("smooth_edges", PictureEffect::SmoothEdges)] {
+            assert_eq!(Advanced::parse(&format!(r#"{{"picture_effect":"{name}"}}"#)).unwrap().picture_effect, effect);
+        }
+        assert_eq!(Advanced::parse(r#"{"effect_strength":150}"#).unwrap().effect_strength, 100);
+        assert_eq!(Advanced::parse(r#"{"effect_strength":-5}"#).unwrap().effect_strength, 0);
+        assert!(Advanced::parse(r#"{"picture_effect":"blur"}"#).is_err());
     }
     #[test]
     fn room_settings_default_off_and_parse() {

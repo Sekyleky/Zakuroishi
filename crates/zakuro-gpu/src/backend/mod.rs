@@ -235,6 +235,35 @@ impl ScreenFilter {
     }
 }
 
+/// a picture effect over the screens as shown, in the present shader's one pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PictureEffect {
+    /// the picture as it is.
+    #[default]
+    None,
+    /// contrast adaptive sharpening.
+    Sharpen,
+    /// more saturation and a little more contrast.
+    Vivid,
+    /// darkened edges between the console's lines.
+    Scanlines,
+    /// light edge smoothing.
+    Smooth,
+}
+
+impl PictureEffect {
+    /// the number the present shaders know it by.
+    pub(crate) fn mode(self) -> i32 {
+        match self {
+            PictureEffect::None => 0,
+            PictureEffect::Sharpen => 1,
+            PictureEffect::Vivid => 2,
+            PictureEffect::Scanlines => 3,
+            PictureEffect::Smooth => 4,
+        }
+    }
+}
+
 impl ScreenLayout {
     /// the size the screens take up together at the console's resolution,
     /// with the top screen top_width wide.

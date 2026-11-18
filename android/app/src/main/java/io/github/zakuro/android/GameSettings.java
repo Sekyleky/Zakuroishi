@@ -54,6 +54,8 @@ final class GameSettings {
         flag("Display", "external_stretch", "Fill second display", false, "Fill the physical second display independently of the main display. Can change the picture proportions."),
         choice("Display", "orientation", "Display orientation", "landscape", "auto|landscape|portrait", "Automatic follows device rotation. Landscape and Portrait follow the sensor within the selected orientation."),
         choice("Display", "filter", "Picture filter", "smooth", "smooth|sharp|pixels", "How the screens look when scaled."),
+        choice("Display", "picture_effect", "Picture effect", "none", "none|sharpen|vivid_colours|scanlines|smooth_edges", "Sharpen: crisper detail. Vivid colours: richer colour and contrast. Scanlines: darkened lines like an old screen. Smooth edges: softens jagged edges."),
+        number("Display", "effect_strength", "Effect strength (%)", 50, 0, 100, "How strongly the picture effect applies."),
         number("Display", "top_width", "Top screen shape", 400f, 320, 800, "Original 5:3, 16:9 or 21:9. Wide shapes stretch the picture unless the game has a matching widescreen code."),
         number("Display", "screen_gap", "Screen gap", 0, 0, 40, "Space between the two screens, in console pixels, in Stacked and Side by side."),
         number("Display", "small_screen", "Small screen size (%)", 50, 25, 100, "Size of the small screen in Large top, in percent."),
