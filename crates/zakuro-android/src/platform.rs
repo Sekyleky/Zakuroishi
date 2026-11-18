@@ -73,6 +73,8 @@ pub struct Launch {
     pub name: String,
     /// the game's updates, DLC and Download Play child, and the game's program id to pair them.
     pub addons: Option<(PathBuf, u64)>,
+    /// this install's console number (GameLaunch.consoleId), used only in a local wireless room.
+    pub console_id: Option<u64>,
 }
 
 pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
@@ -96,6 +98,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         hooks,
         name,
         addons,
+        console_id,
     ) = with_activity(app, |env, activity| {
         let intent = env
             .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])?
@@ -122,6 +125,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         let driver_name = extra("driver_name")?;
         let name = extra("game_name")?.to_string_lossy().into_owned();
         let addons = (extra("addons")?, extra("game_id")?);
+        let console_id = u64::from_str_radix(&extra("console_id")?.to_string_lossy(), 16).ok().filter(|id| *id != 0);
         let info = env
             .call_method(
                 activity,
@@ -179,6 +183,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             PathBuf::from(hooks),
             name,
             addons,
+            console_id,
         ))
     })?;
     let advanced = crate::settings::Advanced::parse(&advanced_json)?;
@@ -229,6 +234,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         driver,
         name,
         addons,
+        console_id,
     })
 }
 

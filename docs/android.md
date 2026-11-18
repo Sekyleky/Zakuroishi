@@ -124,7 +124,12 @@ wrong password, a nickname already in the room, an address it cannot reach) and 
 local wireless; the same happens
 if the room closes or the connection drops while playing. In the pause menu, **Local wireless
 room…** leaves the room, or joins (or hosts) it again with the room settings the game started
-with; when the room was Off it joins Room address. Other members see the game's name.
+with; when the room was Off it joins Room address.
+
+In a room joined when the game starts, the console uses this install's own console number,
+made once, so two Zakuroishi consoles in one room are told apart, as on the PC build. Outside a
+room, and in a room joined from the pause menu, the game keeps the shared default number it
+always had, so saves never see a different console. Other members see the game's name.
 Stable builds have
 no network permission and do not show these settings.
 

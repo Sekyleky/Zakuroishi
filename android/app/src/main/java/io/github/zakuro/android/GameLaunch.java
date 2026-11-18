@@ -19,9 +19,20 @@ final class GameLaunch {
         intent.putExtra("game",new File(version,"game").getAbsolutePath());
         intent.putExtra("code",new File(version,"code/title.so").getAbsolutePath());
         intent.putExtra("data",new File(version,"data").getAbsolutePath());
+        intent.putExtra("console_id",consoleId(context)); // the game uses it only in a local wireless room
         intent.putExtra("addons",GameImport.addonsDir(context,id).getAbsolutePath()); // updates and DLC, kept across re-imports
         if (!GameImport.nightly(context)) settings.values.put("room_mode","off"); // stable has no network permission
         settings.apply(intent,version);
         return intent;
+    }
+    /**
+     * This install's console number, made once and kept, as the desktop does: in a room, consoles tell each other apart by it.
+     * Outside a room the game keeps the core's shared default, so saves never see a new console.
+     */
+    static String consoleId(Context context) {
+        android.content.SharedPreferences console = context.getSharedPreferences("console", Context.MODE_PRIVATE);
+        long id = console.getLong("id", 0);
+        if (id == 0) { id = new java.security.SecureRandom().nextLong() | 1; console.edit().putLong("id", id).commit(); }
+        return Long.toHexString(id);
     }
 }

@@ -902,6 +902,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             if let Some(room) = &room {
                 loaded.room = Some(room.link());
                 loaded.config.username = crate::room::nickname(&settings);
+                // two consoles in a room must not share the core's default number
+                if let Some(id) = launch.console_id {
+                    loaded.config.console_id = id;
+                }
                 room.playing(&launch.name);
             }
             // The loader selected only enhancements matching this title/build.

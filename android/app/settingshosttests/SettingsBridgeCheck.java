@@ -33,6 +33,8 @@ public final class SettingsBridgeCheck {
         if(!settings.contains("choice!(RoomMode, Off, Off, Join, Host);") || !runtime.contains("loaded.room = Some(room.link());")
                 || !launch.contains("if (!GameImport.nightly(context)) settings.values.put(\"room_mode\",\"off\");"))
             throw new AssertionError("Room settings are not wired: RoomMode, runtime room link or the stable gate");
+        if(!launch.contains("intent.putExtra(\"console_id\",consoleId(context))") || !platform.contains("extra(\"console_id\")") || !runtime.contains("loaded.config.console_id = id;"))
+            throw new AssertionError("The install's console number does not reach the core in a room");
         String[][] shaderFields={{"shader_mode","gpu_shaders"},{"shader_execution","translate_shaders"},
             {"cpu_shader_jit","cpu_shader_jit"},{"shader_compilation","wait_for_shaders"},
             {"generic_shaders","generic_shaders"},{"depth_blits","depth_blits"},
