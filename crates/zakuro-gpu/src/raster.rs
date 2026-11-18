@@ -979,11 +979,19 @@ impl Arrays {
                     scratch.unique.extend((0..self.count).map(|i| self.first + i));
                 }
             }
-            let mut inputs = Vec::new();
+            let mut inputs = DECODED.take();
             self.plan.decode(&self.arrays, self.low, &scratch.unique, &mut inputs);
             (inputs, self.indices.is_some().then(|| scratch.order.clone()))
         })
     }
+}
+
+thread_local! {
+    /// the inputs a thread decoded its last draw's vertices into, kept for
+    /// its next: a large draw's are a megabyte, which comes fresh from the
+    /// system each time on Windows. each thread has its own, so a draw
+    /// never decodes into inputs another one still reads.
+    static DECODED: std::cell::Cell<Vec<[Vec4; shader::INPUT_REGISTERS]>> = const { std::cell::Cell::new(Vec::new()) };
 }
 
 /// the fewest vertices a draw needs for its work to go to another thread,
@@ -1003,6 +1011,10 @@ fn prepare(seen: &Seen, fetched: Fetched) -> Option<Prepared> {
     };
     let geometry_shader = seen.geometry_shader.as_ref().unwrap_or_else(|| OFF.get_or_init(ShaderUnit::new));
     let (shaded, kept) = process_vertices(registers, &seen.vertex_shader, geometry_shader, &inputs, order.as_deref());
+    // kept for the thread's next draw, up to 8192 vertices (2 MiB): a rare huge draw allocates as before
+    if inputs.capacity() <= 8192 {
+        DECODED.set(inputs);
+    }
     // the geometry shader's vertices come in order
     let order = if kept.is_some() { order } else { None };
     let placement = place(registers, &shaded, order.as_deref(), viewport);
@@ -5803,6 +5815,49 @@ mod tests {
                 assert!(expected.chunks(4).filter(|pixel| *pixel != [0; 4]).count() > 50, "too little drawn to tell");
                 assert!(got == expected, "base 0x{base:08X}, a draw that holds {holds} drew differently");
             }
+        }
+    }
+
+    /// how long a handed out draw's vertices take to copy on the walk and
+    /// decode on the thread doing the work, for a small draw and a large
+    /// one. a measurement, run on its own with --ignored --nocapture.
+    #[test]
+    #[ignore]
+    fn vertex_copy_speed() {
+        const BASE: u32 = 0x0010_0000;
+        let fixed = [shader::ZERO; 16];
+        for vertices in [64u32, 4096] {
+            // float positions, two of them, and four byte colors, each in
+            // an array of its own, drawn through halfword indices
+            let mut registers = target_registers();
+            registers[REG_VS_NUM_INPUT_ATTRIBUTES] = 1;
+            registers[REG_VS_BLOCK + SHADER_INPUT_MAP_LOW] = 0x10;
+            registers[REG_ATTRIBUTE_FORMAT_LOW] = (1 << 2 | 3) | (3 << 2 | 1) << 4;
+            registers[REG_ATTRIBUTE_FORMAT_HIGH] = 1 << 28;
+            registers[REG_ATTRIBUTE_LOADER + 2] = 8 << 16 | 1 << 28;
+            registers[REG_ATTRIBUTE_LOADER + 3] = 0x10000;
+            registers[REG_ATTRIBUTE_LOADER + 5] = 4 << 16 | 1 << 28;
+            let mut memory = ConsoleMemory::default();
+            let at = memory.translate(BASE);
+            memory.write(at, &vec![0x3F; 0x20000]);
+            let indices: Vec<u8> = (0..vertices * 3 / 2).flat_map(|i| (((i * 7) % vertices) as u16).to_le_bytes()).collect();
+            let mut plans = Plans::default();
+            let plan = plans.update(&registers, &fixed).clone();
+            let (count, range) = (vertices * 3 / 2, (0, vertices - 1));
+            let mut times = Vec::new();
+            for _ in 0..5 {
+                let start = std::time::Instant::now();
+                for _ in 0..1000 {
+                    let arrays = plan.copy(&mut memory, BASE, range, count).expect("in one piece");
+                    let job = Arrays { plan: plan.clone(), indices: Some((indices.clone(), true)), first: 0, count, low: range.0, arrays };
+                    let (inputs, order) = job.decode();
+                    std::hint::black_box((&inputs, &order));
+                    DECODED.set(inputs);
+                }
+                times.push(start.elapsed());
+            }
+            times.sort();
+            eprintln!("vertex_copy_speed {vertices} vertices: {:?} a draw, median of 5", times[2] / 1000);
         }
     }
 
