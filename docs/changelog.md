@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Cycle layout button (host-checked, not run on device):** Button mapping can bind Cycle layout, which switches between the five screen layouts while playing (not with two displays); the saved layout is unchanged.
 - **Faster HD-pack lookups (host-measured, not run on device):** a texture whose size and format no pack picture is named for skips both pack hashes (on a PC 45-820 µs to 0 per miss); matches are unchanged. Turning off Fast texture decoding also turns this filter off.
 - **Easier to read on a handheld (host-checked, not run on device):** setting descriptions are 16sp instead of 14sp, and at large font the library's details line keeps two lines so the game name is not cut.
 - **4× and 5× rendering resolution (host-checked, not run on device):** the Rendering resolution setting offers 4× and 5× besides 1× to 3×; they need much more GPU memory and can slow the game.

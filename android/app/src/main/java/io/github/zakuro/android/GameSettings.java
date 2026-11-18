@@ -159,7 +159,7 @@ final class GameSettings {
         }
         return -1;
     }
-    static final String[] BINDING_TARGETS = {"fast_forward","a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate","quick_save","quick_load","swap_screens","screenshot","pause_menu",
+    static final String[] BINDING_TARGETS = {"fast_forward","a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate","quick_save","quick_load","swap_screens","screenshot","pause_menu","cycle_layout",
         "circle_up","circle_down","circle_left","circle_right","c_up","c_down","c_left","c_right"};
     final String id;
     String name;

@@ -60,7 +60,7 @@ public final class SettingsBridgeCheck {
                     || !(hardware+jit).contains("options."+pair[1]))
                 throw new AssertionError("Missing native shader consumer: "+pair[0]);
         }
-        String[] commands={"Pause","Save","Load","Restart","Recalibrate","Swap","Resume","Exit","LeaveRoom","JoinRoom","ReloadCheats"};
+        String[] commands={"Pause","Save","Load","Restart","Recalibrate","Swap","Resume","Exit","LeaveRoom","JoinRoom","ReloadCheats","CycleLayout"};
         for(int i=0;i<commands.length;i++) {
             if(!Pattern.compile("\\b"+commands[i].toUpperCase(Locale.ROOT)+"\\s*=\\s*"+i+"\\b").matcher(java).find()
                     || !Pattern.compile("\\b"+i+"\\s*=>\\s*Command::"+commands[i]+"\\b").matcher(rust).find())
@@ -88,12 +88,12 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("Binding targets differ: Java "+new TreeSet<>(Arrays.asList(GameSettings.BINDING_TARGETS))+" Rust "+variants);
         Matcher hotkey=Pattern.compile("=> Some\\(\"([a-z_]+)\"\\)").matcher(settings); int hotkeys=0;
         while(hotkey.find()) { hotkeys++; if(!java.contains("case \""+hotkey.group(1)+"\":")) throw new AssertionError("Game.runHotkey does not handle "+hotkey.group(1)); }
-        if(hotkeys!=5) throw new AssertionError("Expected five hotkeys, found "+hotkeys);
+        if(hotkeys!=6) throw new AssertionError("Expected six hotkeys, found "+hotkeys);
         for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch","nativeKeyboard"})
             if(!java.contains("void "+method+"(") || !rust.contains("Game_"+method+"("))
                 throw new AssertionError("Missing JNI export: "+method);
         if(!java.contains("native String nativeRoomStatus(") || !rust.contains("Game_nativeRoomStatus("))
             throw new AssertionError("Missing JNI export: nativeRoomStatus");
-        System.out.println("Java/native contracts passed: eleven command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
+        System.out.println("Java/native contracts passed: twelve command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
     }
 }

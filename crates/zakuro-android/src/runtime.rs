@@ -759,8 +759,17 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     }
                     platform::message(app, "Hold the device still briefly to recalibrate motion");
                 }
-                Command::Swap => {
-                    settings.swap_screens = !settings.swap_screens;
+                // each display shows one fixed screen, as geometry::display places them
+                Command::CycleLayout if settings.dual_display && second.is_some() => {
+                    platform::message(app, "Layout is fixed with two displays")
+                }
+                Command::Swap | Command::CycleLayout => {
+                    if matches!(command, Command::Swap) {
+                        settings.swap_screens = !settings.swap_screens;
+                    } else {
+                        settings.layout = settings.layout.next();
+                        platform::message(app, settings.layout.label());
+                    }
                     if let Some(surface) = &mut surface {
                         surface.configure(&geometry::display(&settings, false, second.is_some()));
                     }

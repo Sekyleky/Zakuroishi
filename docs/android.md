@@ -402,7 +402,7 @@ For developers: the adb settings hook (`.DebugSettings`, see `DebugSettings.java
 `controller_bindings` in its `set` JSON, as an object of Android key code to target, for example
 `{"controller_bindings":{"96":"a","102":"quick_save"}}`. Targets are `fast_forward`, `a`, `b`,
 `x`, `y`, `l`, `r`, `zl`, `zr`, `start`, `select`, `up`, `down`, `left`, `right`, `none`,
-`motion_gate`, `quick_save`, `quick_load`, `swap_screens`, `screenshot` and `pause_menu`. The
+`motion_gate`, `quick_save`, `quick_load`, `swap_screens`, `screenshot`, `pause_menu` and `cycle_layout`. The
 object replaces the whole set, as Save on the Button mapping page does. A key code that is not
 1-4 digits or an unknown target refuses the whole call and nothing is written. Changes apply at
 the next launch. The hook ran no test on a device for this key.
@@ -495,6 +495,7 @@ with their save time (file modified time); overwriting and loading ask first, an
 removes its whole `states` folder, so every slot goes with it.
 Each save also writes a small `N.png` thumbnail beside `N.state` (the game as the pause menu opened, or at the Quick save hotkey), shown in the slot list; states from older builds show a blank tile and load as before.
 **Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game. It can also bind a button to a Circle Pad or C-stick direction (up, down, left, right): held, it pushes that stick all the way, over what the stick itself does; two opposite buttons cancel (checked on the AYN Thor).
+**Cycle layout** (a Button mapping action) switches the screen layout live to the next of Top over bottom, Side by side, Large top, Top screen only and Bottom screen only, then back, with a short message naming it; like Swap screens it lasts for the session and does not change saved settings. With Bottom screen on second display and a second display connected it only says "Layout is fixed with two displays". Host-checked, not run on device.
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's

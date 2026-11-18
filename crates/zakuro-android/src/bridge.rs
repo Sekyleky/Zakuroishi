@@ -23,6 +23,8 @@ pub enum Command {
     JoinRoom,
     /// the cheat file changed from the in-game settings: read it again, as the desktop's Reload cheats.
     ReloadCheats,
+    /// the Cycle layout hotkey: next screen layout for this session, not saved.
+    CycleLayout,
 }
 use crate::input::VirtualInput;
 struct State {
@@ -137,6 +139,7 @@ fn decode(command: i32) -> Option<Command> {
         8 => Command::LeaveRoom,
         9 => Command::JoinRoom,
         10 => Command::ReloadCheats,
+        11 => Command::CycleLayout,
         _ => return None,
     })
 }
@@ -281,7 +284,8 @@ mod tests {
         assert!(matches!(decode(2), Some(Command::Load(0))));
         assert!(matches!(decode(1 | 3 << 4), Some(Command::Save(3))));
         assert!(matches!(decode(2 | 9 << 4), Some(Command::Load(9))));
-        assert!(decode(1 | 10 << 4).is_none() && decode(11).is_none() && decode(-1).is_none());
+        assert!(decode(1 | 10 << 4).is_none() && decode(12).is_none() && decode(-1).is_none());
+        assert!(matches!(decode(11), Some(Command::CycleLayout)));
         assert!(matches!(decode(8), Some(Command::LeaveRoom)) && matches!(decode(9), Some(Command::JoinRoom)));
         assert!(matches!(decode(7), Some(Command::Exit)));
     }

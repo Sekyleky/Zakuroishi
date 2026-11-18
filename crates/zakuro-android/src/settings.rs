@@ -20,6 +20,29 @@ choice!(ShaderCompilation, Async, Async, Wait);
 choice!(TiltButton, L3, Always, L1, L2, R1, R2, L3, R3);
 choice!(RoomMode, Off, Off, Join, Host);
 
+impl Layout {
+    /// The Cycle layout hotkey's order, wrapping back to Stacked.
+    pub fn next(self) -> Self {
+        match self {
+            Self::Stacked => Self::SideBySide,
+            Self::SideBySide => Self::LargeTop,
+            Self::LargeTop => Self::TopOnly,
+            Self::TopOnly => Self::BottomOnly,
+            Self::BottomOnly => Self::Stacked,
+        }
+    }
+    /// SettingsDialog's label for the layout, shown when the hotkey switches to it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Stacked => "Top over bottom",
+            Self::SideBySide => "Side by side",
+            Self::LargeTop => "Large top, small bottom",
+            Self::TopOnly => "Top screen only",
+            Self::BottomOnly => "Bottom screen only",
+        }
+    }
+}
+
 impl TiltButton {
     pub fn keycode(self) -> Option<i32> {
         match self {
@@ -53,7 +76,7 @@ choice!(
 );
 choice!(
     Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward,
-    QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu, CircleUp, CircleDown, CircleLeft, CircleRight, CUp, CDown,
+    QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu, CycleLayout, CircleUp, CircleDown, CircleLeft, CircleRight, CUp, CDown,
     CLeft, CRight
 );
 
@@ -99,6 +122,7 @@ impl Binding {
             Self::SwapScreens => Some("swap_screens"),
             Self::Screenshot => Some("screenshot"),
             Self::PauseMenu => Some("pause_menu"),
+            Self::CycleLayout => Some("cycle_layout"),
             _ => Option::None,
         }
     }
@@ -466,6 +490,15 @@ impl Advanced {
 mod tests {
     use super::*;
     #[test]
+    fn cycle_layout_visits_all_five_and_wraps() {
+        let mut seen = vec![Layout::Stacked];
+        for _ in 0..5 {
+            seen.push(seen.last().unwrap().next());
+        }
+        use Layout::*;
+        assert_eq!(seen, [Stacked, SideBySide, LargeTop, TopOnly, BottomOnly, Stacked]);
+    }
+    #[test]
     fn resolution_extra_clamps_to_1_through_5() {
         assert_eq!([-1, 0, 1, 3, 4, 5, 6, i32::MAX].map(resolution), [1, 1, 1, 3, 4, 5, 5, 5]);
     }
@@ -642,8 +675,8 @@ mod tests {
         assert_eq!(settings.binding(96), Some(Binding::MotionGate));
         assert_eq!(settings.presentation_interval(), std::time::Duration::ZERO);
         assert!(Advanced::parse(r#"{"controller_bindings":{"96":"fake"}}"#).is_err());
-        let hotkeys = Advanced::parse(r#"{"controller_bindings":{"1":"quick_save","2":"quick_load","3":"swap_screens","4":"screenshot","5":"pause_menu"}}"#).unwrap();
-        for (code, name) in [(1, "quick_save"), (2, "quick_load"), (3, "swap_screens"), (4, "screenshot"), (5, "pause_menu")] {
+        let hotkeys = Advanced::parse(r#"{"controller_bindings":{"1":"quick_save","2":"quick_load","3":"swap_screens","4":"screenshot","5":"pause_menu","6":"cycle_layout"}}"#).unwrap();
+        for (code, name) in [(1, "quick_save"), (2, "quick_load"), (3, "swap_screens"), (4, "screenshot"), (5, "pause_menu"), (6, "cycle_layout")] {
             let binding = hotkeys.binding(code).unwrap();
             assert_eq!((binding.hotkey(), binding.bits()), (Some(name), 0));
             assert_eq!(serde_json::to_string(&binding).unwrap(), format!("\"{name}\""));
