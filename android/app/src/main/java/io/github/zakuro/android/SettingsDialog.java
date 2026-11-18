@@ -165,6 +165,7 @@ final class SettingsDialog {
     }
     /** Cheats change a file the game reads at start, so not while an import or a game is running (the same wait as the storage screen). */
     private boolean cheatsBlocked() {
+        if (inGame) return false; // the running game itself: only it reads the file, and only when told to reload
         String why = activity instanceof Launcher && ((Launcher) activity).busy() ? "An import is running. Wait for it to finish, then try again."
                 : StorageDialog.gameRunning(activity) ? "A game is open. Exit it to the library (not just Home), then try again." : null;
         if (why != null) Toast.makeText(activity, why, Toast.LENGTH_LONG).show();
@@ -192,13 +193,13 @@ final class SettingsDialog {
         String text; try { text = GameImport.readCheats(version, settings.id); } catch (IOException e) { text = null; }
         if (text == null) { Toast.makeText(activity, "This game has no readable cheat file.", Toast.LENGTH_LONG).show(); return; }
         LinearLayout content = column(); content.addView(legend("A Switch · B Back · L/R Page"));
-        content.addView(text("Cheats change the game's memory and can damage a save. Back up the save first. Changes apply the next time the game starts.", true));
+        content.addView(text("Cheats change the game's memory and can damage a save. Back up the save first. " + (inGame ? "A switch applies at once." : "Changes apply the next time the game starts."), true));
         List<String> names = GameImport.cheatNames(text);
         AlertDialog[] list = new AlertDialog[1];
         for (String name : names.subList(0, Math.min(names.size(), 200))) { // ponytail: 200 rows, real files have dozens; a huge list would stall the screen
             Switch use = toggle(name, GameImport.cheatEnabled(text, name));
             use.setOnCheckedChangeListener((button, checked) -> {
-                try { GameImport.switchCheat(activity, settings.id, name, checked); }
+                try { GameImport.switchCheat(activity, settings.id, name, checked); if (activity instanceof Game) ((Game) activity).reloadCheats(); }
                 catch (Exception e) { Toast.makeText(activity, e.getMessage() == null ? "Could not save the cheat." : e.getMessage(), Toast.LENGTH_LONG).show(); list[0].dismiss(); }
             });
             content.addView(use);
@@ -262,6 +263,8 @@ final class SettingsDialog {
         Button all = button("All settings…"); all.setTag("all"); all.setOnClickListener(v -> groups()); addButton(rows, all);
         Button mapping = button("Button mapping…"); mapping.setTag("mapping"); mapping.setOnClickListener(v -> group("Button mapping")); addButton(rows, mapping);
         if (!inGame && !defaults) { Button files = button("Game files…"); files.setTag("files"); files.setOnClickListener(v -> files()); addButton(rows, files); }
+        // in game: switch the imported cheats; each switch reloads them in the running game, as the desktop's Reload cheats
+        if (inGame && version != null && GameImport.cheatsFile(version, settings.id).isFile()) { Button cheats = button("Cheats…"); cheats.setTag("cheats"); cheats.setOnClickListener(v -> cheats()); addButton(rows, cheats); }
         if (!defaults) {
             Button reset = button("Use defaults for this game"); reset.setTag("reset");
             reset.setOnClickListener(v -> { settings.useDefaults(); refreshRoot(); Toast.makeText(activity, "This game now follows All games. Save to keep it.", Toast.LENGTH_LONG).show(); });

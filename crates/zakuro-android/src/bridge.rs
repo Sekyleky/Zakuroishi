@@ -21,6 +21,8 @@ pub enum Command {
     /// local wireless from the pause menu (nightly): leave the room, or join or host it again.
     LeaveRoom,
     JoinRoom,
+    /// the cheat file changed from the in-game settings: read it again, as the desktop's Reload cheats.
+    ReloadCheats,
 }
 use crate::input::VirtualInput;
 struct State {
@@ -124,6 +126,7 @@ fn decode(command: i32) -> Option<Command> {
         7 => Command::Exit,
         8 => Command::LeaveRoom,
         9 => Command::JoinRoom,
+        10 => Command::ReloadCheats,
         _ => return None,
     })
 }
@@ -268,7 +271,7 @@ mod tests {
         assert!(matches!(decode(2), Some(Command::Load(0))));
         assert!(matches!(decode(1 | 3 << 4), Some(Command::Save(3))));
         assert!(matches!(decode(2 | 9 << 4), Some(Command::Load(9))));
-        assert!(decode(1 | 10 << 4).is_none() && decode(10).is_none() && decode(-1).is_none());
+        assert!(decode(1 | 10 << 4).is_none() && decode(11).is_none() && decode(-1).is_none());
         assert!(matches!(decode(8), Some(Command::LeaveRoom)) && matches!(decode(9), Some(Command::JoinRoom)));
         assert!(matches!(decode(7), Some(Command::Exit)));
     }

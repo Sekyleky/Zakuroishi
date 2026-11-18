@@ -167,8 +167,10 @@ nothing is changed and the message says what is wrong. Importing replaces the ch
 imported before. Once a game has cheats, **Game files** also shows **Cheats…**, a list
 with a switch for each cheat, and **Remove cheats**. A switch changes the file at once and
 applies the next time the game starts. Cheats are kept when the game is added again or
-its native code, mods or texture pack are replaced. They cannot be changed while a game
-is open or an import is running.
+its native code, mods or texture pack are replaced. From the library they cannot be changed
+while a game is open or an import is running. In a running game, **pause menu → Settings… →
+Cheats…** switches them too, and a switch applies at once: the game reads the file again and
+keeps its enhancements as they were. Host-checked, not run on device.
 
 Cheats change the game's memory while it plays and can damage a save. Back the save up
 first (**Saves**), and keep the backup until you are sure the cheat is safe.

@@ -14,7 +14,7 @@ public final class Game extends NativeActivity {
     // Register bridge exports with ART as well as NativeActivity's native loader.
     static { System.loadLibrary("zakuro_android"); }
     // Shared with bridge.rs.
-    private static final int PAUSE=0, SAVE=1, LOAD=2, RESTART=3, RECALIBRATE=4, SWAP=5, RESUME=6, EXIT=7, LEAVEROOM=8, JOINROOM=9;
+    private static final int PAUSE=0, SAVE=1, LOAD=2, RESTART=3, RECALIBRATE=4, SWAP=5, RESUME=6, EXIT=7, LEAVEROOM=8, JOINROOM=9, RELOADCHEATS=10;
     private native void nativeCommand(int command);
     private native void nativeButton(int keyCode, boolean pressed);
     private native void nativeStick(int stick, float x, float y);
@@ -309,6 +309,8 @@ public final class Game extends NativeActivity {
         }
         return true;
     }
+    /** The game's cheat file changed in its settings: the core reads it again, enhancements stay as they are. */
+    void reloadCheats() { nativeCommand(RELOADCHEATS); }
     /** Nightly: leave the room, or join (host) it again with this launch's room settings. */
     private void roomMenu() {
         menuOpen=false;

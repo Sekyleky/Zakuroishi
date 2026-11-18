@@ -35,7 +35,7 @@ public final class SettingsBridgeCheck {
                     || !(hardware+jit).contains("options."+pair[1]))
                 throw new AssertionError("Missing native shader consumer: "+pair[0]);
         }
-        String[] commands={"Pause","Save","Load","Restart","Recalibrate","Swap","Resume","Exit","LeaveRoom","JoinRoom"};
+        String[] commands={"Pause","Save","Load","Restart","Recalibrate","Swap","Resume","Exit","LeaveRoom","JoinRoom","ReloadCheats"};
         for(int i=0;i<commands.length;i++) {
             if(!Pattern.compile("\\b"+commands[i].toUpperCase(Locale.ROOT)+"\\s*=\\s*"+i+"\\b").matcher(java).find()
                     || !Pattern.compile("\\b"+i+"\\s*=>\\s*Command::"+commands[i]+"\\b").matcher(rust).find())
@@ -67,6 +67,6 @@ public final class SettingsBridgeCheck {
         for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch","nativeKeyboard"})
             if(!java.contains("void "+method+"(") || !rust.contains("Game_"+method+"("))
                 throw new AssertionError("Missing JNI export: "+method);
-        System.out.println("Java/native contracts passed: ten command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
+        System.out.println("Java/native contracts passed: eleven command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
     }
 }

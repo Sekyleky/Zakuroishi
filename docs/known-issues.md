@@ -25,6 +25,9 @@ page with each release. Nothing here has been measured on more than one device, 
   joining a room, two consoles trading packets, the "Hosting room on" address, the lost-room
   message, the pause menu's Leave/Join, and the stable build hiding the settings. Only the settings parsing, the Java/native
   contract and the core room tests (loopback, one PC) ran.
+- **Switching cheats in a running game (host-checked, not run on device):** the in-game Cheats…
+  list and the reload that makes a switch apply at once. Only the Java/native command contract,
+  the aarch64 check and an APK build ran.
 - **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.

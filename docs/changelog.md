@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Local wireless (nightly build only, host-checked, not run on device):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. A hosted room can be given a name, and the pause menu can leave the room or join it again. A room that cannot be opened or joined says what to change. See [android](android.md#local-wireless-nightly-build-only).
+- **Cheats in a running game (host-checked, not run on device):** pause menu → Settings… → Cheats… switches the imported cheats, and a switch applies at once instead of at the next start. See [android](android.md#cheats).
 
 ## 0.6.1 — Faster intro with frame generation, upstream Zakuro merge, clearer save-state messages (2026-11-17)
 

@@ -708,6 +708,17 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 // and NativeActivity.onPause then crashed detaching it.
                 Command::Exit => paused = true,
                 // the connection goes before the room this device opened, as at the end of run
+                Command::ReloadCheats => {
+                    if let Some(system) = &mut system {
+                        if let Some(program_id) = system.title.as_ref().map(|title| title.program_id()) {
+                            // the player's cheats from the file, the enhancements as they were
+                            let enhancements: Vec<_> = system.cheats.drain(..).filter(|cheat| cheat.builtin).collect();
+                            system.cheats = zakuro_core::cheats::load(&zakuro_core::cheats::path(&launch.data, program_id));
+                            log::info!("cheats reloaded, {} on", system.cheats.iter().filter(|cheat| cheat.enabled).count());
+                            system.cheats.extend(enhancements);
+                        }
+                    }
+                }
                 Command::LeaveRoom if room.is_some() => {
                     room = None;
                     _room_server = None;
