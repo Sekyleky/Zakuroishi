@@ -329,6 +329,48 @@ final class GameImport {
     private static final String CHEAT_ON = "*citra_enabled";
     /** A game's updates, DLC and Download Play child: per game, not per import, so they stay when the game is added again. */
     static File addonsDir(android.content.Context context, String id) { return new File(context.getFilesDir(), "addons/" + id); }
+    static final String NOT_CIA = "This is not a CIA file. Choose a decrypted update, DLC or Download Play file (.cia) for this game.";
+    /** A safe name for an imported update or DLC: the picked file's plain characters, ending in .cia. */
+    static String addonFileName(String picked) {
+        String name = picked == null ? "" : picked.replaceAll("[^A-Za-z0-9 ._()-]", "_").trim();
+        if (name.toLowerCase(Locale.ROOT).endsWith(".cia")) name = name.substring(0, name.length() - 4);
+        name = name.replaceAll("^[ ._]+", "");
+        if (name.length() > 96) name = name.substring(0, 96);
+        return (name.isEmpty() ? "addon" : name) + ".cia";
+    }
+    /** A CIA starts with its header size, 0x2020, little-endian. */
+    static boolean ciaHeader(byte[] head) { return head.length >= 4 && head[0] == 0x20 && head[1] == 0x20 && head[2] == 0 && head[3] == 0; }
+    /** The game's imported .cia files, sorted; the core decides at game start which it uses. */
+    static List<String> addonNames(android.content.Context context, String id) {
+        String[] names = addonsDir(context, id).list((dir, name) -> name.toLowerCase(Locale.ROOT).endsWith(".cia"));
+        List<String> sorted = new ArrayList<>(names == null ? Collections.<String>emptyList() : Arrays.asList(names)); Collections.sort(sorted); return sorted;
+    }
+    /** Copies one picked .cia into the game's addons folder through a temp file; the same name replaces the older copy. */
+    static String importAddon(android.content.Context context, String id, Uri uri, Progress progress) throws Exception {
+        validId(id); ContentResolver resolver = context.getContentResolver(); String picked = "";
+        try (Cursor cursor = resolver.query(uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) picked = cursor.getString(0);
+        } catch (Exception ignored) { }
+        File dir = addonsDir(context, id); mkdir(dir);
+        File target = new File(dir, addonFileName(picked)), temp = new File(dir, ".import-" + UUID.randomUUID()); // no .cia: the core skips it
+        try (InputStream input = resolver.openInputStream(uri)) {
+            if (input == null) throw new IOException("Cannot read the selected file.");
+            byte[] head = readUpTo(input, 4);
+            if (!ciaHeader(head)) throw new IOException(NOT_CIA);
+            try (FileOutputStream output = new FileOutputStream(temp)) {
+                output.write(head); long total = head.length; byte[] buffer = new byte[1 << 20]; int n;
+                while ((n = input.read(buffer)) > 0) { output.write(buffer, 0, n); total += n; progress.update(total, 1, target.getName()); }
+                output.getFD().sync();
+            }
+            Files.move(temp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) { if (outOfSpace(e)) throw new IOException("Ran out of free space while copying. Nothing was changed.", e); throw e; }
+        finally { temp.delete(); }
+        return target.getName();
+    }
+    static void removeAddons(android.content.Context context, String id) throws Exception {
+        validId(id); File[] files = addonsDir(context, id).listFiles();
+        if (files != null) for (File file : files) Files.deleteIfExists(file.toPath());
+    }
     static File cheatsFile(File version, String id) { return new File(version, "data/cheats/" + id + ".txt"); }
     private static boolean cheatCode(String t) {
         if (t.length() != 17 || t.charAt(8) != ' ') return false;

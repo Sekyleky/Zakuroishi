@@ -383,7 +383,7 @@ Intent extras decoded by P. New3DS details are in
 | Desktop `Fullscreen` | **Fixed equivalent** Game immersive fullscreen; no desktop window/fullscreen toggle. | Source only. |
 | Desktop `CopyReport` | **Partial** Game runtime error/details/copy UI, logcat and benchmark logging; no equivalent complete desktop game-report action. | Source only. |
 | Desktop `Settings` | **Wired equivalent** J per-title typed editor, persisted before handing off to separate `:game` process. | Tests present; UI owner verifies. |
-| Updates and DLC discovery | **Unsupported Android management path**: desktop discovers siblings; Android R does not populate `Config.update/dlc` from imports. | Source only; no successful update/DLC claim. |
+| Updates and DLC discovery | **Wired**: Game files → Import update or DLC… copies one `.cia` into `files/addons/<id>/`; at start R pairs them as the desktop pairs siblings (newest update, DLC, Download Play child) into `Config.update/dlc/dlp_child`. | Host-checked, not run on device: discovery with built CIA fixtures, name and header checks, aliased-path test in Docker. |
 | Audio output | **Wired** AAudio negotiated stereo float, bounded queue, sample-rate conversion, gain/mute, disconnect retry. PN's WSOLA time-stretch pacer is not ported. | Source only; no audio quality/latency measurement here. |
 | Lifecycle, pause, focus loss, errors | **Wired** R keeps event loop active, drops audio/clears input and gates sensors; Java menu/error UI and separate game process. | Source only; device recovery needs runtime testing. |
 | PN launcher `pin/shortcut/playShortcut` | **Unsupported** home-screen game shortcut integration; Android library launch remains available. | Source only. |

@@ -157,6 +157,18 @@ folder holding `mods/TITLE_ID/` as `zakuro-build-title`'s fourth argument and im
 the result with **Replace native game code**. With a `title.so` built without them,
 the functions they change run in the interpreter, and an ABI 4 library is refused.
 
+## Updates and DLC
+
+Open a game's **Settings → Game files** and choose **Import update or DLC…**, then select one
+decrypted `.cia`: the game's update, a DLC, or its Download Play child. Repeat for each file;
+Game files lists what is imported and **Remove updates and DLC** deletes them all. They are kept
+when the game is added again. At the next start the game uses the newest update, every DLC and
+the Download Play child (which a hosted local wireless game can then send to guests); a file for
+another game, an encrypted one or one that is not a CIA is named in a "Not used" message. An
+update that changes the game's code needs a title.so built from the game with that update;
+otherwise the game says so and runs in the interpreter (or refuses when native code is required).
+They do not show on the Storage screen yet. Host-checked, not run on device.
+
 ## Cheats
 
 Open a game's **Settings → Game files** and choose **Import cheats…**, then select one

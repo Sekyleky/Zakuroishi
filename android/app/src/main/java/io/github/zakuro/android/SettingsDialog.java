@@ -171,6 +171,13 @@ final class SettingsDialog {
         if (why != null) Toast.makeText(activity, why, Toast.LENGTH_LONG).show();
         return why != null;
     }
+    private void removeAddons() {
+        if (cheatsBlocked()) return;
+        confirm("Remove updates and DLC for " + title + "?", "Deletes the update, DLC and Download Play files imported for this game. The game, its mods, cheats and saves are kept.", "Remove", "Cancel", () -> {
+            try { GameImport.removeAddons(activity, settings.id); Toast.makeText(activity, "Updates and DLC removed.", Toast.LENGTH_LONG).show(); closeAll(); }
+            catch (Exception e) { Toast.makeText(activity, e.getMessage() == null ? "Could not remove the files." : e.getMessage(), Toast.LENGTH_LONG).show(); }
+        });
+    }
     private void removeCheats() {
         if (cheatsBlocked()) return;
         confirm("Remove cheats for " + title + "?", "Deletes the cheat file imported for this game. Its mods, texture pack, ROM and saves are kept. What a cheat already changed in a save stays there.", "Remove", "Cancel", () -> {
@@ -315,6 +322,15 @@ final class SettingsDialog {
                     content.addView(text("Switch the imported cheats on or off.", true));
                     Button remove = button("Remove cheats"); remove.setOnClickListener(v -> removeCheats()); addButton(content, remove);
                     content.addView(text("Deletes the imported cheat file. Its mods, texture pack, ROM and saves stay.", true));
+                }
+            }
+            if (activity instanceof Launcher) {
+                Button addon = button("Import update or DLC…"); addon.setOnClickListener(v -> { if (!cheatsBlocked()) ((Launcher) activity).importAddon(settings.id); }); addButton(content, addon);
+                content.addView(text("Optional. Choose one decrypted .cia: the game's update, a DLC, or its Download Play child. The newest update is used. An update that changes game code needs a title.so built with it, or the game runs in the interpreter.", true));
+                List<String> addons = GameImport.addonNames(activity, settings.id);
+                if (!addons.isEmpty()) {
+                    content.addView(text("Imported: " + String.join(", ", addons.subList(0, Math.min(addons.size(), 20))) + (addons.size() > 20 ? " and " + (addons.size() - 20) + " more" : ""), true));
+                    Button remove = button("Remove updates and DLC"); remove.setOnClickListener(v -> removeAddons()); addButton(content, remove);
                 }
             }
             if (repair != null) {

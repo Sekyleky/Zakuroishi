@@ -244,6 +244,12 @@ public final class GameImportCheck {
         require(GameImport.readUpTo(new ByteArrayInputStream(ten), 4).length == 4 && GameImport.readUpTo(new ByteArrayInputStream(ten), 64).length == 10);
         InputStream trickle = new ByteArrayInputStream(ten) { @Override public synchronized int read(byte[] b, int off, int len) { return super.read(b, off, Math.min(len, 1)); } };
         require(new String(GameImport.readUpTo(trickle, 7), "UTF-8").equals("0123456") && GameImport.readUpTo(new ByteArrayInputStream(new byte[0]), 5).length == 0);
+        // update/DLC files: a plain name ending in .cia whatever was picked, and the CIA header-size check
+        require(GameImport.addonFileName("Pokemon UM v1.2 (Update).CIA").equals("Pokemon UM v1.2 (Update).cia"));
+        require(GameImport.addonFileName("../../evil/x.cia").equals("evil_x.cia") && GameImport.addonFileName(null).equals("addon.cia"));
+        require(GameImport.addonFileName("...").equals("addon.cia") && GameImport.addonFileName("dlcé.bin").equals("dlc_.bin.cia"));
+        require(GameImport.addonFileName("a".repeat(200) + ".cia").length() == 100 && !GameImport.addonFileName("x/y\\z:*?").contains("/"));
+        require(GameImport.ciaHeader(new byte[]{0x20, 0x20, 0, 0, 1}) && !GameImport.ciaHeader(new byte[]{0x20, 0x20, 0}) && !GameImport.ciaHeader("NCSD".getBytes("UTF-8")));
         String on = "*citra_enabled", a = "[Money]\r\n" + on + "\r\n*note\r\n04000000 00000001\r\n\r\n", b = "[Health]\r\n  0A000000 0000FFFF  \r\n# keep\r\n";
         String ok = "[Money]\n04000000 00000001\n";
         require(GameImport.cheatText(ok.getBytes("UTF-8")).equals(ok));
