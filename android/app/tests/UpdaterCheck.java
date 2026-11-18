@@ -59,7 +59,8 @@ public final class UpdaterCheck {
         for (String ok : new String[]{"https://api.github.com/repos/x", "https://github.com/x/a.apk", "https://objects.githubusercontent.com/a", "https://release-assets.githubusercontent.com:443/a"})
             check(Updater.allowed(new URL(ok)), "refused " + ok);
         for (String no : new String[]{"http://github.com/x", "https://github.com.evil.example/x", "https://evilgithub.com/x", "https://githubusercontent.com.example/x",
-            "https://github.com:8443/x", "https://example.com/github.com"})
+            "https://github.com:8443/x", "https://example.com/github.com", "https://raw.githubusercontent.com/x/y/main/a.apk",
+            "https://gist.githubusercontent.com/x/a.apk", "https://evilgithubusercontent.com/a", "http://objects.githubusercontent.com/a"})
             check(!Updater.allowed(new URL(no)), "allowed " + no);
     }
 }

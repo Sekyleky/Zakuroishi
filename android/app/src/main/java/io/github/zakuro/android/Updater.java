@@ -79,11 +79,11 @@ public final class Updater extends BroadcastReceiver {
         for (String line : sums.split("\n")) { Matcher m = SUM.matcher(line.trim()); if (m.matches() && m.group(2).equals(file)) return m.group(1).toLowerCase(Locale.ROOT); }
         return null;
     }
-    /** HTTPS to GitHub's own hosts only, at every redirect. */
+    /** HTTPS to the hosts a GitHub release download passes through, and no others, at every redirect. */
     static boolean allowed(URL url) {
         String host = url.getHost().toLowerCase(Locale.ROOT);
         return "https".equals(url.getProtocol()) && (url.getPort() == -1 || url.getPort() == 443)
-            && (host.equals("github.com") || host.equals("api.github.com") || host.endsWith(".githubusercontent.com"));
+            && Arrays.asList("api.github.com", "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com").contains(host);
     }
 
     static SharedPreferences preferences(Context context) { return context.getSharedPreferences("updates", Context.MODE_PRIVATE); }

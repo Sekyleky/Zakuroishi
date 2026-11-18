@@ -7,7 +7,7 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -26,6 +26,10 @@ const VERSION: u32 = 1;
 const LARGEST: usize = 64 * 1024;
 /// how long joining waits for the room to answer.
 const PATIENCE: Duration = Duration::from_secs(5);
+/// the most connections at once that have not said hello yet. more are
+/// closed at once, so silent ones cannot hold a thread each. too low lets a
+/// few silent connections keep real members out.
+const UNSEATED_LIMIT: usize = 64;
 /// how long the room waits on a member that takes nothing in before it
 /// lets the member go, so one member cannot hold up the others.
 const STALL: Duration = Duration::from_secs(2);
@@ -117,6 +121,15 @@ impl Seats {
     }
 }
 
+/// a connection counted as not yet seated until this is dropped.
+struct Unseated(Arc<AtomicUsize>);
+
+impl Drop for Unseated {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// writes message to a member, false when the member cannot take it in,
 /// its socket then shut and the caller lets it go.
 fn give(stream: &Mutex<TcpStream>, message: &FromRoom) -> bool {
@@ -155,14 +168,19 @@ impl Server {
             next: 1,
         }));
         let (stopping, room) = (stop.clone(), seats.clone());
+        let waiting = Arc::new(AtomicUsize::new(0));
         std::thread::Builder::new().name("room".into()).spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, address)) => {
+                        let unseated = Unseated(waiting.clone());
+                        if waiting.fetch_add(1, Ordering::Relaxed) >= UNSEATED_LIMIT {
+                            continue; // stream and unseated dropped: closed and uncounted
+                        }
                         let (stopping, room) = (stopping.clone(), room.clone());
                         let _ = std::thread::Builder::new()
                             .name("room member".into())
-                            .spawn(move || seat(stream, address.to_string(), &room, &stopping));
+                            .spawn(move || seat(stream, address.to_string(), &room, &stopping, unseated));
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(50)),
                     Err(error) => {
@@ -199,13 +217,14 @@ impl Drop for Server {
 }
 
 /// a member's time in the room, from its hello to its leaving.
-fn seat(mut stream: TcpStream, address: String, seats: &Mutex<Seats>, stop: &AtomicBool) {
+fn seat(mut stream: TcpStream, address: String, seats: &Mutex<Seats>, stop: &AtomicBool, unseated: Unseated) {
     // on Windows a stream takes the listener's not blocking, and the member
     // would be gone at the first read with nothing to read yet
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(PATIENCE));
     let Ok(ToRoom::Hello { version, nickname, password }) = read(&mut stream) else { return };
+    drop(unseated);
     let _ = stream.set_read_timeout(None);
     let _ = stream.set_write_timeout(Some(STALL));
     let Ok(writer) = stream.try_clone() else { return };
@@ -574,6 +593,30 @@ mod tests {
         assert!(third.is_ok(), "{:?}", third.err());
         assert!(started.elapsed() < Duration::from_secs(10));
         assert!(until(|| server.members().iter().all(|member| member.nickname != "stuck")));
+    }
+
+    /// connections that never say hello are capped at UNSEATED_LIMIT, the
+    /// rest closed at once, and a member gets in once they are gone.
+    #[test]
+    fn silent_connections_are_capped() {
+        let server = Server::start(0, "test", "", 4).unwrap();
+        let address = format!("127.0.0.1:{}", server.port());
+        let started = std::time::Instant::now();
+        let silent: Vec<TcpStream> = (0..80).map(|_| TcpStream::connect(&address).unwrap()).collect();
+        for stream in &silent {
+            stream.set_read_timeout(Some(Duration::from_millis(10))).unwrap();
+        }
+        let closed = || {
+            let gone = |mut stream: &TcpStream| match stream.read(&mut [0u8; 1]) {
+                Ok(_) => true,
+                Err(error) => !matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut),
+            };
+            silent.iter().filter(|stream| gone(stream)).count()
+        };
+        assert!(until(|| closed() >= 80 - UNSEATED_LIMIT));
+        assert!(started.elapsed() < PATIENCE, "the extra connections waited out PATIENCE");
+        drop(silent);
+        assert!(until(|| Connection::join(&address, "member", "").is_ok()));
     }
 
     /// what a console does not take is kept up to INBOX_LIMIT, the newest.
