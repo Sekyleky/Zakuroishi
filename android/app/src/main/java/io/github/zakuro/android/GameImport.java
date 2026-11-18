@@ -310,15 +310,36 @@ final class GameImport {
         ImportPlan plan = ImportPlan.romfsMod(source, DocumentsContract.getTreeDocumentId(tree), folder, id);
         return installMod(context, id, version, source, plan, progress, add);
     }
+    /** What Game files → Mods… calls each part of a game's mods. */
+    static String modPartLabel(String part) {
+        switch (part) {
+            case "romfs": return "Game data (romfs)";
+            case "romfs_ext": return "Extra data (romfs_ext)";
+            case "code.bin": return "Replaced code (code.bin)";
+            case "exheader.bin": return "Exheader (exheader.bin)";
+            default: return "Code patch (" + part + ")";
+        }
+    }
+    /** The parts the game's mods hold now, in MOD_PARTS order. */
+    static List<String> modParts(File version, String id) {
+        List<String> parts = new ArrayList<>();
+        for (String part : MOD_PARTS) if (new File(modsDir(version, id), part).exists()) parts.add(part);
+        return parts;
+    }
     /** Remove a game's mods (not its texture pack). All or nothing; the old parts are deleted once every part has gone. */
-    static String removeMods(android.content.Context context, String id) throws Exception {
+    static String removeMods(android.content.Context context, String id) throws Exception { return removeMods(context, id, MOD_PARTS); }
+    /** Remove some parts of a game's mods, the same way: e.g. drop a code patch and keep the romfs changes. */
+    static String removeMods(android.content.Context context, String id, String... parts) throws Exception {
         validId(id); File version = active(context, id);
-        File parent = modsDir(version, id); boolean[] uncertain = {false};
         synchronized (POINTER_LOCK) {
             if (!active(context, id).equals(version)) throw new IOException("The game changed. Open its settings again.");
-            swapParts(new File(parent, ".none"), parent, MOD_PARTS, true, MOVE, uncertain);
+            dropModParts(modsDir(version, id), parts);
         }
         return id;
+    }
+    static void dropModParts(File parent, String... parts) throws IOException {
+        for (String part : parts) if (!Arrays.asList(MOD_PARTS).contains(part)) throw new IOException("Not a part of a mod: " + part);
+        swapParts(new File(parent, ".none"), parent, parts, true, MOVE, new boolean[1]);
     }
     /**
      * Cheats: the text file the core reads from data/cheats/ID.txt (crates/zakuro-core/src/cheats.rs, parse): "[name]" starts a

@@ -4,6 +4,7 @@
 
 - **Local wireless (nightly build only, host-checked, not run on device):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. A hosted room can be given a name, and the pause menu can leave the room or join it again. A room that cannot be opened or joined says what to change. See [android](android.md#local-wireless-nightly-build-only).
 - **Cheats in a running game (host-checked, not run on device):** pause menu → Settings… → Cheats… switches the imported cheats, and a switch applies at once instead of at the next start. See [android](android.md#cheats).
+- **Mods… in Game files (host-checked, not run on device):** lists what a game's mods change with their size, and removes one part (for example only the code patch) or all of them.
 - **Updates and DLC (host-checked, not run on device):** Game files → Import update or DLC… adds a game's decrypted update, DLC or Download Play child; the game uses them from its next start. See [android](android.md#updates-and-dlc).
 - **Fixed (host-checked, not run on device):** importing cheats or settings, reading a driver's header and exporting or patching frontend files used Java stream methods that exist only from Android 13; on Android 11 and 12 they would have stopped with an error. A host check now refuses those methods in the app's source.
 

@@ -119,6 +119,15 @@ public final class GameImportCheck {
     }
     /** Adding a mod merges its romfs over the current one (case-insensitive, newer wins) and keeps old code; failures roll back. */
     static void checkAddMods(File dir) throws Exception {
+        // Mods…: the parts listed in order, one part dropped while the others stay, a name outside the mod parts refused
+        File version = new File(dir, "mod-parts"), mods = GameImport.modsDir(version, "00040000001B5100");
+        write(new File(mods, "romfs/a.bin"), "a"); write(new File(mods, "code.ips"), "ips"); write(new File(mods, "textures/t.png"), "t");
+        require(GameImport.modParts(version, "00040000001B5100").equals(java.util.Arrays.asList("romfs", "code.ips")));
+        GameImport.dropModParts(mods, "code.ips");
+        require(GameImport.modParts(version, "00040000001B5100").equals(java.util.Arrays.asList("romfs")) && new File(mods, "textures/t.png").isFile());
+        require(mods.list().length == 2); // no .previous- copy left: romfs and textures
+        rejects(() -> GameImport.dropModParts(mods, "textures")); rejects(() -> GameImport.dropModParts(mods, "../x"));
+        require(GameImport.modPartLabel("code.bps").equals("Code patch (code.bps)") && GameImport.modPartLabel("romfs").startsWith("Game data"));
         File work = new File(dir, "add"), stage = new File(work, "stage"), staged = new File(stage, "mods"), parent = new File(work, "mods");
         write(new File(parent, "romfs/Data/old.bin"), "old"); write(new File(parent, "romfs/Data/both.bin"), "old"); write(new File(parent, "code.ips"), "ips");
         write(new File(parent, "romfs_ext/x.ips"), "ext");

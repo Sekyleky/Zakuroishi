@@ -31,6 +31,7 @@ page with each release. Nothing here has been measured on more than one device, 
 - **Updates and DLC (host-checked, not run on device):** importing a real update or DLC, a game
   seeing them, an update with a matching or mismatched title.so, removal, and space running out
   mid-copy, and deleting them from the Storage screen.
+- **Mods… (host-checked, not run on device):** the list, removing one part and Remove all mods.
 - **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the
   listing and a cancelled confirm were seen.

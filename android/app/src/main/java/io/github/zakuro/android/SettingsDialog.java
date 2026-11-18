@@ -148,12 +148,24 @@ final class SettingsDialog {
             .setNeutralButton("Cancel", null).create();
         show(ask);
     }
-    private void removeMods() {
-        confirm("Remove mods for " + title + "?", "Deletes the mods imported for this game. Its texture pack, ROM and saves are kept.", "Remove", "Cancel", () -> {
+    /** The parts of the game's mods, one Remove each, and Remove all. */
+    private void mods() {
+        LinearLayout content = column(); content.addView(legend("A Remove · B Back · L/R Page"));
+        AlertDialog[] list = new AlertDialog[1];
+        for (String part : GameImport.modParts(version, settings.id)) {
+            String label = GameImport.modPartLabel(part);
+            Button remove = button("Remove " + label + " · " + String.format(Locale.ROOT, "%.1f MB", GameImport.size(GameImport.modsDir(version, settings.id), part) / 1048576.0));
+            remove.setOnClickListener(v -> { list[0].dismiss(); removeMods(label, part); }); addButton(content, remove);
+        }
+        Button all = button("Remove all mods"); all.setOnClickListener(v -> { list[0].dismiss(); removeMods("all mods", GameImport.MOD_PARTS); }); addButton(content, all);
+        list[0] = dialog("Mods · " + title, content).setNegativeButton("Back", null).create(); show(list[0]); focusFirst(content);
+    }
+    private void removeMods(String what, String... parts) {
+        confirm("Remove " + what + " for " + title + "?", "Deletes it from the mods imported for this game. Other mod parts, its texture pack, ROM and saves are kept.", "Remove", "Cancel", () -> {
             String id = settings.id;
             new Thread(() -> {
                 String failure = null;
-                try { GameImport.removeMods(activity, id); }
+                try { GameImport.removeMods(activity, id, parts); }
                 catch (Exception e) { failure = e.getMessage() == null ? "Could not remove the mods." : e.getMessage(); }
                 String result = failure;
                 activity.runOnUiThread(() -> {
@@ -310,8 +322,8 @@ final class SettingsDialog {
                 Button mod = button("Import mod…"); mod.setOnClickListener(v -> importMod()); addButton(content, mod);
                 content.addView(text("Optional. Choose a Luma3DS or Citra mod folder. You can add it to the current mods or replace them. A mod that changes game code runs best with a title.so built with it, and only one code mod can be active.", true));
                 if (GameImport.hasMods(version, settings.id)) {
-                    Button remove = button("Remove mods"); remove.setOnClickListener(v -> removeMods()); addButton(content, remove);
-                    content.addView(text("Removes this game's mods. Its texture pack, ROM and saves stay.", true));
+                    Button manage = button("Mods…"); manage.setOnClickListener(v -> mods()); addButton(content, manage);
+                    content.addView(text("What this game's mods change, with their size. Remove one part, such as a code patch, or all of them. Its texture pack, ROM and saves stay.", true));
                 }
             }
             if (activity instanceof Launcher) {

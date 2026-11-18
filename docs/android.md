@@ -147,8 +147,10 @@ When the game already has mods, you choose **Add to current mods** or **Replace
 current mods**. Adding lays the new files over the current ones (the newer mod
 wins where they overlap) and, like replacing, changes nothing if anything fails.
 Only one mod can change the game's code: if the current mods and the new one both
-carry `code.*` or `exheader.bin`, adding is refused; replace instead. **Remove
-mods** deletes the game's mods and keeps its texture pack, ROM and saves. Adding the
+carry `code.*` or `exheader.bin`, adding is refused; replace instead. **Mods…** lists
+what the game's mods change (game data `romfs`, extra data, a code patch, replaced code,
+the exheader) with their size; remove one part, such as a code patch, or **Remove all
+mods**. The texture pack, ROM and saves stay (host-checked, not run on device). Adding the
 game again also removes them. A folder named for a different title id is refused.
 
 Mods that change game code (`code.bin`, `code.ips`, `code.bps`, in the folder or its
