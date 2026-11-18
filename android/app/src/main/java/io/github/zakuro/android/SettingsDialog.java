@@ -190,6 +190,26 @@ final class SettingsDialog {
             catch (Exception e) { Toast.makeText(activity, e.getMessage() == null ? "Could not remove the files." : e.getMessage(), Toast.LENGTH_LONG).show(); }
         });
     }
+    /** A name and code lines typed in; on Add the cheat file gains it and an open list is shown again. */
+    private void addCheat(AlertDialog openList) {
+        LinearLayout content = column();
+        EditText name = new EditText(activity); name.setSingleLine(true); name.setHint("Name, like Infinite money"); name.setTextColor(p.ink); name.setMinHeight(dp(48));
+        name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(64)}); content.addView(name);
+        EditText codes = new EditText(activity); codes.setHint("0123ABCD 0123ABCD, one per line"); codes.setTextColor(p.ink); codes.setMinLines(4);
+        codes.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS); content.addView(codes);
+        content.addView(text("Cheats change the game's memory and can damage a save. Back up the save first.", true));
+        AlertDialog ask = dialog("Add cheat · " + title, content).setPositiveButton("Add", null).setNegativeButton("Cancel", null).create();
+        show(ask);
+        ask.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
+            try {
+                GameImport.addCheat(activity, settings.id, name.getText().toString(), codes.getText().toString());
+                if (activity instanceof Game) ((Game) activity).reloadCheats();
+                ask.dismiss(); if (openList != null) openList.dismiss();
+                Toast.makeText(activity, inGame ? "Cheat added and on." : "Cheat added. It applies the next time the game starts.", Toast.LENGTH_LONG).show();
+                cheats();
+            } catch (Exception e) { Toast.makeText(activity, e.getMessage() == null ? "Could not add the cheat." : e.getMessage(), Toast.LENGTH_LONG).show(); }
+        });
+    }
     private void removeCheats() {
         if (cheatsBlocked()) return;
         confirm("Remove cheats for " + title + "?", "Deletes the cheat file imported for this game. Its mods, texture pack, ROM and saves are kept. What a cheat already changed in a save stays there.", "Remove", "Cancel", () -> {
@@ -215,6 +235,7 @@ final class SettingsDialog {
         content.addView(text("Cheats change the game's memory and can damage a save. Back up the save first. " + (inGame ? "A switch applies at once." : "Changes apply the next time the game starts."), true));
         List<String> names = GameImport.cheatNames(text);
         AlertDialog[] list = new AlertDialog[1];
+        Button add = button("Add cheat…"); add.setOnClickListener(v -> addCheat(list[0])); addButton(content, add);
         for (String name : names.subList(0, Math.min(names.size(), 200))) { // ponytail: 200 rows, real files have dozens; a huge list would stall the screen
             Switch use = toggle(name, GameImport.cheatEnabled(text, name));
             use.setOnCheckedChangeListener((button, checked) -> {
@@ -329,6 +350,8 @@ final class SettingsDialog {
             if (activity instanceof Launcher) {
                 Button cheats = button("Import cheats…"); cheats.setOnClickListener(v -> { if (!cheatsBlocked()) ((Launcher) activity).importCheats(settings.id); }); addButton(content, cheats);
                 content.addView(text("Optional. Choose one text file of cheats in the common text cheat format. It replaces the cheats imported before, and is kept when the game is imported again. Cheats change game memory and can break a save: back it up first.", true));
+                Button add = button("Add cheat…"); add.setOnClickListener(v -> { if (!cheatsBlocked()) addCheat(null); }); addButton(content, add);
+                content.addView(text("Type a cheat's name and its code lines. It is added to this game's cheat file, switched on.", true));
                 if (GameImport.cheatsFile(version, settings.id).isFile()) {
                     Button list = button("Cheats…"); list.setOnClickListener(v -> cheats()); addButton(content, list);
                     content.addView(text("Switch the imported cheats on or off.", true));

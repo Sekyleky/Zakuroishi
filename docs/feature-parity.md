@@ -171,8 +171,7 @@ production code. Runtime/UI agents were notified of these gaps.
 7. **UI + lifecycle, launcher:** pinned game shortcuts, running-title/task
    discovery and PN cross-game switch protocol, in-app release/APK update flow.
 
-The separate upstream-desktop gaps (camera, Download Play as a guest, an arbitrary
-cheat editor, on-device compilation and extra state slots) are enumerated below; the
+The separate upstream-desktop gaps (camera, Download Play as a guest, on-device compilation and extra state slots) are enumerated below; the
 guest keyboard (0.5.0), rooms, updates/DLC and cheat switching in game have since been
 added (rooms nightly only; the last three host-checked, not run on device); they are not falsely attributed to the local
 PN diff. New3DS extended application-memory sizing has now been implemented by
@@ -376,7 +375,7 @@ Intent extras decoded by P. New3DS details are in
 | Desktop `Play`, `ChooseFolder`, `Rescan` | **Partial equivalents** Launcher private imported library, SAF chooser, library refresh. No live desktop filesystem scan. | Import metadata/boundary **Host passed**. |
 | Desktop `Recompile`, `DownloadCompiler`, `CancelRecompile` | **Unsupported on device**: compatible title.so is built separately and imported/replaced. | ABI metadata inspection **Host passed**, not compiler/gameplay validation. |
 | Desktop `Mods`, `CheatsFolder` | **Partial** Game files imports a mod folder (add or replace), **Mods…** lists what the mods change with sizes and removes one part or all; cheats are imported as one file and switched per cheat. There is no folder to open: Android keeps them in app storage. | Mods… host-checked, not run on device; mod import and cheats seen on the Thor in 0.5.0/0.6.0. |
-| Desktop `Cheat`, `AddCheat`, `ReloadCheats` | **Partial** Game files imports a cheat file, switches each cheat and removes the file; in game, Settings → Cheats… switches them and the game reloads the file at once (`ReloadCheats` command, enhancements kept). No cheat text editor (`AddCheat`). In-game reload host-checked, not run on device. | Source only. |
+| Desktop `Cheat`, `AddCheat`, `ReloadCheats` | **Partial** Game files imports a cheat file, switches each cheat and removes the file; in game, Settings → Cheats… switches them and the game reloads the file at once (`ReloadCheats` command, enhancements kept). **Add cheat…** types a cheat in (`AddCheat`), switched on. In-game reload and Add cheat host-checked, not run on device. | Source only. |
 | Desktop `ChooseBackground` | **Unsupported**. | No implementation/test claim. |
 | Desktop `ChooseCameraPicture` | **Unsupported**. | No implementation/test claim. |
 | Desktop `HostRoom`, `JoinRoom`, `LeaveRoom`, `DlpJoin`, `DlpLeave` | **Partial (nightly only)** host or join at game start from `room_mode`; pause menu **Local wireless room…** leaves or joins (hosts) again with the launch settings. No Download Play guest (`DlpJoin`/`DlpLeave`): the desktop runs it with no game loaded and boots the received child, and Android has no game-less room screen or way to launch a received child. A hosted game's dlp:SRVR runs in a room, and sends its child to guests when the child was imported under Game files (`Config::dlp_child`); otherwise only guests who own the child can take part. Host-checked, not run on device. | Settings parse **Host passed**; host-checked, not run on device. |

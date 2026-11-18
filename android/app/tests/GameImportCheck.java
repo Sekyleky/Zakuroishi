@@ -249,6 +249,12 @@ public final class GameImportCheck {
     }
     /** Cheat files: what is accepted, switching one cheat touches only its marker line, the write replaces atomically. */
     static void checkCheats(File dir) throws Exception {
+        // Add cheat: switched on, codes normalised, appended after a file without a final newline, the result is a valid file
+        require(GameImport.withCheat(null, " Money ", "04000000 00000001\n\n0400000000000002 \n").equals("[Money]\n*citra_enabled\n04000000 00000001\n04000000 00000002\n"));
+        require(GameImport.withCheat("[A]\n04000000 00000001", "B", "0a000000   0000ffff").equals("[A]\n04000000 00000001\n[B]\n*citra_enabled\n0A000000 0000FFFF\n"));
+        rejects(() -> GameImport.withCheat("[A]\n04000000 00000001\n", "A", "04000000 00000001")); // same name
+        rejects(() -> GameImport.withCheat(null, "x]", "04000000 00000001")); rejects(() -> GameImport.withCheat(null, "", "04000000 00000001"));
+        rejects(() -> GameImport.withCheat(null, "Bad", "0400 0001")); rejects(() -> GameImport.withCheat(null, "None", " \n "));
         // readUpTo stands in for API 33's readNBytes: the limit, a short stream, a stream that gives one byte a call
         byte[] ten = "0123456789".getBytes("UTF-8");
         require(GameImport.readUpTo(new ByteArrayInputStream(ten), 4).length == 4 && GameImport.readUpTo(new ByteArrayInputStream(ten), 64).length == 10);

@@ -190,7 +190,10 @@ applies the next time the game starts. Cheats are kept when the game is added ag
 its native code, mods or texture pack are replaced. From the library they cannot be changed
 while a game is open or an import is running. In a running game, **pause menu → Settings… →
 Cheats…** switches them too, and a switch applies at once: the game reads the file again and
-keeps its enhancements as they were. Host-checked, not run on device.
+keeps its enhancements as they were. **Add cheat…** (in Game files, and at the top of the
+Cheats… list, also in game) takes a name and code lines (`0123ABCD 0123ABCD`, the space may be
+left out), checks them like an imported file, and adds the cheat switched on. Host-checked, not
+run on device.
 
 Cheats change the game's memory while it plays and can damage a save. Back the save up
 first (**Saves**), and keep the backup until you are sure the cheat is safe.

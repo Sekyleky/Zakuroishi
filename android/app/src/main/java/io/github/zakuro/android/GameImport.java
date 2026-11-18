@@ -428,6 +428,35 @@ final class GameImport {
         if (from < text.length()) lines.add(text.substring(from));
         return lines;
     }
+    /**
+     * The cheat file with one typed cheat added at its end, switched on, as the desktop's Add cheat does. Codes may be typed
+     * without the space ("0123ABCD0123ABCD"); every line must be a code. The result passes cheatText like an imported file.
+     */
+    static String withCheat(String existing, String name, String codes) throws IOException {
+        name = name == null ? "" : name.trim();
+        if (name.isEmpty() || name.length() > 64 || name.matches(".*[\\[\\]\\r\\n].*")) throw new IOException("Give the cheat a name of up to 64 characters, without [ or ].");
+        if (existing != null && cheatNames(existing).contains(name)) throw new IOException("This game already has a cheat named " + name + ".");
+        StringBuilder out = new StringBuilder(existing == null ? "" : existing);
+        if (out.length() > 0 && out.charAt(out.length() - 1) != '\n') out.append('\n');
+        out.append('[').append(name).append("]\n").append(CHEAT_ON).append('\n');
+        int n = 0, count = 0;
+        for (String line : (codes == null ? "" : codes).split("\n")) {
+            String t = line.trim().replaceAll("\\s+", " "); n++;
+            if (t.isEmpty()) continue;
+            if (t.length() == 16 && t.indexOf(' ') < 0) t = t.substring(0, 8) + " " + t.substring(8);
+            if (!cheatCode(t)) throw new IOException("Line " + n + " is not a cheat code. Codes look like 0123ABCD 0123ABCD, one per line.");
+            out.append(t.toUpperCase(Locale.ROOT)).append('\n'); count++;
+        }
+        if (count == 0) throw new IOException("Type at least one code line.");
+        return cheatText(out.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+    static void addCheat(android.content.Context context, String id, String name, String codes) throws Exception {
+        validId(id); File version = active(context, id);
+        synchronized (POINTER_LOCK) {
+            if (!active(context, id).equals(version)) throw new IOException("The game changed. Open its settings again.");
+            writeCheats(version, id, withCheat(readCheats(version, id), name, codes).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
     /** The names of the cheats that have code, in file order, without repeats. */
     static List<String> cheatNames(String text) {
         Set<String> names = new LinkedHashSet<>(); String name = null;
