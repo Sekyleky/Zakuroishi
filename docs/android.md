@@ -473,7 +473,7 @@ Save state… and Load state… list the quick slot (slot 0, also X and Y in the
 with their save time (file modified time); overwriting and loading ask first, and empty slots cannot be loaded. Deleting an old import
 removes its whole `states` folder, so every slot goes with it.
 Each save also writes a small `N.png` thumbnail beside `N.state` (the game as the pause menu opened, or at the Quick save hotkey), shown in the slot list; states from older builds show a blank tile and load as before.
-**Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game.
+**Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game. It can also bind a button to a Circle Pad or C-stick direction (up, down, left, right): held, it pushes that stick all the way, over what the stick itself does; two opposite buttons cancel (host-checked, not run on device).
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's

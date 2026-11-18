@@ -52,7 +52,8 @@ choice!(
 );
 choice!(
     Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward,
-    QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu
+    QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu, CircleUp, CircleDown, CircleLeft, CircleRight, CUp, CDown,
+    CLeft, CRight
 );
 
 impl Binding {
@@ -73,6 +74,20 @@ impl Binding {
             Self::Zl => 1 << 14,
             Self::Zr => 1 << 15,
             _ => 0,
+        }
+    }
+    /// A key held as a full push of the Circle Pad (stick 0) or C-stick (1), as the desktop's circle_*/c_* keys: (stick, x, y), up is +y.
+    pub fn stick_push(self) -> Option<(usize, f32, f32)> {
+        match self {
+            Self::CircleUp => Some((0, 0.0, 1.0)),
+            Self::CircleDown => Some((0, 0.0, -1.0)),
+            Self::CircleLeft => Some((0, -1.0, 0.0)),
+            Self::CircleRight => Some((0, 1.0, 0.0)),
+            Self::CUp => Some((1, 0.0, 1.0)),
+            Self::CDown => Some((1, 0.0, -1.0)),
+            Self::CLeft => Some((1, -1.0, 0.0)),
+            Self::CRight => Some((1, 1.0, 0.0)),
+            _ => Option::None,
         }
     }
     /// The Game.runHotkey name for a key that acts once per press instead of holding a button.

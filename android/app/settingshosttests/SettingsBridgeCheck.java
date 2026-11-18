@@ -67,7 +67,7 @@ public final class SettingsBridgeCheck {
         Matcher enumMatch=Pattern.compile("choice!\\(\\s*Binding,\\s*None,([^)]*)\\)").matcher(settings);
         if(!enumMatch.find()) throw new AssertionError("No Rust Binding enum");
         Set<String> variants=new TreeSet<>();
-        for(String variant:enumMatch.group(1).split(",")) if(!variant.isBlank()) variants.add(variant.trim().replaceAll("([a-z])([A-Z])","$1_$2").toLowerCase(Locale.ROOT));
+        for(String variant:enumMatch.group(1).split(",")) if(!variant.isBlank()) variants.add(variant.trim().replaceAll("(?<=.)([A-Z])","_$1").toLowerCase(Locale.ROOT)); // serde snake_case: CUp is c_up
         if(!variants.equals(new TreeSet<>(Arrays.asList(GameSettings.BINDING_TARGETS))))
             throw new AssertionError("Binding targets differ: Java "+new TreeSet<>(Arrays.asList(GameSettings.BINDING_TARGETS))+" Rust "+variants);
         Matcher hotkey=Pattern.compile("=> Some\\(\"([a-z_]+)\"\\)").matcher(settings); int hotkeys=0;

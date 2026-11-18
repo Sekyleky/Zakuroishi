@@ -130,6 +130,23 @@ mod tests {
     }
 
     #[test]
+    fn keys_bound_to_stick_directions_push_the_sticks_and_no_button() {
+        let settings = Advanced::parse(r#"{"controller_bindings":{"19":"circle_up","21":"circle_left","22":"circle_right","100":"c_down"}}"#).unwrap();
+        let mut input = Input::default();
+        input.keys.extend([19, 21, 100]);
+        let result = input.configured(&settings, &VirtualInput::default(), None);
+        assert_eq!((result.circle_x, result.circle_y, result.c_stick_x, result.c_stick_y), (-1.0, 1.0, 0.0, -1.0));
+        assert!(result.buttons.is_empty());
+        input.keys = [21, 22].into_iter().collect(); // opposite keys cancel to the stick's own position, centred here
+        let result = input.configured(&settings, &VirtualInput::default(), None);
+        assert_eq!((result.circle_x, result.circle_y), (0.0, 0.0));
+        // with the left stick as a D-pad, a Circle Pad key turns into the D-pad direction like the stick would
+        let dpad = Advanced::parse(r#"{"left_stick":"dpad","controller_bindings":{"19":"circle_up"}}"#).unwrap();
+        input.keys = [19].into_iter().collect();
+        let result = input.configured(&dpad, &VirtualInput::default(), None);
+        assert!(result.buttons.contains(PadState::UP) && result.circle_y == 0.0);
+    }
+    #[test]
     fn explicit_bindings_override_presets_and_virtual_masks_stay_guest_buttons() {
         let settings = Advanced::parse(
             r#"{"button_mapping":"xbox","controller_bindings":{"96":"x","97":"none","19":"zr"}}"#,
@@ -278,11 +295,17 @@ impl Input {
         let gated = settings.stick_motion && settings.stick_motion_gate;
         let mut motion_gate = selected_gate.is_none()
             || (settings.tilt_button.guest_bits() & virtual_input.buttons != 0);
+        // keys bound to a stick direction, summed per stick; opposite keys cancel
+        let mut pushed = [[0.0f32; 2]; 2];
         for code in self.keys.union(&virtual_input.keys).chain(&self.axes).chain(&short) {
             let gate_key = settings.binding(*code).is_none_or(|b| b != Binding::FastForward && b.hotkey().is_none())
                 && (selected_gate == Some(*code)
                     || settings.controller_bindings.get(code) == Some(&Binding::MotionGate));
             motion_gate |= gate_key;
+            if let Some((stick, x, y)) = settings.binding(*code).and_then(Binding::stick_push) {
+                pushed[stick][0] += x;
+                pushed[stick][1] += y;
+            }
             if let Some(binding) = settings.binding(*code) {
                 if !(gated && gate_key) {
                     input.buttons |= PadState::from_bits_truncate(binding.bits());
@@ -300,10 +323,11 @@ impl Input {
         let [right_x, right_y] = virtual_input.sticks[1]
             .unwrap_or([input.c_stick_x, input.c_stick_y])
             .map(|v| settings.axis(v));
-        input.circle_x = left_x;
-        input.circle_y = left_y;
-        input.c_stick_x = right_x;
-        input.c_stick_y = right_y;
+        // a held direction key wins over the stick, like a full push; ponytail: diagonals are not normalised
+        let pick = |stick: [f32; 2], push: [f32; 2]| if push == [0.0, 0.0] { stick } else { push.map(|v| v.clamp(-1.0, 1.0)) };
+        [input.circle_x, input.circle_y] = pick([left_x, left_y], pushed[0]);
+        [input.c_stick_x, input.c_stick_y] = pick([right_x, right_y], pushed[1]);
+        let [left_x, left_y] = [input.circle_x, input.circle_y];
         if settings.left_stick == LeftStick::Dpad {
             input.buttons |= zakuro_core::services::hid::directions(
                 left_x,

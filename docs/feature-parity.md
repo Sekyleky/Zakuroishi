@@ -317,8 +317,8 @@ All binding field names are accounted for:
 | Desktop binding fields | Android mapping / CodeSupport |
 |---|---|
 | Keys `a`, `b`, `x`, `y`, `l`, `r`, `start`, `select`, `up`, `down`, `left`, `right`, `zl`, `zr` (14) | **Wired equivalent**: matching lowercase targets in `controller_bindings`, S `binding`, I guest mask. |
-| Keys `circle_up`, `circle_down`, `circle_left`, `circle_right` (4) | **Partial**: left analog stick works; these four keyboard-to-Circle-Pad binding targets are absent. |
-| Keys `c_up`, `c_down`, `c_left`, `c_right` (4) | **Partial**: right analog C-stick works; these four keyboard-to-C-stick binding targets are absent. |
+| Keys `circle_up`, `circle_down`, `circle_left`, `circle_right` (4) | **Wired**: binding targets of the same names push the Circle Pad fully while held. Host-checked, not run on device. |
+| Keys `c_up`, `c_down`, `c_left`, `c_right` (4) | **Wired**: binding targets of the same names push the C-stick fully while held. Host-checked, not run on device. |
 | PadButtons `a`, `b`, `x`, `y`, `l`, `r`, `start`, `select`, `up`, `down`, `left`, `right`, `zl`, `zr` (14) | **Wired equivalent**: same guest targets with Android keycodes; axis trigger/hat input handled by R. |
 
 ## Android-only additions and full JSON accounting

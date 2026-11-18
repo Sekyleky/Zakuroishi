@@ -543,6 +543,10 @@ final class SettingsDialog {
             case "top_only": return "Top screen only";
             case "bottom_only": return "Bottom screen only";
             case "circle_pad": return "Circle Pad";
+            case "circle_up": return "Circle Pad up"; case "circle_down": return "Circle Pad down";
+            case "circle_left": return "Circle Pad left"; case "circle_right": return "Circle Pad right";
+            case "c_up": return "C-stick up"; case "c_down": return "C-stick down";
+            case "c_left": return "C-stick left"; case "c_right": return "C-stick right";
             case "c_stick": return "C-stick";
             case "cursor": return "Touch cursor";
             case "half_side_by_side": return "Side by side, half width";
