@@ -1866,6 +1866,8 @@ impl TextureCache {
                 None
             };
             match blocks {
+                // the first size taken whole, not copied
+                Some(blocks) if texels.is_empty() => texels = blocks,
                 Some(blocks) => texels.extend_from_slice(&blocks),
                 None => texels.extend(
                     (0..level.height)

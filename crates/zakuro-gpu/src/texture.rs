@@ -124,16 +124,26 @@ pub fn decode_texture(data: &[u8], format: TextureFormat, width: u32, height: u3
     match format {
         Rgba8 => Some(decode_tiles::<4>(data, width, height, |b| decode_bytes(Rgba8, b))),
         Rgb8 => Some(decode_tiles::<3>(data, width, height, |b| [b[2], b[1], b[0], 0xFF])),
-        Rgba5551 | Rgb565 | Rgba4 | La8 | Hilo8 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(format, b))),
-        L8 | A8 | La4 => Some(decode_tiles::<1>(data, width, height, |b| decode_bytes(format, b))),
+        // each format its own closure, so the match leaves the texel loop
+        Rgba5551 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(Rgba5551, b))),
+        Rgb565 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(Rgb565, b))),
+        Rgba4 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(Rgba4, b))),
+        La8 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(La8, b))),
+        Hilo8 => Some(decode_tiles::<2>(data, width, height, |b| decode_bytes(Hilo8, b))),
+        L8 => Some(decode_tiles::<1>(data, width, height, |b| decode_bytes(L8, b))),
+        A8 => Some(decode_tiles::<1>(data, width, height, |b| decode_bytes(A8, b))),
+        La4 => Some(decode_tiles::<1>(data, width, height, |b| decode_bytes(La4, b))),
         L4 | A4 => {
             let (w, h) = (width as usize, height as usize);
             let mut out = vec![[0u8; 4]; w * h];
-            let positions = tile_positions();
-            for n in 0..w * h {
-                let Some(&byte) = data.get(n / 2) else { break };
-                let nibble = if n % 2 == 0 { byte & 0xF } else { byte >> 4 };
-                out[tile_index(n, w, &positions)] = decode_nibble(format, nibble);
+            let offsets = tile_offsets(w);
+            // 32 bytes a tile, two texels a byte, low nibble first
+            for (tile, bytes) in data.chunks(32).take(w * h / 64).enumerate() {
+                let origin = tile_origin(tile, w);
+                for (pair, &byte) in offsets.chunks_exact(2).zip(bytes) {
+                    out[origin + pair[0]] = decode_nibble(format, byte & 0xF);
+                    out[origin + pair[1]] = decode_nibble(format, byte >> 4);
+                }
             }
             Some(out)
         }
@@ -141,31 +151,33 @@ pub fn decode_texture(data: &[u8], format: TextureFormat, width: u32, height: u3
     }
 }
 
-/// x + 8 * y inside an 8x8 tile, for each position in memory order.
-fn tile_positions() -> [usize; 64] {
-    let mut positions = [0usize; 64];
+/// x + width * y inside an 8x8 tile, for each position in memory order.
+fn tile_offsets(width: usize) -> [usize; 64] {
+    let mut offsets = [0usize; 64];
     for y in 0..8 {
         for x in 0..8 {
-            positions[morton_offset(x, y, 8, 1) as usize] = (x + 8 * y) as usize;
+            offsets[morton_offset(x, y, 8, 1) as usize] = x as usize + width * y as usize;
         }
     }
-    positions
+    offsets
 }
 
-/// the row-major index of the n-th texel in memory order.
-fn tile_index(n: usize, width: usize, positions: &[usize; 64]) -> usize {
-    let (tile, local) = (n / 64, positions[n % 64]);
-    let (tiles_per_row, x, y) = (width / 8, local % 8, local / 8);
-    (tile / tiles_per_row * 8 + y) * width + tile % tiles_per_row * 8 + x
+/// the row-major index of the tile-th 8x8 tile's top-left texel.
+fn tile_origin(tile: usize, width: usize) -> usize {
+    let tiles_per_row = width / 8;
+    tile / tiles_per_row * 8 * width + tile % tiles_per_row * 8
 }
 
 /// the texels of BYTES-wide formats, texels cut off by short data left clear.
 fn decode_tiles<const BYTES: usize>(data: &[u8], width: u32, height: u32, decode: impl Fn(&[u8]) -> [u8; 4]) -> Vec<[u8; 4]> {
     let (w, h) = (width as usize, height as usize);
     let mut out = vec![[0u8; 4]; w * h];
-    let positions = tile_positions();
-    for (n, b) in data.chunks_exact(BYTES).take(w * h).enumerate() {
-        out[tile_index(n, w, &positions)] = decode(b);
+    let offsets = tile_offsets(w);
+    for (tile, bytes) in data.chunks(64 * BYTES).take(w * h / 64).enumerate() {
+        let origin = tile_origin(tile, w);
+        for (&offset, b) in offsets.iter().zip(bytes.chunks_exact(BYTES)) {
+            out[origin + offset] = decode(b);
+        }
     }
     out
 }
@@ -283,44 +295,34 @@ pub fn decode_etc1_texture(data: &[u8], format: TextureFormat, width: u32, heigh
     let (w, alpha) = (width as usize, format == TextureFormat::Etc1A4);
     let block_size = if alpha { 16 } else { 8 };
     let mut out = vec![[0u8; 4]; w * height as usize];
-    for (index, block) in data.chunks_exact(block_size).take(w * height as usize / 16).enumerate() {
-        let (tile, sub_block) = (index / 4, index % 4);
-        let x0 = (tile % (w / 8)) * 8 + sub_block % 2 * 4;
-        let y0 = (tile / (w / 8)) * 8 + sub_block / 2 * 4;
-        let (alphas, color) = if alpha { (Some(&block[0..8]), &block[8..16]) } else { (None, &block[0..8]) };
-        let alphas = alphas.map(|a| u64::from_le_bytes(a.try_into().unwrap()));
-        let word = u64::from_le_bytes(color.try_into().unwrap());
-        let (low, high) = ((word & 0xFFFF_FFFF) as u32, (word >> 32) as u32);
-        let bases = etc1_bases(high);
-        let flip = high & 1 != 0;
-        let tables = [((high >> 5) & 0x7) as usize, ((high >> 2) & 0x7) as usize];
-        for x in 0..4u32 {
+    // blocks the data is too short for stay clear, as sample_texel has it
+    for (tile, blocks) in data.chunks(4 * block_size).take(w * height as usize / 64).enumerate() {
+        let origin = tile_origin(tile, w);
+        for (sub_block, block) in blocks.chunks_exact(block_size).enumerate() {
+            let corner = origin + sub_block / 2 * 4 * w + sub_block % 2 * 4;
+            let (alphas, color) = if alpha { (Some(&block[0..8]), &block[8..16]) } else { (None, &block[0..8]) };
+            let alphas = alphas.map(|a| u64::from_le_bytes(a.try_into().unwrap()));
+            let word = u64::from_le_bytes(color.try_into().unwrap());
+            let (low, high) = ((word & 0xFFFF_FFFF) as u32, (word >> 32) as u32);
+            let bases = etc1_bases(high);
+            let flip = high & 1 != 0;
+            let tables = [((high >> 5) & 0x7) as usize, ((high >> 2) & 0x7) as usize];
+            // each half's four colors, worked out once a block
+            let colors: [[[u8; 3]; 4]; 2] = std::array::from_fn(|half| {
+                std::array::from_fn(|modifier| {
+                    let delta = ETC1_MODIFIERS[tables[half]][modifier];
+                    bases[half].map(|c| (c as i32 + delta).clamp(0, 255) as u8)
+                })
+            });
             for y in 0..4u32 {
-                let half = usize::from(!if flip { y < 2 } else { x < 2 });
-                let pixel_index = x * 4 + y;
-                let modifier = (((low >> (pixel_index + 16)) & 1) << 1 | ((low >> pixel_index) & 1)) as usize;
-                let delta = ETC1_MODIFIERS[tables[half]][modifier];
-                let base = bases[half];
-                let a = alphas.map_or(0xFF, |a| expand4(((a >> (pixel_index * 4)) & 0xF) as u8));
-                out[(y0 + y as usize) * w + x0 + x as usize] = [
-                    (base[0] as i32 + delta).clamp(0, 255) as u8,
-                    (base[1] as i32 + delta).clamp(0, 255) as u8,
-                    (base[2] as i32 + delta).clamp(0, 255) as u8,
-                    a,
-                ];
-            }
-        }
-    }
-    // blocks the data is too short for read as nothing, as sample_texel has it
-    let blocks = data.len() / block_size;
-    if blocks < w * height as usize / 16 {
-        for index in blocks..w * height as usize / 16 {
-            let (tile, sub_block) = (index / 4, index % 4);
-            let x0 = (tile % (w / 8)) * 8 + sub_block % 2 * 4;
-            let y0 = (tile / (w / 8)) * 8 + sub_block / 2 * 4;
-            for y in 0..4 {
-                for x in 0..4 {
-                    out[(y0 + y) * w + x0 + x] = [0, 0, 0, 0];
+                let row = &mut out[corner + y as usize * w..][..4];
+                for (x, texel) in (0..4u32).zip(row) {
+                    let half = usize::from(!if flip { y < 2 } else { x < 2 });
+                    let pixel_index = x * 4 + y;
+                    let modifier = (((low >> (pixel_index + 16)) & 1) << 1 | ((low >> pixel_index) & 1)) as usize;
+                    let [r, g, b] = colors[half][modifier];
+                    let a = alphas.map_or(0xFF, |a| expand4(((a >> (pixel_index * 4)) & 0xF) as u8));
+                    *texel = [r, g, b, a];
                 }
             }
         }
@@ -531,6 +533,24 @@ mod tests {
         }
         assert!(decode_texture(&[0; 64], TextureFormat::Rgba8, 12, 8).is_none());
         assert!(decode_texture(&[0; 64], TextureFormat::Etc1, 8, 8).is_none());
+    }
+
+    /// ms per whole 512x512 decode of each format, for comparing changes:
+    /// cargo test --release --lib -- --ignored --nocapture decode_speed
+    #[test]
+    #[ignore]
+    fn decode_speed() {
+        let (width, height, runs) = (512u32, 512u32, 50);
+        for raw in 0..14 {
+            let format = TextureFormat::from_raw(raw);
+            let data: Vec<u8> = (0..width * height * format.bits_per_pixel() / 8).map(|n| (n.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+            let start = std::time::Instant::now();
+            for _ in 0..runs {
+                let out = if raw >= 12 { decode_etc1_texture(&data, format, width, height) } else { decode_texture(&data, format, width, height) };
+                std::hint::black_box(out);
+            }
+            println!("{format:?}: {:.3} ms", start.elapsed().as_secs_f64() * 1000.0 / runs as f64);
+        }
     }
 
     /// alpha alone comes with black color, luminance alone with full alpha.
