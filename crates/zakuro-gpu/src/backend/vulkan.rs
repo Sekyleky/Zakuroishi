@@ -9,7 +9,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 
 use super::framegen::{self, FrameGen, FrameGenOptions};
 use super::vulkan_overlay::OverlayPainter;
-use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, Shown, Stereo, StereoMode, Viewport};
+use super::{place_configured, GpuScreen, Overlay, PresentError, Presenter, ScreenFilter, ScreenImage, ScreenLayout, ScreenOrientation, ScreenSpacing, Shown, Stereo, StereoMode, Viewport};
 use crate::raster::hardware::{can_render, render_device};
 use crate::SharedDevice;
 
@@ -181,6 +181,7 @@ pub struct VulkanPresenter {
     stereo: Stereo,
     stretch: bool,
     swap_screens: bool,
+    spacing: ScreenSpacing,
     /// set when the swapchain no longer matches the window.
     stale: bool,
     /// frame generation wanted for now, and the graph once the first picture gave its size.
@@ -192,9 +193,10 @@ pub struct VulkanPresenter {
 }
 
 impl VulkanPresenter {
-    pub fn set_geometry(&mut self, stretch: bool, swap_screens: bool) {
+    pub fn set_geometry(&mut self, stretch: bool, swap_screens: bool, spacing: ScreenSpacing) {
         self.stretch = stretch;
         self.swap_screens = swap_screens;
+        self.spacing = spacing;
     }
     pub fn new(
         window: &(impl HasDisplayHandle + HasWindowHandle),
@@ -488,6 +490,7 @@ impl VulkanPresenter {
             stereo: Stereo::default(),
             stretch: false,
             swap_screens: false,
+            spacing: ScreenSpacing::default(),
             stale: false,
             frame_generation: None,
             framegen: None,
@@ -1012,7 +1015,7 @@ impl VulkanPresenter {
                     Some((self.gpu_sets[self.frame][index], [x, y, width, height, left, top, right, bottom]))
                 }
             };
-            let places = place_configured(self.extent.width, self.extent.height, self.arrangement, self.orientation, self.top_width, self.integer, self.stereo, right, self.stretch, self.swap_screens);
+            let places = place_configured(self.extent.width, self.extent.height, self.arrangement, self.orientation, self.top_width, self.integer, self.stereo, right, self.stretch, self.swap_screens, self.spacing);
             for (viewport, shown) in places {
                 let index = match shown {
                     Shown::Top | Shown::Both => 0,

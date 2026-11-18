@@ -55,6 +55,8 @@ final class GameSettings {
         choice("Display", "orientation", "Display orientation", "landscape", "auto|landscape|portrait", "Automatic follows device rotation. Landscape and Portrait follow the sensor within the selected orientation."),
         choice("Display", "filter", "Picture filter", "smooth", "smooth|sharp|pixels", "How the screens look when scaled."),
         number("Display", "top_width", "Top screen shape", 400f, 320, 800, "Original 5:3, 16:9 or 21:9. Wide shapes stretch the picture unless the game has a matching widescreen code."),
+        number("Display", "screen_gap", "Screen gap", 0, 0, 40, "Space between the two screens, in console pixels, in Stacked and Side by side."),
+        number("Display", "small_screen", "Small screen size (%)", 50, 25, 100, "Size of the small screen in Large top, in percent."),
         flag("Display", "stretch", "Fill the available screen area", false, "Changes the picture's proportions to fill its area."),
         flag("Display", "integer_scale", "Whole-pixel scaling", false, "Use whole scaling steps where the layout allows."),
         flag("Display", "show_fps", "Show FPS", false, "Updates the in-game status overlay once a second."),

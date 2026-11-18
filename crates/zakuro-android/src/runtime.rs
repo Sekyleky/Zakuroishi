@@ -105,7 +105,7 @@ impl Surface {
             .set_scaling(geometry::filter(settings), settings.integer_scale);
         self.presenter.set_stereo(geometry::stereo(settings));
         self.presenter
-            .set_geometry(settings.stretch, settings.swap_screens);
+            .set_geometry(settings.stretch, settings.swap_screens, geometry::spacing(settings));
     }
     fn resize(&mut self) {
         self.presenter.resize(

@@ -28,6 +28,12 @@ pub fn layout(settings: &Advanced) -> ScreenLayout {
         Layout::LargeTop => ScreenLayout::LargeTop,
     }
 }
+pub fn spacing(settings: &Advanced) -> zakuro_gpu::backend::ScreenSpacing {
+    zakuro_gpu::backend::ScreenSpacing {
+        gap: settings.screen_gap as f32,
+        small: settings.small_screen as f32 / 100.0,
+    }
+}
 pub fn filter(settings: &Advanced) -> ScreenFilter {
     match settings.filter {
         Filter::Smooth => ScreenFilter::Smooth,
@@ -61,6 +67,7 @@ pub fn places(settings: &Advanced, width: u32, height: u32, right: bool) -> Vec<
         right,
         settings.stretch,
         settings.swap_screens,
+        spacing(settings),
     )
 }
 pub fn touch(settings: &Advanced, width: u32, height: u32, x: f32, y: f32) -> Option<(u16, u16)> {
@@ -179,6 +186,24 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn touch_follows_the_gap_and_the_small_screen_size() {
+        // stacked with a 40 px gap fills 400x520 at scale 1: the bottom screen's
+        // centre is 40 lower than without it
+        let settings = Advanced {
+            screen_gap: 40,
+            ..Advanced::default()
+        };
+        assert_eq!(touch(&settings, 400, 520, 200.5, 400.5), Some((160, 120)));
+        assert_eq!(touch(&Advanced::default(), 400, 520, 200.5, 400.5), Some((160, 140)));
+        // large top at 100% shows the bottom screen at console size beside the top
+        let settings = Advanced {
+            layout: Layout::LargeTop,
+            small_screen: 100,
+            ..Advanced::default()
+        };
+        assert_eq!(touch(&settings, 720, 240, 560.5, 120.5), Some((160, 120)));
     }
     #[test]
     fn stretch_fills_display_and_stereo_bottoms_both_accept_touch() {

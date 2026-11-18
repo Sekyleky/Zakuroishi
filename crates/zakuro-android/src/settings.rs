@@ -111,6 +111,10 @@ pub struct Advanced {
     pub filter: Filter,
     pub integer_scale: bool,
     pub top_width: f32,
+    /// console pixels between the screens, stacked or side by side.
+    pub screen_gap: i32,
+    /// the bottom screen's size in large top, percent of the console's.
+    pub small_screen: i32,
     pub stretch: bool,
     pub swap_screens: bool,
     pub dual_display: bool,
@@ -222,6 +226,8 @@ impl Default for Advanced {
             filter: Filter::Smooth,
             integer_scale: false,
             top_width: 400.0,
+            screen_gap: 0,
+            small_screen: 50,
             stretch: false,
             swap_screens: false,
             dual_display: false,
@@ -355,6 +361,8 @@ impl Advanced {
             }
         }
         self.top_width = bounded(self.top_width, 320.0, 800.0, 400.0);
+        self.screen_gap = self.screen_gap.clamp(0, 40);
+        self.small_screen = self.small_screen.clamp(25, 100);
         self.gyro_sensitivity = bounded(self.gyro_sensitivity, 0.0, 5.0, 1.0);
         self.stick_motion_sensitivity = bounded(self.stick_motion_sensitivity, 0.0, 5.0, 1.0);
         self.cursor_speed = bounded(self.cursor_speed, 0.1, 5.0, 1.0);
@@ -555,6 +563,17 @@ mod tests {
         );
         assert!(Advanced::parse(r#"{"layout":"fake"}"#).is_err());
         assert!(Advanced::parse(r#"{"volume":"loud"}"#).is_err());
+    }
+    #[test]
+    fn screen_gap_and_small_screen_default_and_clamp() {
+        let settings = Advanced::parse("{}").unwrap();
+        assert_eq!((settings.screen_gap, settings.small_screen), (0, 50));
+        let settings = Advanced::parse(r#"{"screen_gap":12,"small_screen":75}"#).unwrap();
+        assert_eq!((settings.screen_gap, settings.small_screen), (12, 75));
+        let settings = Advanced::parse(r#"{"screen_gap":99,"small_screen":5}"#).unwrap();
+        assert_eq!((settings.screen_gap, settings.small_screen), (40, 25));
+        let settings = Advanced::parse(r#"{"screen_gap":-3,"small_screen":400}"#).unwrap();
+        assert_eq!((settings.screen_gap, settings.small_screen), (0, 100));
     }
     #[test]
     fn room_settings_default_off_and_parse() {

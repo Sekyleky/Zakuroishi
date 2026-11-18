@@ -239,17 +239,17 @@ impl ScreenLayout {
     /// the size the screens take up together at the console's resolution,
     /// with the top screen top_width wide.
     pub fn size(self, top_width: f32) -> (u32, u32) {
-        let (width, height) = self.size_f(top_width);
+        let (width, height) = self.size_f(top_width, ScreenSpacing::default());
         (width.ceil() as u32, height as u32)
     }
 
-    fn size_f(self, top_width: f32) -> (f32, f32) {
+    fn size_f(self, top_width: f32, spacing: ScreenSpacing) -> (f32, f32) {
         match self {
-            ScreenLayout::Stacked => (top_width.max(320.0), 480.0),
-            ScreenLayout::SideBySide => (top_width + 320.0, 240.0),
+            ScreenLayout::Stacked => (top_width.max(320.0), 480.0 + spacing.gap),
+            ScreenLayout::SideBySide => (top_width + 320.0 + spacing.gap, 240.0),
             ScreenLayout::TopOnly => (top_width, 240.0),
             ScreenLayout::BottomOnly => (320.0, 240.0),
-            ScreenLayout::LargeTop => (top_width + LARGE_TOP_BOTTOM.0 as f32, 240.0),
+            ScreenLayout::LargeTop => (top_width + 320.0 * spacing.small, 240.0),
         }
     }
 }
@@ -259,15 +259,32 @@ impl ScreenLayout {
 /// into the same 400x240.
 pub const TOP_WIDTH: f32 = 400.0;
 
-/// the bottom screen's size next to the big top one, half the console's.
-const LARGE_TOP_BOTTOM: (u32, u32) = (160, 120);
+/// the room between the screens and the size of the small one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScreenSpacing {
+    /// empty console pixels between the screens, stacked or side by side.
+    pub gap: f32,
+    /// the bottom screen's size next to the big top one, a share of the console's.
+    pub small: f32,
+}
+
+impl Default for ScreenSpacing {
+    fn default() -> Self {
+        Self { gap: 0.0, small: 0.5 }
+    }
+}
 
 /// works out where the screens go inside a window, keeping the 3DS's
 /// aspect ratio, or the top screen top_w wide, rotating and centring them, scaled by
 /// a whole number when integer asks and the window has room. a screen that
 /// does not show has no place.
 pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_w: f32, integer: bool) -> (Option<Viewport>, Option<Viewport>) {
-    let (layout_width, layout_height) = arrangement.size_f(top_w);
+    layout_spaced(window_width, window_height, arrangement, orientation, top_w, integer, ScreenSpacing::default())
+}
+
+/// layout, with room between the screens and the small one sized.
+fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_w: f32, integer: bool, spacing: ScreenSpacing) -> (Option<Viewport>, Option<Viewport>) {
+    let (layout_width, layout_height) = arrangement.size_f(top_w, spacing);
     let (total_width, total_height) = if matches!(orientation, ScreenOrientation::East | ScreenOrientation::West) {
         (layout_height, layout_width)
     } else {
@@ -289,20 +306,20 @@ pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, 
         // the bottom screen is narrower, so it is centered under the top one.
         ScreenLayout::Stacked => Some(Viewport {
             x: (layout_width - 320.0) / 2.0 * scale,
-            y: 240.0 * scale,
+            y: (240.0 + spacing.gap) * scale,
             width: 320.0 * scale,
             height: 240.0 * scale,
         }),
         ScreenLayout::SideBySide => Some(Viewport {
-            x: top_w * scale,
+            x: (top_w + spacing.gap) * scale,
             y: 0.0,
             width: 320.0 * scale,
             height: 240.0 * scale,
         }),
         ScreenLayout::LargeTop => {
-            // half the top screen's scale, a whole number of it when the
-            // screens are scaled by whole numbers
-            let half = (LARGE_TOP_BOTTOM.0 as f32 / 320.0) * scale;
+            // its share of the top screen's scale, a whole number of it when
+            // the screens are scaled by whole numbers
+            let half = spacing.small * scale;
             let small = if integer && half >= 1.0 { half.floor() } else { half };
             Some(Viewport {
                 x: top_w * scale,
@@ -392,6 +409,11 @@ pub enum Shown {
 /// when the title drew a picture for the right eye, side by side shows the
 /// left one's twice otherwise, so a 3D TV keeps its halves.
 pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool) -> Vec<(Viewport, Shown)> {
+    place_spaced(window_width, window_height, arrangement, orientation, top_width, integer, stereo, right, ScreenSpacing::default())
+}
+
+fn place_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool, spacing: ScreenSpacing) -> Vec<(Viewport, Shown)> {
+    let layout = |width, height| layout_spaced(width, height, arrangement, orientation, top_width, integer, spacing);
     let screens = |(top, bottom): (Option<Viewport>, Option<Viewport>), eye: Shown| {
         top.map(|viewport| (viewport, eye)).into_iter().chain(bottom.map(|viewport| (viewport, Shown::Bottom)))
     };
@@ -401,21 +423,21 @@ pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, o
         (true, true) => (Shown::Right, Shown::Top),
     };
     match stereo.mode {
-        StereoMode::Off => screens(layout(window_width, window_height, arrangement, orientation, top_width, integer), Shown::Top).collect(),
+        StereoMode::Off => screens(layout(window_width, window_height), Shown::Top).collect(),
         StereoMode::Anaglyph | StereoMode::Interlaced => {
             let top = if right { Shown::Both } else { Shown::Top };
-            screens(layout(window_width, window_height, arrangement, orientation, top_width, integer), top).collect()
+            screens(layout(window_width, window_height), top).collect()
         }
         StereoMode::SideBySide => {
             // each half a window of its own
             let half = window_width / 2;
-            let places = layout(half, window_height, arrangement, orientation, top_width, integer);
+            let places = layout(half, window_height);
             let moved = |(viewport, shown): (Viewport, Shown)| (Viewport { x: viewport.x + half as f32, ..viewport }, shown);
             screens(places, first).chain(screens(places, second).map(moved)).collect()
         }
         StereoMode::HalfSideBySide => {
             // the whole window's places, squeezed into each half
-            let places = layout(window_width, window_height, arrangement, orientation, top_width, integer);
+            let places = layout(window_width, window_height);
             let half = window_width as f32 / 2.0;
             let squeezed = |by: f32| move |(viewport, shown): (Viewport, Shown)| {
                 (Viewport { x: viewport.x / 2.0 + by, width: viewport.width / 2.0, ..viewport }, shown)
@@ -427,8 +449,8 @@ pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, o
 
 /// Presentation geometry shared by Vulkan drawing and frontend touch hit tests.
 /// Stretch fills the display with the arrangement's bounding rectangle.
-pub fn place_configured(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool, stretch: bool, swap: bool) -> Vec<(Viewport, Shown)> {
-    let mut places = place(window_width, window_height, arrangement, orientation, top_width, integer && !stretch, stereo, right);
+pub fn place_configured(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool, stretch: bool, swap: bool, spacing: ScreenSpacing) -> Vec<(Viewport, Shown)> {
+    let mut places = place_spaced(window_width, window_height, arrangement, orientation, top_width, integer && !stretch, stereo, right, spacing);
     if swap {
         for (viewport, shown) in &mut places {
             *shown = match *shown {
@@ -615,6 +637,25 @@ mod tests {
         assert_eq!((bottom.x, bottom.y, bottom.width, bottom.height), (800.0, 240.0, 320.0, 240.0));
     }
 
+    /// a gap moves the bottom screen away by it and widens the whole, and the
+    /// small screen at 100% is the console's size.
+    #[test]
+    fn the_gap_and_small_screen_size_move_the_bottom_screen() {
+        let spaced = |gap, small| ScreenSpacing { gap, small };
+        let spacing = spaced(20.0, 0.5);
+        // scale 2: stacked 400x500, side by side 740x240
+        let (top, bottom) = layout_spaced(800, 1000, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, spacing);
+        assert_eq!(bounds(top.unwrap()), (0.0, 0.0, 800.0, 480.0));
+        assert_eq!(bounds(bottom.unwrap()), (80.0, 520.0, 640.0, 480.0));
+        let (_, bottom) = layout_spaced(1480, 480, ScreenLayout::SideBySide, ScreenOrientation::North, TOP_WIDTH, false, spacing);
+        assert_eq!(bounds(bottom.unwrap()), (840.0, 0.0, 640.0, 480.0));
+        assert_eq!(ScreenLayout::Stacked.size_f(TOP_WIDTH, spacing), (400.0, 500.0));
+        // the gap leaves large top alone, the small screen sizes it
+        let (top, bottom) = layout_spaced(720, 240, ScreenLayout::LargeTop, ScreenOrientation::North, TOP_WIDTH, false, spaced(20.0, 1.0));
+        assert_eq!(bounds(top.unwrap()), (0.0, 0.0, 400.0, 240.0));
+        assert_eq!(bounds(bottom.unwrap()), (400.0, 0.0, 320.0, 240.0));
+    }
+
     /// a wider top screen fills a window of its shape, and the screens
     /// around it move over to make room.
     #[test]
@@ -741,7 +782,7 @@ mod tests {
     #[test]
     fn swapping_squeezed_stereo_keeps_eye_order_and_half_width_aspects() {
         let stereo = Stereo { mode: StereoMode::HalfSideBySide, swap: true };
-        let places = place_configured(1600, 960, ScreenLayout::Stacked, ScreenOrientation::North, 400.0, false, stereo, true, false, true);
+        let places = place_configured(1600, 960, ScreenLayout::Stacked, ScreenOrientation::North, 400.0, false, stereo, true, false, true, ScreenSpacing::default());
         assert_eq!(places.iter().map(|(_, s)| *s).collect::<Vec<_>>(), [Shown::Bottom, Shown::Right, Shown::Bottom, Shown::Top]);
         for (v, shown) in places {
             let expected = if shown == Shown::Bottom { 320.0 / 240.0 / 2.0 } else { 400.0 / 240.0 / 2.0 };
@@ -751,7 +792,7 @@ mod tests {
 
     #[test]
     fn swapping_preserves_whole_pixel_scaling_when_there_is_room() {
-        for (v, shown) in place_configured(1600, 960, ScreenLayout::Stacked, ScreenOrientation::North, 400.0, true, Stereo::default(), false, false, true) {
+        for (v, shown) in place_configured(1600, 960, ScreenLayout::Stacked, ScreenOrientation::North, 400.0, true, Stereo::default(), false, false, true, ScreenSpacing::default()) {
             let source_width = if shown == Shown::Bottom { 320.0 } else { 400.0 };
             assert_eq!((v.width / source_width).fract(), 0.0);
             assert_eq!((v.height / 240.0).fract(), 0.0);
@@ -764,7 +805,7 @@ mod tests {
         for arrangement in [ScreenLayout::Stacked, ScreenLayout::SideBySide, ScreenLayout::LargeTop, ScreenLayout::TopOnly, ScreenLayout::BottomOnly] {
             for mode in [StereoMode::Off, StereoMode::Anaglyph, StereoMode::SideBySide, StereoMode::HalfSideBySide, StereoMode::Interlaced] {
                 for swap in [false, true] { for stretch in [false, true] {
-                    let places = place_configured(1280, 720, arrangement, ScreenOrientation::North, 560.0, true, Stereo { mode, swap: true }, true, stretch, swap);
+                    let places = place_configured(1280, 720, arrangement, ScreenOrientation::North, 560.0, true, Stereo { mode, swap: true }, true, stretch, swap, ScreenSpacing::default());
                     for (v, _) in &places {
                         assert!(v.width > 0.0 && v.height > 0.0);
                         assert!(v.x >= -0.01 && v.y >= -0.01 && v.x + v.width <= 1280.01 && v.y + v.height <= 720.01, "{arrangement:?} {mode:?} {v:?}");
