@@ -26,6 +26,16 @@ const VERSION: u32 = 1;
 const LARGEST: usize = 64 * 1024;
 /// how long joining waits for the room to answer.
 const PATIENCE: Duration = Duration::from_secs(5);
+/// how long the room waits on a member that takes nothing in before it
+/// lets the member go, so one member cannot hold up the others.
+const STALL: Duration = Duration::from_secs(2);
+/// the longest nickname and game, in bytes, so the list of members a room
+/// sends stays well under LARGEST. the apps send at most 10 characters of a
+/// nickname, 40 bytes at most.
+const NICKNAME_LIMIT: usize = 40;
+const GAME_LIMIT: usize = 64;
+/// the most a console keeps of what came for it and it did not take yet.
+const INBOX_LIMIT: usize = 4 * 1024 * 1024;
 
 /// someone in a room, and the game they play.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +63,9 @@ enum FromRoom {
 
 fn write<T: Serialize>(stream: &mut impl Write, message: &T) -> std::io::Result<()> {
     let body = postcard::to_allocvec(message).map_err(std::io::Error::other)?;
+    if body.len() > LARGEST {
+        return Err(std::io::Error::other("a message too large for a room"));
+    }
     let mut framed = Vec::with_capacity(4 + body.len());
     framed.extend_from_slice(&(body.len() as u32).to_le_bytes());
     framed.extend_from_slice(&body);
@@ -93,15 +106,38 @@ impl Seats {
         self.taken.iter().map(|(member, _)| member.clone()).collect()
     }
 
-    /// tells everyone who is in the room.
-    fn announce(&self) {
+    /// tells everyone who is in the room, and again if someone had to go.
+    fn announce(&mut self) {
         let members = FromRoom::Members(self.members());
-        for (_, stream) in &self.taken {
-            if let Ok(mut stream) = stream.lock() {
-                let _ = write(&mut *stream, &members);
-            }
+        let before = self.taken.len();
+        self.taken.retain(|(_, stream)| give(stream, &members));
+        if self.taken.len() < before {
+            self.announce();
         }
     }
+}
+
+/// writes message to a member, false when the member cannot take it in,
+/// its socket then shut and the caller lets it go.
+fn give(stream: &Mutex<TcpStream>, message: &FromRoom) -> bool {
+    let Ok(mut stream) = stream.lock() else { return false };
+    if write(&mut *stream, message).is_err() {
+        let _ = stream.shutdown(Shutdown::Both);
+        return false;
+    }
+    true
+}
+
+/// a game as the room shows it, without control characters and cut to
+/// GAME_LIMIT on a character's boundary.
+fn tidy(game: &str) -> String {
+    let mut game: String = game.chars().filter(|c| !c.is_control()).collect();
+    let mut end = game.len().min(GAME_LIMIT);
+    while !game.is_char_boundary(end) {
+        end -= 1;
+    }
+    game.truncate(end);
+    game
 }
 
 impl Server {
@@ -171,12 +207,15 @@ fn seat(mut stream: TcpStream, address: String, seats: &Mutex<Seats>, stop: &Ato
     let _ = stream.set_read_timeout(Some(PATIENCE));
     let Ok(ToRoom::Hello { version, nickname, password }) = read(&mut stream) else { return };
     let _ = stream.set_read_timeout(None);
+    let _ = stream.set_write_timeout(Some(STALL));
     let Ok(writer) = stream.try_clone() else { return };
     let writer = Arc::new(Mutex::new(writer));
     let mac = {
         let Ok(mut room) = seats.lock() else { return };
         let refusal = if version != VERSION {
             Some("the room is for another version of Zakuro".to_owned())
+        } else if nickname.len() > NICKNAME_LIMIT || nickname.chars().any(char::is_control) {
+            Some(format!("the nickname is longer than {NICKNAME_LIMIT} bytes or has control characters"))
         } else if !room.password.is_empty() && password != room.password {
             Some("the password is wrong".to_owned())
         } else if room.taken.len() >= room.most {
@@ -206,20 +245,22 @@ fn seat(mut stream: TcpStream, address: String, seats: &Mutex<Seats>, stop: &Ato
     while !stop.load(Ordering::Relaxed) {
         let Ok(message) = read::<ToRoom>(&mut stream) else { break };
         let Ok(mut room) = seats.lock() else { break };
+        // a member the room let go is done
+        if !room.taken.iter().any(|(member, _)| member.mac == mac) {
+            break;
+        }
         match message {
             ToRoom::Packet { to, body } => {
                 let packet = FromRoom::Packet { from: mac, body };
-                for (member, stream) in &room.taken {
-                    if member.mac != mac && (to == BROADCAST || member.mac == to) {
-                        if let Ok(mut stream) = stream.lock() {
-                            let _ = write(&mut *stream, &packet);
-                        }
-                    }
+                let before = room.taken.len();
+                room.taken.retain(|(member, stream)| member.mac == mac || (to != BROADCAST && member.mac != to) || give(stream, &packet));
+                if room.taken.len() < before {
+                    room.announce();
                 }
             }
             ToRoom::Playing(game) => {
                 if let Some((member, _)) = room.taken.iter_mut().find(|(member, _)| member.mac == mac) {
-                    member.game = game;
+                    member.game = tidy(&game);
                 }
                 room.announce();
             }
@@ -310,8 +351,10 @@ impl Connection {
                             if let Ok(mut inbox) = receiving.inbox.lock() {
                                 // a console that stopped taking them does not
                                 // pile them up for good
-                                if inbox.len() >= 4096 {
-                                    inbox.pop_front();
+                                let mut bytes = body.len() + inbox.iter().map(|(_, body)| body.len()).sum::<usize>();
+                                while bytes > INBOX_LIMIT || inbox.len() >= 4096 {
+                                    let Some((_, oldest)) = inbox.pop_front() else { break };
+                                    bytes -= oldest.len();
                                 }
                                 inbox.push_back((from, body));
                             }
@@ -471,5 +514,84 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(server.members().len(), 1);
+    }
+
+    /// waits up to ten seconds for what is asked.
+    fn until(what: impl Fn() -> bool) -> bool {
+        for _ in 0..1000 {
+            if what() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    /// a member that only says hello, through a socket of its own.
+    fn raw_member(address: &str, nickname: &str) -> TcpStream {
+        let mut stream = TcpStream::connect(address).unwrap();
+        write(&mut stream, &ToRoom::Hello { version: VERSION, nickname: nickname.into(), password: String::new() }).unwrap();
+        stream.set_read_timeout(Some(PATIENCE)).unwrap();
+        assert!(matches!(read::<FromRoom>(&mut stream), Ok(FromRoom::Welcome { .. })));
+        stream
+    }
+
+    /// a long nickname is refused, and a long game is cut, so the list of
+    /// members still reaches everyone.
+    #[test]
+    fn long_names_do_not_break_the_room() {
+        let server = Server::start(0, "test", "", 4).unwrap();
+        let address = format!("127.0.0.1:{}", server.port());
+        assert!(Connection::join(&address, &"n".repeat(NICKNAME_LIMIT + 1), "").is_err());
+        assert!(Connection::join(&address, "bell\u{7}", "").is_err());
+        // the longest nickname the apps send, 10 four-byte characters, gets in
+        let _longest = Connection::join(&address, &"\u{1F600}".repeat(10), "").unwrap();
+        let watcher = Connection::join(&address, "watcher", "").unwrap();
+        let mut raw = raw_member(&address, "raw");
+        write(&mut raw, &ToRoom::Playing("\u{1}".to_owned() + &"g".repeat(65000))).unwrap();
+        let cut = "g".repeat(GAME_LIMIT);
+        assert!(until(|| watcher.members().iter().any(|member| member.game == cut)));
+        assert!(watcher.open());
+        assert_eq!(tidy(&("a".to_owned() + &"\u{e9}".repeat(GAME_LIMIT))).len(), GAME_LIMIT - 1);
+        assert!(write(&mut Vec::new(), &FromRoom::Packet { from: BROADCAST, body: vec![0; LARGEST] }).is_err());
+    }
+
+    /// a member that never reads is let go, and the room keeps taking others.
+    #[test]
+    fn a_member_that_never_reads_does_not_freeze_the_room() {
+        let server = Server::start(0, "test", "", 4).unwrap();
+        let address = format!("127.0.0.1:{}", server.port());
+        let _stuck = raw_member(&address, "stuck");
+        let sender = Connection::join(&address, "sender", "").unwrap();
+        let link = sender.link();
+        for _ in 0..400 {
+            link.send(BROADCAST, vec![0; 60_000]);
+        }
+        // long enough for the room to be writing to the stuck member
+        std::thread::sleep(Duration::from_millis(300));
+        let started = std::time::Instant::now();
+        let third = Connection::join(&address, "third", "");
+        assert!(third.is_ok(), "{:?}", third.err());
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(until(|| server.members().iter().all(|member| member.nickname != "stuck")));
+    }
+
+    /// what a console does not take is kept up to INBOX_LIMIT, the newest.
+    #[test]
+    fn the_inbox_is_capped_by_size() {
+        let server = Server::start(0, "test", "", 4).unwrap();
+        let address = format!("127.0.0.1:{}", server.port());
+        let receiver = Connection::join(&address, "receiver", "").unwrap();
+        let sender = Connection::join(&address, "sender", "").unwrap();
+        let link = sender.link();
+        for _ in 0..200 {
+            link.send(receiver.mac(), vec![0; 60_000]);
+        }
+        link.send(receiver.mac(), b"last".to_vec());
+        let inbox = &receiver.shared.inbox;
+        assert!(until(|| inbox.lock().unwrap().back().is_some_and(|(_, body)| body == b"last")));
+        let kept = inbox.lock().unwrap().iter().map(|(_, body)| body.len()).sum::<usize>();
+        assert!(kept <= INBOX_LIMIT, "{kept}");
+        assert!(kept > INBOX_LIMIT - 60_000);
     }
 }

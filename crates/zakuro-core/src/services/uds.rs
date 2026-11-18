@@ -370,7 +370,10 @@ pub fn handle(system: &mut System, buffer: &CommandBuffer, header: Header) -> bo
                 buffer.reply(&mut system.memory, command, &[0]);
                 return true;
             }
-            let data = uds.network[0x40..0x40 + size].to_vec();
+            let Some(data) = uds.network.get(0x40..0x40 + size).map(<[u8]>::to_vec) else {
+                buffer.reply(&mut system.memory, command, &[0]);
+                return true;
+            };
             let destination = reply_static(system, buffer, command, &[size as u32], &data, data.len());
             log::debug!("uds: the application data went to 0x{destination:08X}");
         }
@@ -868,7 +871,8 @@ pub fn tick(system: &mut System) {
     if let Some(at) = uds.next_beacon.filter(|&at| at <= now) {
         let period = nanos_to_ticks(BEACON_NANOS);
         uds.next_beacon = Some(at + period * ((now - at) / period + 1));
-        let message = Wireless::Beacon { channel: uds.network[6], frame: beacon(&uds.network, &uds.peers) };
+        let channel = uds.network.get(6).copied().unwrap_or(DEFAULT_CHANNEL);
+        let message = Wireless::Beacon { channel, frame: beacon(&uds.network, &uds.peers) };
         send(system, BROADCAST, &message);
     }
     if system.services.uds.joining.as_ref().is_some_and(|joining| joining.until <= now) {
@@ -933,6 +937,14 @@ fn take(system: &mut System, from: Mac, message: Wireless) {
             let Some(joining) = uds.joining.take() else { return };
             if uds.host != Some(from) {
                 uds.joining = Some(joining);
+                return;
+            }
+            // a network of another size or more peers than nodes is not one
+            // this console can be part of
+            if network.len() != NETWORK_SIZE || peers.len() > MAX_NODES {
+                log::warn!("uds: the host sent a network this console cannot read");
+                uds.joining = Some(joining);
+                end(system, NOT_CONNECTED, ESTABLISHED);
                 return;
             }
             uds.network = network;
@@ -1166,6 +1178,35 @@ mod tests {
         settle(&mut [&mut host, &mut client]);
         assert_eq!(host.services.uds.status.total, 1);
         assert_eq!(client.services.uds.status.status, NOT_CONNECTED);
+    }
+
+    /// a host's welcome with a network of the wrong size is refused, and
+    /// a network that short does not trip reading its application data.
+    #[test]
+    fn a_malformed_welcome_is_refused() {
+        let (first, second) = Link::pair();
+        let host_mac = first.mac();
+        let (mut client, client_buffer) = console(second);
+        initialize(&mut client, &client_buffer, 'C');
+        let mut network = vec![0u8; NETWORK_SIZE];
+        network[0..6].copy_from_slice(&host_mac);
+        client.memory.write_bytes(0x0800_0000, &network);
+        client.memory.write_bytes(0x0800_0200, b"password");
+        let connect = [0x001E_0084, 1, 8, Descriptor::static_buffer(0x108, 1), 0x0800_0000, Descriptor::static_buffer(8, 0), 0x0800_0200];
+        request(&mut client, &client_buffer, &connect);
+        assert_eq!(client.services.uds.status.status, CONNECTING);
+
+        let mut short = vec![0u8; 0x40];
+        short[0x3F] = 0xFF;
+        take(&mut client, host_mac, Wireless::Welcome { node_id: 2, network: short.clone(), peers: Vec::new() });
+        assert_eq!(client.services.uds.status.status, NOT_CONNECTED);
+        assert!(client.services.uds.joining.is_none());
+        assert_ne!(client_buffer.get(&mut client.memory, 1), 0, "ConnectNetwork2 failed");
+
+        // the checked reads hold even if such a network were kept
+        client.services.uds.network = short;
+        assert_eq!(request(&mut client, &client_buffer, &[0x0011_0040, 0x100]), 0);
+        drop(first);
     }
 
     /// with no room, wireless is off as it was.
