@@ -129,7 +129,7 @@ final class GameSettings {
         flag("Advanced", "turnip_sysmem", "Turnip: render in system memory", false, "Custom Mesa/Turnip drivers only (TU_DEBUG=sysmem). Testing option for a black block in a screen corner; may cost performance. Requires restart."),
         // nightly only: SettingsDialog hides these and GameLaunch sends room_mode off in stable builds
         choice("Advanced", "room_mode", "Local wireless room", "off", "off|join|host", "Local wireless: join a room on another Zakuroishi or Zakuro, or host one. Both need the same game."),
-        text("Advanced", "room_address", "Room address", "Join: the host's address, like 192.168.0.10:24873. Host: a port, or empty for 24873."),
+        text("Advanced", "room_address", "Room address", "Join: the host's address, like 192.168.0.10:24873. Host: a port from 1024 up, or empty for 24873."),
         text("Advanced", "room_nickname", "Nickname", "The name others see. Empty is Player."),
         text("Advanced", "room_name", "Room name", "Host only: the name the room shows. Empty is \"<nickname>'s room\"."),
         text("Advanced", "room_password", "Room password", "Empty for none. Host and guests use the same one."),

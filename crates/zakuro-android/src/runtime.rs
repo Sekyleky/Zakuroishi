@@ -402,63 +402,52 @@ fn pictures_shown() -> u64 {
     (zakuro_core::DISTINCT_PICTURES.load(Relaxed) + framegen::GENERATED_SHOWN.load(Relaxed)).saturating_sub(framegen::REAL_DROPPED.load(Relaxed))
 }
 
-/// the name the player goes by in the room, the console's too, as on the desktop.
-fn room_nickname(settings: &crate::settings::Advanced) -> String {
-    match settings.room_nickname.trim() {
-        "" => "Player".into(),
-        name => name.chars().take(10).collect(),
-    }
-}
-
 /// joins the room the settings ask for, opening it here first when hosting, as the desktop's
 /// host_room and join_room do. Both live for the game's run. A failure is told once and the
 /// game runs offline. Joining waits room.rs's own timeout at most, before the first frame.
 fn join_room(app: &AndroidApp, settings: &crate::settings::Advanced) -> (Option<zakuro_core::room::Server>, Option<zakuro_core::room::Connection>) {
     use crate::settings::RoomMode;
-    use zakuro_core::room::{Connection, Server, DEFAULT_PORT};
-    let nickname = room_nickname(settings);
-    let address = settings.room_address.trim();
+    use zakuro_core::room::{Connection, Server};
+    let failed = |message: String| {
+        platform::message(app, &message);
+        (None, None)
+    };
+    let nickname = crate::room::nickname(settings);
     let (server, address) = match settings.room_mode {
         RoomMode::Off => return (None, None),
-        RoomMode::Join if address.is_empty() => {
-            platform::message(app, "Room not joined: set the host's address in Settings → Advanced → Room address.");
-            return (None, None);
-        }
-        RoomMode::Join if address.contains(':') => (None, address.to_owned()),
-        RoomMode::Join => (None, format!("{address}:{DEFAULT_PORT}")),
+        RoomMode::Join => match crate::room::join_address(settings) {
+            Ok(address) => (None, address),
+            Err(message) => return failed(message),
+        },
         RoomMode::Host => {
-            let port = address.rsplit(':').next().and_then(|port| port.trim().parse().ok()).unwrap_or(DEFAULT_PORT);
-            let name = match settings.room_name.trim() {
-                "" => format!("{nickname}'s room"),
-                name => name.to_owned(),
+            let port = match crate::room::host_port(settings) {
+                Ok(port) => port,
+                Err(message) => return failed(message),
             };
-            match Server::start(port, &name, &settings.room_password, 16) {
+            match Server::start(port, &crate::room::name(settings), &settings.room_password, 16) {
                 Ok(server) => {
                     let local = format!("127.0.0.1:{}", server.port());
                     (Some(server), local)
                 }
-                Err(error) => {
-                    platform::message(app, &format!("Room not joined: port {port}, {error}"));
-                    return (None, None);
-                }
+                Err(error) => return failed(crate::room::host_error(port, &error)),
             }
         }
     };
     match Connection::join(&address, &nickname, &settings.room_password) {
         Ok(connection) => {
-            if let Some(server) = &server {
-                // connecting a UDP socket sends nothing; it only picks the interface the LAN route uses
-                let ip = std::net::UdpSocket::bind("0.0.0.0:0")
-                    .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|_| socket.local_addr()))
-                    .map_or_else(|_| "this device's address".to_owned(), |local| local.ip().to_string());
-                platform::message(app, &format!("Hosting room on {ip}:{}", server.port()));
+            match &server {
+                Some(server) => {
+                    // connecting a UDP socket sends nothing; it only picks the interface the LAN route uses
+                    let ip = std::net::UdpSocket::bind("0.0.0.0:0")
+                        .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|_| socket.local_addr()))
+                        .map_or_else(|_| "this device's address".to_owned(), |local| local.ip().to_string());
+                    platform::message(app, &format!("Hosting room on {ip}:{}", server.port()));
+                }
+                None => platform::message(app, &format!("Joined the room {} as {nickname}.", connection.room())),
             }
             (server, Some(connection))
         }
-        Err(error) => {
-            platform::message(app, &format!("Room not joined: {error}"));
-            (None, None)
-        }
+        Err(error) => failed(crate::room::join_error(&error)),
     }
 }
 
@@ -739,7 +728,6 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     if let (Some(room), Some(system)) = (&room, &mut system) {
                         system.room = Some(room.link());
                         room.playing(&launch.name);
-                        platform::message(app, &format!("Joined the room {}.", room.room()));
                     }
                 }
                 Command::Restart => {
@@ -895,7 +883,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             }
             if let Some(room) = &room {
                 loaded.room = Some(room.link());
-                loaded.config.username = room_nickname(&settings);
+                loaded.config.username = crate::room::nickname(&settings);
                 room.playing(&launch.name);
             }
             // The loader selected only enhancements matching this title/build.

@@ -20,6 +20,8 @@ mod platform;
 mod pacing;
 #[cfg(any(target_os = "android", test))]
 mod presentation;
+#[cfg(any(target_os = "android", test))]
+mod room;
 #[cfg(target_os = "android")]
 mod runtime;
 #[cfg(target_os = "android")]

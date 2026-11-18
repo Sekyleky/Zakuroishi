@@ -113,13 +113,15 @@ In a game's **Settings → Advanced → Local wireless**:
 
 - **Local wireless room**: Off, Join or Host. It takes effect when the game starts.
 - **Room address**: to join, the host's address and port, like `192.168.0.10:24873` (no port
-  means 24873). To host, a port, or empty for 24873.
+  means 24873). To host, a port from 1024 up, or empty for 24873.
 - **Nickname**: the name others see, and the console's own while in a room. Empty is Player.
 - **Room name**: when hosting, the name the room shows. Empty is "<nickname>'s room".
 - **Room password**: empty for none; host and guests use the same one.
 
 When hosting, the game shows "Hosting room on <address>:<port>"; enter that on the other console.
-If the room cannot be joined, the game says why and runs without local wireless; the same happens
+If the room cannot be opened or joined, the game says why and what to change (port in use,
+wrong password, a nickname already in the room, an address it cannot reach) and runs without
+local wireless; the same happens
 if the room closes or the connection drops while playing. In the pause menu, **Local wireless
 room…** leaves the room, or joins (or hosts) it again with the room settings the game started
 with; when the room was Off it joins Room address. Other members see the game's name.
