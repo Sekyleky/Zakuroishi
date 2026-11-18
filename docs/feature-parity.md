@@ -171,9 +171,10 @@ production code. Runtime/UI agents were notified of these gaps.
 7. **UI + lifecycle, launcher:** pinned game shortcuts, running-title/task
    discovery and PN cross-game switch protocol, in-app release/APK update flow.
 
-The separate upstream-desktop gaps (camera, guest keyboard, room/Download Play,
-updates/DLC management, arbitrary cheat editor, on-device compilation and extra
-state slots) are enumerated below; they are not falsely attributed to the local
+The separate upstream-desktop gaps (camera, Download Play as a guest, an arbitrary
+cheat editor, on-device compilation and extra state slots) are enumerated below; the
+guest keyboard (0.5.0), rooms, updates/DLC and cheat switching in game have since been
+added (rooms nightly only; the last three host-checked, not run on device); they are not falsely attributed to the local
 PN diff. New3DS extended application-memory sizing has now been implemented by
 the final suites (145 core / 24 filesystem tests passed), rather than remaining a missing feature;
 it is not a local PN-added key or a claim of full FIRM fidelity.
@@ -379,7 +380,7 @@ Intent extras decoded by P. New3DS details are in
 | Desktop `ChooseBackground` | **Unsupported**. | No implementation/test claim. |
 | Desktop `ChooseCameraPicture` | **Unsupported**. | No implementation/test claim. |
 | Desktop `HostRoom`, `JoinRoom`, `LeaveRoom`, `DlpJoin`, `DlpLeave` | **Partial (nightly only)** host or join at game start from `room_mode`; pause menu **Local wireless room…** leaves or joins (hosts) again with the launch settings. No Download Play guest (`DlpJoin`/`DlpLeave`): the desktop runs it with no game loaded and boots the received child, and Android has no game-less room screen or way to launch a received child. A hosted game's dlp:SRVR runs in a room, and sends its child to guests when the child was imported under Game files (`Config::dlp_child`); otherwise only guests who own the child can take part. Host-checked, not run on device. | Settings parse **Host passed**; host-checked, not run on device. |
-| Desktop `Keyboard(String, usize)` | **Unsupported** guest software-keyboard dialog bridge. | No implementation/test claim. |
+| Desktop `Keyboard(String, usize)` | **Wired (0.5.0)** platform `show_keyboard` → Game text dialog → `nativeKeyboard(text, button)`. | Not seen on a device: Ocarina of Time 3D uses its own keyboard (known-issues). |
 | Desktop `Fullscreen` | **Fixed equivalent** Game immersive fullscreen; no desktop window/fullscreen toggle. | Source only. |
 | Desktop `CopyReport` | **Partial** Game runtime error/details/copy UI, logcat and benchmark logging; no equivalent complete desktop game-report action. | Source only. |
 | Desktop `Settings` | **Wired equivalent** J per-title typed editor, persisted before handing off to separate `:game` process. | Tests present; UI owner verifies. |
