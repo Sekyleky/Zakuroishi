@@ -165,13 +165,14 @@ public final class GameImportCheck {
             Files.createSymbolicLink(new File(imports, active + "/data/user").toPath(), new File(saves, "user").toPath());
             Files.createSymbolicLink(new File(imports, link).toPath(), new File(files, "savedata").toPath());
         } catch (UnsupportedOperationException | IOException | SecurityException e) { links = false; System.out.println("(symlinks unavailable here; symlink cases skipped)"); }
+        write(new File(files, "addons/00040000001B5100/update.cia"), "cia"); new File(files, "addons/0004000000AAAA00").mkdirs(); // an empty one is not listed
         String savesBefore = snapshot(new File(files, "savedata"));
         java.util.Set<String> listed = new java.util.TreeSet<>();
         for (StorageDialog.Item item : StorageDialog.scan(files)) listed.add(files.getCanonicalFile().toPath().relativize(item.file.toPath()).toString().replace('\\', '/'));
         java.util.Set<String> expected = new java.util.TreeSet<>(java.util.Arrays.asList(
                 "imports/" + old, "imports/" + active + "/code/title.so.previous-" + u1,
                 "imports/" + active + mods + "textures.previous-" + u2, "imports/" + active + mods + "romfs.previous-" + u3,
-                "component-imports/" + staging));
+                "component-imports/" + staging, "addons/00040000001B5100"));
         require(listed.equals(expected));
         for (String path : listed) require(!path.startsWith("savedata") && !path.contains("/data/user") && !path.contains("user.") && !path.contains("/states"));
         for (StorageDialog.Item item : StorageDialog.scan(files)) if (item.file.getName().equals(old)) require(item.warning != null && item.warning.contains("quick save states") && item.bytes > 0);

@@ -167,7 +167,7 @@ the Download Play child (which a game hosting a local wireless room can then sen
 another game, an encrypted one or one that is not a CIA is named in a "Not used" message. An
 update that changes the game's code needs a title.so built from the game with that update;
 otherwise the game says so and runs in the interpreter (or refuses when native code is required).
-They do not show on the Storage screen yet. Host-checked, not run on device.
+The Storage screen lists them per game with their size and can delete them. Host-checked, not run on device.
 
 ## Cheats
 

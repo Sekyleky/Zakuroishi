@@ -99,6 +99,13 @@ final class StorageDialog {
                 items.add(new Item(old, "Previous " + old.getName().substring(0, old.getName().indexOf(".previous-")) + ": " + game, "A file this game used before it was last replaced.", null));
         }
         for (File dir : children(staging, UUID, true)) items.add(new Item(dir, "Unfinished import", "Files left behind by an import or replacement that did not finish.", null));
+        // a game's imported update, DLC and Download Play files (GameImport.addonsDir), kept across re-imports
+        for (File dir : children(new File(root, "addons"), "[0-9A-F]{16}", true)) {
+            String[] inside = dir.list(); if (inside == null || inside.length == 0) continue;
+            String id = dir.getName(), game = id;
+            for (Map.Entry<String, String> entry : active.entrySet()) if (entry.getValue().equals(id)) game = GameMetadata.name(new File(imports, entry.getKey()), id);
+            items.add(new Item(dir, "Updates and DLC: " + game, "The update, DLC and Download Play files imported for this game. It starts without them after this.", null));
+        }
         return items;
     }
 
