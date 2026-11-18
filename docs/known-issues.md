@@ -35,7 +35,8 @@ page with each release. Nothing here has been measured on more than one device, 
   was not tried.
 - **Updates and DLC:** on the AYN Thor with a generated test file: import, the "not a CIA"
   refusal, "Not used" for another game's update, Remove, and the Storage entry (refused while a
-  game is open, deleted after). Game files lists an imported file only after it is opened again.
+  game is open, deleted after). An open Game files page now rebuilds when an import finishes
+  (host-checked, not run on device).
   Not run on device: a real update or DLC, a game seeing them, an update with a matching or
   mismatched title.so, and space running out mid-copy. Sizes under 1 MB show as 0 MB.
 - **Add cheat…:** typing a cheat in Game files and in game, and both refusals, were checked on

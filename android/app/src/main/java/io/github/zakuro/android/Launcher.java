@@ -190,7 +190,7 @@ public final class Launcher extends Activity {
             if (code == KeyEvent.KEYCODE_BUTTON_L1 || code == KeyEvent.KEYCODE_BUTTON_R1) {
                 ScrollView page = firstScroll(dialog.getWindow().getDecorView());
                 if (page == null) return false;
-                if (event.getAction() == KeyEvent.ACTION_UP) page.pageScroll(code == KeyEvent.KEYCODE_BUTTON_L1 ? View.FOCUS_UP : View.FOCUS_DOWN);
+                if (event.getAction() == KeyEvent.ACTION_UP) page.smoothScrollBy(0, (code == KeyEvent.KEYCODE_BUTTON_L1 ? -1 : 1) * (page.getHeight() - page.getPaddingTop() - page.getPaddingBottom())); // scrolls without moving focus off the button
                 return true;
             }
             if (code == KeyEvent.KEYCODE_BUTTON_B) {
@@ -915,8 +915,8 @@ public final class Launcher extends Activity {
                     if (outcome == null && report != null) { errorTitle = operation == 0 ? "Game added" : operation == 1 ? "Native game code replaced" : "Vulkan driver imported"; error = report; }
                     // settings stay open over the status line, so the result needs its own dialog
                     if (outcome == null && operation == 7) { errorTitle = "Lossless.dll imported"; error = LosslessImport.DONE; }
-                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : operation == 7 ? LosslessImport.DONE : operation == 8 ? "Cheats imported. Open Game files again to switch them on. They apply the next time the game starts." : operation == 9 ? "Update or DLC imported. Open Game files again to see it. It is checked and used the next time the game starts." : operation == 10 ? "Camera picture saved. The game's cameras see it from the next start." : "Saves restored. Start the game normally; do not load an old quick save state.")
-                            : action + " failed. See the error for recovery details."; refresh(true); });
+                    message = outcome == null ? (operation == 0 ? "Game added. You're ready to play." : operation == 1 ? "Native game code replaced. Restart the game to use the new code." : operation == 2 ? "Texture pack imported. Enable it in Display settings and restart the game." : operation == 3 ? "Vulkan driver imported and selected. Restart the game to use it." : operation == 4 ? "Save ZIP exported to your chosen location." : operation == 6 ? "Romfs mod imported. It applies the next time the game starts." : operation == 7 ? LosslessImport.DONE : operation == 8 ? "Cheats imported. Open Game files again to switch them on. They apply the next time the game starts." : operation == 9 ? "Update or DLC imported. It is checked and used the next time the game starts." : operation == 10 ? "Camera picture saved. The game's cameras see it from the next start." : "Saves restored. Start the game normally; do not load an old quick save state.")
+                            : action + " failed. See the error for recovery details."; refresh(true); SettingsDialog.refreshFiles(); }); // an open Game files shows what was imported
             }, "game-import").start();
         }
         private void refresh(boolean libraryChanged) {

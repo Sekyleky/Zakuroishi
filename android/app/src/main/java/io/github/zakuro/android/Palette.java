@@ -95,8 +95,8 @@ final class Palette {
             String[] p = part.split(" ", 2);
             TextView glyph = new TextView(context);
             glyph.setText(p[0]); glyph.setTextSize(14); glyph.setTypeface(null, Typeface.BOLD); glyph.setGravity(Gravity.CENTER);
-            glyph.setTextColor(surface); glyph.setBackground(shape(ink, 0, 0, 12)); glyph.setPadding(dp(7), 0, dp(7), 0);
-            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(24));
+            glyph.setTextColor(surface); glyph.setBackground(shape(ink, 0, 0, 12)); glyph.setPadding(dp(7), 0, dp(7), 0); glyph.setMinHeight(dp(24));
+            LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
             gp.setMargins(0, 0, dp(6), 0);
             chips.addView(glyph, gp);
             TextView text = new TextView(context);

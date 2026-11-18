@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Controller polish (host-checked, not run on device):** Add cheat opens with the name field selected; L1/R1 in library dialogs scroll without moving the selection off the button; an open Game files page shows a finished import (update or DLC, camera picture, cheats) without reopening it; button-hint chips grow with large font instead of clipping.
+- **Updater and rooms hardening (host-checked):** the in-app updater talks only to the exact GitHub hosts a release download uses; a room closes connections beyond 64 that have not said hello yet.
 - **Screen gap and small-screen size:** Display settings add space between the screens in Stacked and Side by side, and set the size of the small screen in Large top (gap seen on the AYN Thor; Large top sizes and touch not run on device).
 - **Faster texture decoding:** textures are decoded tile by tile, 1.4 to 3.3 times faster on a PC test per format; on the AYN Thor Ultra Moon draws correctly at 60 fps. Device frame-time gains not measured yet.
 - **Sturdier rooms (tests on Windows and Linux; on the AYN Thor a hosted room took a 10-emoji nickname and cut a 300-character game name to 64):** a room now turns away nicknames over 40 bytes and cuts game names to 64 bytes, drops a member that stops receiving instead of waiting on it, caps what a console keeps unread at 4 MiB, and a console refuses a malformed answer from a host instead of stopping.

@@ -204,6 +204,7 @@ final class SettingsDialog {
         EditText codes = new EditText(activity); codes.setHint("0123ABCD 0123ABCD, one per line"); codes.setTextColor(p.ink); codes.setMinLines(4);
         codes.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS); content.addView(codes);
         content.addView(text("Cheats change the game's memory and can damage a save. Back up the save first.", true));
+        name.requestFocus(); // first field has focus without a D-pad press; A opens the keyboard
         AlertDialog ask = dialog("Add cheat · " + title, content).setPositiveButton("Add", null).setNegativeButton("Cancel", null).create();
         show(ask);
         ask.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener(v -> {
@@ -336,6 +337,9 @@ final class SettingsDialog {
         AlertDialog list = dialog("All settings", content).setNegativeButton("Back", null).create(); show(list); focusFirst(content);
     }
     private AlertDialog filesDialog;
+    private static SettingsDialog open; // the dialog whose Game files page is showing
+    /** Rebuilds an open Game files page so a fresh import shows. */
+    static void refreshFiles() { SettingsDialog d = open; if (d != null && d.filesDialog != null && d.filesDialog.isShowing()) { d.filesDialog.dismiss(); d.files(); } }
     private void closeAll() { if (filesDialog != null) filesDialog.dismiss(); rootDialog.dismiss(); }
     /** Texture pack, mods, native code, saves, shader cache and driver: library only, one level below the simple page. */
     private void files() {
@@ -418,7 +422,9 @@ final class SettingsDialog {
             content.addView(text("Only import drivers you trust: they run native code inside this app. Driver support must be included in the app build.",true));
         }
         filesDialog = dialog("Game files", content).setNegativeButton("Back", null).create();
-        filesDialog.setOnDismissListener(d -> filesDialog = null);
+        // the listener runs after a refresh has built the next page: only the current page clears the fields
+        filesDialog.setOnDismissListener(d -> { if (filesDialog == d) { filesDialog = null; if (open == this) open = null; } });
+        open = this;
         show(filesDialog); focusFirst(content);
     }
     private String bindingLabel(GameSettings draft, String target) {
