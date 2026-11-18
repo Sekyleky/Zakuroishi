@@ -178,6 +178,8 @@ struct CodeRanges {
     modules: Vec<(u32, u32)>,
     /// what the cheats changed of them, the text and the modules by index.
     text_changed: bool,
+    /// where the first write into the text went, for the log.
+    first_text_write: Option<u32>,
     modules_changed: Vec<usize>,
     /// what the enhancement running overwrote, none for a player's cheat.
     overwrote: Option<BTreeMap<u32, Overwrote>>,
@@ -190,12 +192,13 @@ impl CodeRanges {
             (text.address, text.address + text.num_pages * PAGE_SIZE)
         });
         let modules = system.cro.modules.iter().map(|module| (module.base, module.base + module.size)).collect();
-        CodeRanges { text, modules, text_changed: false, modules_changed: Vec::new(), overwrote: None }
+        CodeRanges { text, modules, text_changed: false, first_text_write: None, modules_changed: Vec::new(), overwrote: None }
     }
 
     fn wrote(&mut self, addr: u32) {
         if (self.text.0..self.text.1).contains(&addr) {
             self.text_changed = true;
+            self.first_text_write.get_or_insert(addr);
         }
         for (index, &(start, end)) in self.modules.iter().enumerate() {
             if (start..end).contains(&addr) && !self.modules_changed.contains(&index) {
@@ -214,6 +217,7 @@ pub fn run(system: &mut System) {
         return;
     }
     let mut ranges = CodeRanges::of(system);
+    let mut culprit = String::new();
     let pad = system.services.hid.previous.bits();
     for index in 0..system.cheats.len() {
         let cheat = &mut system.cheats[index];
@@ -221,6 +225,9 @@ pub fn run(system: &mut System) {
             let overwrote = std::mem::take(&mut cheat.overwrote);
             log::info!("enhancement {} is off, {} bytes it changed go back", cheat.name, overwrote.len());
             restore(system, &mut ranges, overwrote);
+            if ranges.text_changed && culprit.is_empty() {
+                culprit = format!("putting back {}", system.cheats[index].name);
+            }
         }
         let cheat = &mut system.cheats[index];
         if cheat.enabled {
@@ -228,6 +235,9 @@ pub fn run(system: &mut System) {
             ranges.overwrote = cheat.builtin.then(|| std::mem::take(&mut cheat.overwrote));
             execute(system, &code, pad, &mut ranges);
             let cheat = &mut system.cheats[index];
+            if ranges.text_changed && culprit.is_empty() {
+                culprit = cheat.name.clone();
+            }
             cheat.code = code;
             if let Some(overwrote) = ranges.overwrote.take() {
                 cheat.overwrote = overwrote;
@@ -239,7 +249,8 @@ pub fn run(system: &mut System) {
             log::warn!("cheats changed the game's code, which its recompiled code, made by an older 3dsrecomp, can't tell, recompiling the game again makes them work");
         } else if ranges.text_changed {
             let stale = library.check(&mut system.memory);
-            log::info!("cheats changed the game's code, {stale} functions run in the interpreter");
+            let at = ranges.first_text_write.unwrap_or_default();
+            log::info!("cheats changed the game's code, first {culprit} at {at:#010x}, {stale} functions run in the interpreter");
         }
         for index in ranges.modules_changed {
             let module = &system.cro.modules[index];
@@ -471,6 +482,39 @@ mod tests {
         run(&mut system);
         system.memory.read_bytes(0x0010_0050, &mut memory[..1]);
         assert_eq!(memory[0], 0xCC, "A is held");
+        std::fs::remove_file(rom).unwrap();
+    }
+
+    /// a cheat that only sets the offset, or writes what memory already holds,
+    /// does not count as changing the game's code.
+    #[test]
+    fn a_cheat_that_writes_no_code_changes_no_code() {
+        use zakuro_fs::testing::{ncch, write as write_file};
+        let rom = write_file("cheats-nocode", "game.cxi", &ncch(0x0004_0000_0FF3_DE03, Some(&[0; 0x80]), &[]));
+        let mut system = crate::loader::load(&rom, crate::Config::default()).unwrap();
+        let code = parse("[Test]
+*citra_enabled
+D3000000 00000000
+").remove(0).code;
+        let mut ranges = CodeRanges::of(&system);
+        assert!(ranges.text.1 > ranges.text.0, "the title has code");
+        execute(&mut system, &code, 0, &mut ranges);
+        assert!(!ranges.text_changed && ranges.modules_changed.is_empty());
+        // and as a game starts: the player's cheat on, this title's enhancements off
+        let mut cheats = parse("[Test]
+*citra_enabled
+D3000000 00000000
+");
+        cheats.extend(crate::enhancements::cheats(0x0004_0000_001B_5100, "rev0", &[]));
+        assert_eq!(cheats.len(), 3);
+        system.cheats = cheats;
+        let mut before = vec![0; (ranges.text.1 - ranges.text.0) as usize];
+        system.memory.read_bytes(ranges.text.0, &mut before);
+        run(&mut system);
+        let mut after = before.clone();
+        system.memory.read_bytes(ranges.text.0, &mut after);
+        assert_eq!(before, after, "the code is as it was");
+        assert!(system.cheats.iter().all(|cheat| cheat.overwrote.is_empty()));
         std::fs::remove_file(rom).unwrap();
     }
 
