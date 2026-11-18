@@ -69,7 +69,7 @@ pub struct Launch {
     pub resolution: u32,
     pub advanced: crate::settings::Advanced,
     pub driver: Option<crate::driver::DriverSpec>,
-    /// the game's name in the library, what a room shows others it plays.
+    /// the game's name in the library (GameSettings.apply's game_name), what a room shows others it plays.
     pub name: String,
 }
 
@@ -117,7 +117,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         let paths = (extra("game")?, extra("code")?, extra("data")?);
         let driver_dir = extra("driver_dir")?;
         let driver_name = extra("driver_name")?;
-        let name = extra("name")?.to_string_lossy().into_owned();
+        let name = extra("game_name")?.to_string_lossy().into_owned();
         let info = env
             .call_method(
                 activity,
