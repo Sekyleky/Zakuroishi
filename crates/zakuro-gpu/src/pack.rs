@@ -29,9 +29,9 @@ pub enum Hashing {
 pub struct Pack {
     hashing: Hashing,
     materials: HashMap<u64, Arc<Material>>,
-    /// the sizes in the names of the pictures, none when a picture's hash
-    /// does not come from its name, or fast_texture_decode is off.
-    sizes: Option<HashSet<(u32, u32)>>,
+    /// the sizes and formats in the names of the pictures, none when a
+    /// picture's hash does not come from its name, or fast_texture_decode is off.
+    sizes: Option<HashSet<(u32, u32, TextureFormat)>>,
 }
 
 /// one picture of a pack, read from disk once a texture it replaces is
@@ -150,9 +150,9 @@ impl Pack {
     /// tried too, as packs carry Citra's pack.json made for the other one,
     /// or pictures of both.
     pub fn find(&self, data: &[u8], format: TextureFormat, width: u32, height: u32, rows: &mut Vec<u8>) -> Option<Arc<Material>> {
-        // ponytail: trusts the size in a picture's name to be its texture's,
-        // as dumped, so a pack renamed to other sizes needs fast_texture_decode off
-        if self.sizes.as_ref().is_some_and(|sizes| !sizes.contains(&(width, height))) {
+        // ponytail: trusts the size and format in a picture's name to be its texture's,
+        // as dumped, so a pack renamed to others needs fast_texture_decode off
+        if self.sizes.as_ref().is_some_and(|sizes| !sizes.contains(&(width, height, format))) {
             return None;
         }
         let other = match self.hashing {
@@ -361,10 +361,14 @@ impl Config {
     }
 }
 
-/// the size in a picture's name, tex1_<width>x<height>_...
-fn name_size(name: &str) -> Option<(u32, u32)> {
+/// the size and format in a picture's name, tex1_<width>x<height>_<hash>_<format>...
+fn name_size(name: &str) -> Option<(u32, u32, TextureFormat)> {
     let (width, rest) = name.strip_prefix("tex1_")?.split_once('x')?;
-    Some((width.parse().ok()?, rest.split('_').next()?.parse().ok()?))
+    let mut parts = rest.split('_');
+    let height = parts.next()?.parse().ok()?;
+    let format = parts.nth(1)?;
+    let format = &format[..format.find(|c: char| !c.is_ascii_digit()).unwrap_or(format.len())];
+    Some((width.parse().ok()?, height, TextureFormat::from_raw(format.parse().ok()?)))
 }
 
 /// the hash in a picture's name, tex1_<width>x<height>_<hash>_<format>
@@ -885,6 +889,54 @@ mod tests {
         }
     }
 
+    /// how long a lookup takes, in a pack of ETC1 pictures at 256 and 512
+    /// hashed by bytes: a miss in another format, a miss in ETC1, a hit, and
+    /// each hash alone. cargo test --release -- --ignored --nocapture lookup_speed
+    #[test]
+    #[ignore]
+    fn lookup_speed() {
+        let dir = std::env::temp_dir().join(format!("zakuro-pack-speed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("pack.json"), "{\"options\": {\"use_new_hash\": true}}").unwrap();
+        let mut state = 0x1357_9BDF_2468_ACE0;
+        let mut texture = |format: TextureFormat, side: u32| -> Vec<u8> { (0..(side * side * format.bits_per_pixel() / 8) as usize).map(|_| next_byte(&mut state)).collect() };
+        let hits: Vec<(u32, Vec<u8>)> = [256, 512].map(|side| (side, texture(TextureFormat::Etc1, side))).into();
+        for (side, data) in &hits {
+            write_png(&dir.join(format!("tex1_{side}x{side}_{:016X}_12.png", cityhasher::hash::<u64>(data))), 1, 1, &[1, 2, 3, 255]);
+            for other in 0..32u64 {
+                write_png(&dir.join(format!("tex1_{side}x{side}_{:016X}_12.png", other * 0x9E37_79B9 + 1)), 1, 1, &[1, 2, 3, 255]);
+            }
+        }
+        let pack = Pack::open(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let mut rows = Vec::new();
+        // the median of many runs, in microseconds
+        let mut time = |run: &mut dyn FnMut(&mut Vec<u8>)| {
+            let mut times: Vec<f64> = (0..101)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    run(&mut rows);
+                    start.elapsed().as_secs_f64() * 1e6
+                })
+                .collect();
+            times.sort_by(f64::total_cmp);
+            times[50]
+        };
+        for (side, hit) in &hits {
+            let side = *side;
+            for format in [TextureFormat::Rgba8, TextureFormat::Rgb565, TextureFormat::Etc1, TextureFormat::Etc1A4] {
+                let data = texture(format, side);
+                let miss = time(&mut |rows| assert!(pack.find(&data, format, side, side, rows).is_none()));
+                let bytes = time(&mut |rows| _ = std::hint::black_box(hash(Hashing::Bytes, &data, format, side, side, rows)));
+                let laid_out = time(&mut |rows| _ = std::hint::black_box(hash(Hashing::Rows, &data, format, side, side, rows)));
+                println!("{side}x{side} {format:?}: miss {miss:.1} us, by bytes {bytes:.1} us, as uploaded {laid_out:.1} us");
+            }
+            let found = time(&mut |rows| assert!(pack.find(hit, TextureFormat::Etc1, side, side, rows).is_some()));
+            println!("{side}x{side} Etc1: hit {found:.1} us");
+        }
+    }
+
     #[test]
     fn a_name_gives_its_hash_whatever_follows() {
         assert_eq!(name_hash("tex1_256x128_00AB12CD34EF5678_13"), Some(0x00AB_12CD_34EF_5678));
@@ -978,13 +1030,16 @@ mod tests {
         let material = |hash| Arc::new(Material { hash, path: PathBuf::new(), flipped: false, state: Mutex::new(State::OnDisk) });
         for hashing in [Hashing::Bytes, Hashing::Rows] {
             for named in [bytes, laid_out] {
-                let pack = Pack { hashing, materials: HashMap::from([(named, material(named))]), sizes: Some(HashSet::from([(8, 8)])) };
+                let pack = Pack { hashing, materials: HashMap::from([(named, material(named))]), sizes: Some(HashSet::from([(8, 8, format)])) };
                 assert_eq!(pack.find(&data, format, 8, 8, &mut rows).map(|found| found.hash), Some(named));
-                // a size no picture is named for is not hashed, and another size is not found
+                // a size or format no picture is named for is not hashed, so not found
                 assert!(pack.find(&data, format, 16, 8, &mut rows).is_none());
+                assert!(pack.find(&data, TextureFormat::Etc1, 8, 8, &mut rows).is_none());
                 let unknown = Pack { sizes: None, ..pack };
                 assert_eq!(unknown.find(&data, format, 8, 8, &mut rows).map(|found| found.hash), Some(named));
-                assert_eq!(name_size("tex1_64x32_00AA_12_mip0"), Some((64, 32)));
+                assert_eq!(name_size("tex1_64x32_00AA_12_mip0"), Some((64, 32, TextureFormat::Etc1)));
+                assert_eq!(name_size("tex1_64x32_00AA_0anything"), Some((64, 32, TextureFormat::Rgba8)));
+                assert_eq!(name_size("tex1_64x32_00AA"), None);
             }
         }
     }
