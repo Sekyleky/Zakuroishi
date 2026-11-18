@@ -69,6 +69,8 @@ pub struct Launch {
     pub resolution: u32,
     pub advanced: crate::settings::Advanced,
     pub driver: Option<crate::driver::DriverSpec>,
+    /// the game's name in the library, what a room shows others it plays.
+    pub name: String,
 }
 
 pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
@@ -90,6 +92,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         driver_dir,
         driver_name,
         hooks,
+        name,
     ) = with_activity(app, |env, activity| {
         let intent = env
             .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])?
@@ -114,6 +117,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         let paths = (extra("game")?, extra("code")?, extra("data")?);
         let driver_dir = extra("driver_dir")?;
         let driver_name = extra("driver_name")?;
+        let name = extra("name")?.to_string_lossy().into_owned();
         let info = env
             .call_method(
                 activity,
@@ -169,6 +173,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             driver_dir,
             driver_name,
             PathBuf::from(hooks),
+            name,
         ))
     })?;
     let advanced = crate::settings::Advanced::parse(&advanced_json)?;
@@ -213,6 +218,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         resolution,
         advanced,
         driver,
+        name,
     })
 }
 

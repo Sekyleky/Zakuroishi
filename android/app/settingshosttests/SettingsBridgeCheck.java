@@ -19,6 +19,13 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("Runtime does not install advanced renderer options");
         if(!runtime.contains("request_wait_idle: settings.request_wait_idle"))
             throw new AssertionError("Runtime does not pass request_wait_idle to the core config");
+        // local wireless: the Java choices are the Rust RoomMode, the runtime gives the game the room, stable never asks for one
+        String launch=Files.readString(root.resolve("android/app/src/main/java/io/github/zakuro/android/GameLaunch.java"));
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("room_mode") && !String.join("|",setting.choices).equals("off|join|host"))
+            throw new AssertionError("room_mode choices differ from Rust RoomMode");
+        if(!settings.contains("choice!(RoomMode, Off, Off, Join, Host);") || !runtime.contains("loaded.room = Some(room.link());")
+                || !launch.contains("if (!GameImport.nightly(context)) settings.values.put(\"room_mode\",\"off\");"))
+            throw new AssertionError("Room settings are not wired: RoomMode, runtime room link or the stable gate");
         String[][] shaderFields={{"shader_mode","gpu_shaders"},{"shader_execution","translate_shaders"},
             {"cpu_shader_jit","cpu_shader_jit"},{"shader_compilation","wait_for_shaders"},
             {"generic_shaders","generic_shaders"},{"depth_blits","depth_blits"},
@@ -60,6 +67,6 @@ public final class SettingsBridgeCheck {
         for(String method:new String[]{"nativeCommand","nativeTouch","nativeStick","nativeButton","nativeSecondSurface","nativeSecondTouch","nativeKeyboard"})
             if(!java.contains("void "+method+"(") || !rust.contains("Game_"+method+"("))
                 throw new AssertionError("Missing JNI export: "+method);
-        System.out.println("Java/native contracts passed: eight command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets and hotkeys.");
+        System.out.println("Java/native contracts passed: eight command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
     }
 }

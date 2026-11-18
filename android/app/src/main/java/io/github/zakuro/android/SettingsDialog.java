@@ -389,6 +389,7 @@ final class SettingsDialog {
         }
         for (GameSettings.Setting setting : GameSettings.ALL) if (setting.group.equals(group)) {
             if (defaults && setting.key.equals("custom_driver")) continue; // the driver is chosen per game
+            if (setting.key.startsWith("room_") && !GameImport.nightly(activity)) continue; // local wireless: nightly only
             String section;
             switch (setting.key) {
                 case "dual_display": section = "Screens"; break;
@@ -407,6 +408,7 @@ final class SettingsDialog {
                 case "shader_mode": section = "Shaders"; break;
                 case "fast_texture_decode": section = "HD texture loading"; break;
                 case "gpu_readback": section = "Driver workarounds"; break;
+                case "room_mode": section = "Local wireless · nightly"; break;
                 default: section = null;
             }
             if (section != null) {
@@ -560,6 +562,17 @@ final class SettingsDialog {
             int index = -1; for (int i = 0; i < values.length; i++) if (Math.abs(values[i] - draft.number(setting.key)) < 0.01f) index = i;
             Button choose = button(name(draft, setting) + " · " + (index >= 0 ? names[index] : draft.values.get(setting.key))); choose.setTag(setting.key);
             choose.setOnClickListener(v -> numbers(draft, choose, setting, setting.label, values, names)); addButton(content, choose);
+        } else if (value instanceof String) {
+            content.addView(text(name(draft, setting), false));
+            EditText field = new EditText(activity); field.setText((String) value); field.setTag(setting.key);
+            field.setSingleLine(true); field.setTextColor(p.ink); field.setMinHeight(dp(48)); field.setTextSize(17);
+            field.setContentDescription(setting.label); field.setFilters(new InputFilter[]{new InputFilter.LengthFilter(64)});
+            if (setting.key.equals("room_password")) field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            field.addTextChangedListener(new android.text.TextWatcher() {
+                public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+                public void onTextChanged(CharSequence text, int start, int before, int count) {}
+                public void afterTextChanged(android.text.Editable text) { draft.values.put(setting.key, text.toString()); }
+            }); content.addView(field);
         } else {
             float step = setting.max <= 1 ? 0.05f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
             TextView caption = text(name(draft, setting) + " · " + format(setting, draft.number(setting.key)), false); content.addView(caption);

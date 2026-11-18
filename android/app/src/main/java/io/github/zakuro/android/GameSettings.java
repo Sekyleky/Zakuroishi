@@ -23,7 +23,7 @@ final class GameSettings {
         Object normalize(Object value) {
             if (initial instanceof Boolean) return value instanceof Boolean ? value : initial;
             if (initial instanceof String) {
-                if (value instanceof String && Arrays.asList(choices).contains(value)) return value;
+                if (value instanceof String && (choices == null ? ((String) value).length() <= 64 : Arrays.asList(choices).contains(value))) return value;
                 return initial;
             }
             if (!(value instanceof Number)) return initial;
@@ -39,6 +39,10 @@ final class GameSettings {
     }
     private static Setting choice(String group, String key, String label, String value, String choices, String help) {
         return new Setting(group, key, label, value, 0, 0, choices, help);
+    }
+    /** Free text up to 64 characters. */
+    private static Setting text(String group, String key, String label, String help) {
+        return new Setting(group, key, label, "", 0, 0, null, help);
     }
     private static Setting number(String group, String key, String label, Object value, float min, float max, String help) {
         return new Setting(group, key, label, value, min, max, null, help);
@@ -123,6 +127,11 @@ final class GameSettings {
         flag("Advanced", "threaded_picture_copy", "HD textures: copy pictures in the background", true, "Copy HD pictures into upload memory on background threads instead of the emulation thread. Turn off only to compare. Requires restart."),
         flag("Advanced", "gpu_readback", "GPU screen readback", false, "Troubleshooting: copy the GPU screens back before presenting instead of sharing GPU images. Can reduce performance."),
         flag("Advanced", "turnip_sysmem", "Turnip: render in system memory", false, "Custom Mesa/Turnip drivers only (TU_DEBUG=sysmem). Testing option for a black block in a screen corner; may cost performance. Requires restart."),
+        // nightly only: SettingsDialog hides these and GameLaunch sends room_mode off in stable builds
+        choice("Advanced", "room_mode", "Local wireless room", "off", "off|join|host", "Local wireless: join a room on another Zakuroishi or Zakuro, or host one. Both need the same game."),
+        text("Advanced", "room_address", "Room address", "Join: the host's address, like 192.168.0.10:24873. Host: a port, or empty for 24873."),
+        text("Advanced", "room_nickname", "Nickname", "The name others see. Empty is Player."),
+        text("Advanced", "room_password", "Room password", "Empty for none. Host and guests use the same one."),
     };
     /** The everyday keys on the first settings page; the rest are under All settings. */
     static final Set<String> SIMPLE = new LinkedHashSet<>(Arrays.asList("dual_display", "layout", "swap_screens", "show_fps", "show_battery",

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Local wireless (nightly build only, host-checked, not run on device):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. See [android](android.md#local-wireless-nightly-build-only).
+
 ## 0.6.1 — Faster intro with frame generation, upstream Zakuro merge, clearer save-state messages (2026-11-17)
 
 Release notes: [0.6.1](releases/android-0.6.1.md). Tested on one device, an AYN Thor; see

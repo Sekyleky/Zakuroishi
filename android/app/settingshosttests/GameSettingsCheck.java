@@ -62,6 +62,13 @@ public final class GameSettingsCheck {
         require(speedLimit != null && speedLimit.group.equals("Performance") && speedLimit.initial.equals(100));
         require(speedLimit.normalize(-1).equals(0) && speedLimit.normalize(999).equals(400));
         require(speedLimit.normalize(0).equals(0) && speedLimit.normalize(400).equals(400));
+        // room text: up to 64 characters kept, longer or not text falls back to empty, quotes survive the JSON
+        for (GameSettings.Setting setting : GameSettings.ALL) if (setting.key.equals("room_password")) {
+            String most = "x".repeat(64);
+            require(setting.normalize(most).equals(most) && setting.normalize(most + "x").equals("") && setting.normalize(5).equals(""));
+            GameSettings quoted = original.copy(); quoted.values.put("room_password", "a\"b\\c");
+            require(quoted.json().contains("\"room_password\":\"a\\\"b\\\\c\""));
+        }
         GameSettings cancelled = original.copy();
         cancelled.values.put("volume",0f); cancelled.resolution=1; cancelled.textures=true;
         cancelled.enhancements.add("test");

@@ -122,8 +122,8 @@ public final class DebugSettings extends BroadcastReceiver {
             return value;
         }
         if (setting.initial instanceof String) {
-            if (!(value instanceof String) || !Arrays.asList(setting.choices).contains(value))
-                throw new IllegalArgumentException(key + " must be one of " + String.join("|", setting.choices));
+            if (!(value instanceof String) || !value.equals(setting.normalize(value)))
+                throw new IllegalArgumentException(key + (setting.choices == null ? " must be text of 64 characters at most" : " must be one of " + String.join("|", setting.choices)));
             return value;
         }
         if (!(value instanceof Number)) throw new IllegalArgumentException(key + " must be a number");

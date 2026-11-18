@@ -103,6 +103,26 @@ scenes will differ. To add native code later, open the game's **Settings → Gam
 [native library](native-library.md#importing-without-native-code)). A PC build is what gives full
 speed.
 
+## Local wireless (nightly build only)
+
+Two consoles play a game's local wireless mode together through a room: one hosts it, the other
+joins it over the network. The other side can be another Zakuroishi or the Zakuro PC build. Both
+need the same game. Host-checked, not run on device.
+
+In a game's **Settings → Advanced → Local wireless**:
+
+- **Local wireless room**: Off, Join or Host. It takes effect when the game starts.
+- **Room address**: to join, the host's address and port, like `192.168.0.10:24873` (no port
+  means 24873). To host, a port, or empty for 24873.
+- **Nickname**: the name others see, and the console's own while in a room. Empty is Player.
+- **Room password**: empty for none; host and guests use the same one.
+
+When hosting, the game shows "Hosting room on <address>:<port>"; enter that on the other console.
+If the room cannot be joined, the game says why and runs without local wireless; the same happens
+if the room closes or the connection drops while playing. Other members see the game's name.
+Stable builds have
+no network permission and do not show these settings.
+
 ## Mods
 
 Open a game's **Settings → Game files** and choose **Import mod…**, then select the mod's

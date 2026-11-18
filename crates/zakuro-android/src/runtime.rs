@@ -402,6 +402,62 @@ fn pictures_shown() -> u64 {
     (zakuro_core::DISTINCT_PICTURES.load(Relaxed) + framegen::GENERATED_SHOWN.load(Relaxed)).saturating_sub(framegen::REAL_DROPPED.load(Relaxed))
 }
 
+/// the name the player goes by in the room, the console's too, as on the desktop.
+fn room_nickname(settings: &crate::settings::Advanced) -> String {
+    match settings.room_nickname.trim() {
+        "" => "Player".into(),
+        name => name.chars().take(10).collect(),
+    }
+}
+
+/// joins the room the settings ask for, opening it here first when hosting, as the desktop's
+/// host_room and join_room do. Both live for the game's run. A failure is told once and the
+/// game runs offline. Joining waits room.rs's own timeout at most, before the first frame.
+fn join_room(app: &AndroidApp, settings: &crate::settings::Advanced) -> (Option<zakuro_core::room::Server>, Option<zakuro_core::room::Connection>) {
+    use crate::settings::RoomMode;
+    use zakuro_core::room::{Connection, Server, DEFAULT_PORT};
+    let nickname = room_nickname(settings);
+    let address = settings.room_address.trim();
+    let (server, address) = match settings.room_mode {
+        RoomMode::Off => return (None, None),
+        RoomMode::Join if address.is_empty() => {
+            platform::message(app, "Room not joined: set the host's address in Settings → Advanced → Room address.");
+            return (None, None);
+        }
+        RoomMode::Join if address.contains(':') => (None, address.to_owned()),
+        RoomMode::Join => (None, format!("{address}:{DEFAULT_PORT}")),
+        RoomMode::Host => {
+            let port = address.rsplit(':').next().and_then(|port| port.trim().parse().ok()).unwrap_or(DEFAULT_PORT);
+            match Server::start(port, &format!("{nickname}'s room"), &settings.room_password, 16) {
+                Ok(server) => {
+                    let local = format!("127.0.0.1:{}", server.port());
+                    (Some(server), local)
+                }
+                Err(error) => {
+                    platform::message(app, &format!("Room not joined: port {port}, {error}"));
+                    return (None, None);
+                }
+            }
+        }
+    };
+    match Connection::join(&address, &nickname, &settings.room_password) {
+        Ok(connection) => {
+            if let Some(server) = &server {
+                // connecting a UDP socket sends nothing; it only picks the interface the LAN route uses
+                let ip = std::net::UdpSocket::bind("0.0.0.0:0")
+                    .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|_| socket.local_addr()))
+                    .map_or_else(|_| "this device's address".to_owned(), |local| local.ip().to_string());
+                platform::message(app, &format!("Hosting room on {ip}:{}", server.port()));
+            }
+            (server, Some(connection))
+        }
+        Err(error) => {
+            platform::message(app, &format!("Room not joined: {error}"));
+            (None, None)
+        }
+    }
+}
+
 pub fn run(app: &AndroidApp) -> Result<(), String> {
     // Rayon defaults to one worker per core (8 on Snapdragon 8 Gen 2); idle workers spin in the
     // kernel on the cores the emulation thread needs. Three cover the big cores beside it.
@@ -440,6 +496,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         log::info!("custom driver: TU_DEBUG=sysmem");
     }
     zakuro_gpu::backend::set_renderer_options(settings.renderer_options());
+    // dropped when run returns: the connection first, then the room this device opened
+    let (_room_server, mut room) = join_room(app, &settings);
     // Declared before surfaces/core so custom libraries outlive every Vulkan object.
     let driver = crate::driver::Driver::load(launch.driver.as_ref())?;
     let mut paused = false;
@@ -632,6 +690,14 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 present_time = Duration::ZERO;
             }
         });
+        // as the desktop does: a room that went away is left, said once, and the game plays on alone
+        if room.as_ref().is_some_and(|room| !room.open()) {
+            room = None;
+            if let Some(system) = &mut system {
+                system.room = None;
+            }
+            platform::message(app, "Left the room: it closed or the connection was lost. The game runs without local wireless.");
+        }
         for command in bridge::pending() {
             match command {
                 Command::Pause => {
@@ -798,6 +864,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 zakuro_core::loader::load(&launch.game, config).map_err(|e| e.to_string())?;
             if settings.region >= 0 {
                 loaded.config.region = settings.region as u8;
+            }
+            if let Some(room) = &room {
+                loaded.room = Some(room.link());
+                loaded.config.username = room_nickname(&settings);
+                room.playing(&launch.name);
             }
             // The loader selected only enhancements matching this title/build.
             for cheat in loaded.cheats.iter_mut().filter(|cheat| cheat.builtin) {

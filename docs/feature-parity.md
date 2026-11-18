@@ -305,11 +305,11 @@ not to a claim that the desktop settings file is read on Android.
 | `enhancements` | **Wired** per-title `enhancements`, R loader-matched built-ins and metadata export; unsupported names produce a message. No arbitrary "60 FPS" success flag. |
 | `camera` | **Unsupported** webcam/picture/nothing selector and Android camera capture bridge. |
 | `camera_picture` | **Unsupported** image import into guest cameras. |
-| `nickname` | **Unsupported** Android editor/launch override. |
+| `nickname` | **Partial (nightly only)** `room_nickname`, the room name and console name while in a room; not a general console-name setting. |
 | `console_id` | **Unsupported** Android identity editor/launch override. |
-| `room_address` | **Unsupported** Android network room client UI/integration. |
-| `room_name` | **Unsupported** Android room-host configuration. |
-| `room_port` | **Unsupported** Android room-host configuration. |
+| `room_address` | **Wired (nightly only)** `room_mode` join + `room_address`, `room_password`; set at game start, no in-game join/leave. Host-checked, not run on device. |
+| `room_name` | **Partial (nightly only)** `room_mode` host names the room "<nickname>'s room"; no name setting. |
+| `room_port` | **Wired (nightly only)** `room_address` holds the host port, empty is 24873. |
 
 All binding field names are accounted for:
 
@@ -378,7 +378,7 @@ Intent extras decoded by P. New3DS details are in
 | Desktop `Cheat`, `AddCheat`, `ReloadCheats` | **Partial** matched built-in enhancements selectable; no arbitrary cheat text editor/import/reload menu. Core loading cheat files is not an Android management UI. | Source only. |
 | Desktop `ChooseBackground` | **Unsupported**. | No implementation/test claim. |
 | Desktop `ChooseCameraPicture` | **Unsupported**. | No implementation/test claim. |
-| Desktop `HostRoom`, `JoinRoom`, `LeaveRoom`, `DlpJoin`, `DlpLeave` | **Unsupported** Android room and Download Play orchestration, even though upstream services exist. | No implementation/test claim. |
+| Desktop `HostRoom`, `JoinRoom`, `LeaveRoom`, `DlpJoin`, `DlpLeave` | **Partial (nightly only)** host or join at game start from `room_mode`, leave at game exit. No in-game join/leave, no Download Play. | Settings parse **Host passed**; host-checked, not run on device. |
 | Desktop `Keyboard(String, usize)` | **Unsupported** guest software-keyboard dialog bridge. | No implementation/test claim. |
 | Desktop `Fullscreen` | **Fixed equivalent** Game immersive fullscreen; no desktop window/fullscreen toggle. | Source only. |
 | Desktop `CopyReport` | **Partial** Game runtime error/details/copy UI, logcat and benchmark logging; no equivalent complete desktop game-report action. | Source only. |

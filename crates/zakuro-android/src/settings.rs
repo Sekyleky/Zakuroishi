@@ -17,6 +17,7 @@ choice!(ShaderMode, Auto, Auto, Gpu, Cpu);
 choice!(ShaderExecution, Compiled, Compiled, Interpreted);
 choice!(ShaderCompilation, Async, Async, Wait);
 choice!(TiltButton, L3, Always, L1, L2, R1, R2, L3, R3);
+choice!(RoomMode, Off, Off, Join, Host);
 
 impl TiltButton {
     pub fn keycode(self) -> Option<i32> {
@@ -189,6 +190,12 @@ pub struct Advanced {
     /// a request to a system service sleeps its thread even when no other thread is ready, as
     /// before. Off: the reply is there at once, the idle core no longer waits on the GPU.
     pub request_wait_idle: bool,
+    /// local wireless through a room (nightly only, the stable launcher sends off): join
+    /// room_address (host:port), or host one on room_address's port, else room::DEFAULT_PORT.
+    pub room_mode: RoomMode,
+    pub room_address: String,
+    pub room_nickname: String,
+    pub room_password: String,
     pub enhancements: Vec<String>,
 }
 impl Default for Advanced {
@@ -268,6 +275,10 @@ impl Default for Advanced {
             latch_short_presses: true,
             short_vsync_queue: false,
             request_wait_idle: false,
+            room_mode: RoomMode::Off,
+            room_address: String::new(),
+            room_nickname: String::new(),
+            room_password: String::new(),
             enhancements: Vec::new(),
         }
     }
@@ -526,6 +537,16 @@ mod tests {
         );
         assert!(Advanced::parse(r#"{"layout":"fake"}"#).is_err());
         assert!(Advanced::parse(r#"{"volume":"loud"}"#).is_err());
+    }
+    #[test]
+    fn room_settings_default_off_and_parse() {
+        let settings = Advanced::parse("{}").unwrap();
+        assert_eq!(settings.room_mode, RoomMode::Off);
+        assert!(settings.room_address.is_empty() && settings.room_nickname.is_empty() && settings.room_password.is_empty());
+        let join = Advanced::parse(r#"{"room_mode":"join","room_address":"192.168.0.10:24873","room_nickname":"Thor","room_password":"pw"}"#).unwrap();
+        assert_eq!((join.room_mode, join.room_address.as_str(), join.room_nickname.as_str(), join.room_password.as_str()), (RoomMode::Join, "192.168.0.10:24873", "Thor", "pw"));
+        assert_eq!(Advanced::parse(r#"{"room_mode":"host"}"#).unwrap().room_mode, RoomMode::Host);
+        assert!(Advanced::parse(r#"{"room_mode":"fake"}"#).is_err());
     }
     #[test]
     fn deadzone_and_gyro_controls_apply() {
