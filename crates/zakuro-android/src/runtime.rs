@@ -685,7 +685,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         });
         // as the desktop does: a room that went away is left, said once, and the game plays on alone
         if room.as_ref().is_some_and(|room| !room.open()) {
+            // the desktop's leave_room: the room this device hosts goes too, so joining again can reopen its port
             room = None;
+            _room_server = None;
             if let Some(system) = &mut system {
                 system.room = None;
             }
