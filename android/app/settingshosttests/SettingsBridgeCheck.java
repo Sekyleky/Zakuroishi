@@ -30,10 +30,10 @@ public final class SettingsBridgeCheck {
         String launch=Files.readString(root.resolve("android/app/src/main/java/io/github/zakuro/android/GameLaunch.java"));
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("room_mode") && !String.join("|",setting.choices).equals("off|join|host"))
             throw new AssertionError("room_mode choices differ from Rust RoomMode");
-        if(!settings.contains("choice!(RoomMode, Off, Off, Join, Host);") || !runtime.contains("loaded.room = Some(room.link());")
+        if(!settings.contains("choice!(RoomMode, Off, Off, Join, Host);") || !runtime.contains("system.room = Some(room.link());")
                 || !launch.contains("if (!GameImport.nightly(context)) settings.values.put(\"room_mode\",\"off\");"))
             throw new AssertionError("Room settings are not wired: RoomMode, runtime room link or the stable gate");
-        if(!launch.contains("intent.putExtra(\"console_id\",consoleId(context))") || !platform.contains("extra(\"console_id\")") || !runtime.contains("loaded.config.console_id = id;"))
+        if(!launch.contains("intent.putExtra(\"console_id\",consoleId(context))") || !platform.contains("extra(\"console_id\")") || !runtime.contains("system.config.console_id = id;"))
             throw new AssertionError("The install's console number does not reach the core in a room");
         String[][] shaderFields={{"shader_mode","gpu_shaders"},{"shader_execution","translate_shaders"},
             {"cpu_shader_jit","cpu_shader_jit"},{"shader_compilation","wait_for_shaders"},

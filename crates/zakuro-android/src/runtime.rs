@@ -402,53 +402,15 @@ fn pictures_shown() -> u64 {
     (zakuro_core::DISTINCT_PICTURES.load(Relaxed) + framegen::GENERATED_SHOWN.load(Relaxed)).saturating_sub(framegen::REAL_DROPPED.load(Relaxed))
 }
 
-/// joins the room the settings ask for, opening it here first when hosting, as the desktop's
-/// host_room and join_room do. Both live for the game's run. A failure is told once and the
-/// game runs offline. Joining waits room.rs's own timeout at most, before the first frame.
-fn join_room(app: &AndroidApp, settings: &crate::settings::Advanced) -> (Option<zakuro_core::room::Server>, Option<zakuro_core::room::Connection>) {
-    use crate::settings::RoomMode;
-    use zakuro_core::room::{Connection, Server};
-    let failed = |message: String| {
-        platform::message(app, &message);
-        (None, None)
-    };
-    let nickname = crate::room::nickname(settings);
-    let (server, address) = match settings.room_mode {
-        RoomMode::Off => return (None, None),
-        RoomMode::Join => match crate::room::join_address(settings) {
-            Ok(address) => (None, address),
-            Err(message) => return failed(message),
-        },
-        RoomMode::Host => {
-            let port = match crate::room::host_port(settings) {
-                Ok(port) => port,
-                Err(message) => return failed(message),
-            };
-            match Server::start(port, &crate::room::name(settings), &settings.room_password, 16) {
-                Ok(server) => {
-                    let local = format!("127.0.0.1:{}", server.port());
-                    (Some(server), local)
-                }
-                Err(error) => return failed(crate::room::host_error(port, &error)),
-            }
-        }
-    };
-    match Connection::join(&address, &nickname, &settings.room_password) {
-        Ok(connection) => {
-            match &server {
-                Some(server) => {
-                    // connecting a UDP socket sends nothing; it only picks the interface the LAN route uses
-                    let ip = std::net::UdpSocket::bind("0.0.0.0:0")
-                        .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|_| socket.local_addr()))
-                        .map_or_else(|_| "this device's address".to_owned(), |local| local.ip().to_string());
-                    platform::message(app, &format!("Hosting room on {ip}:{}", server.port()));
-                }
-                None => platform::message(app, &format!("Joined the room {} as {nickname}.", connection.room())),
-            }
-            (server, Some(connection))
-        }
-        Err(error) => failed(crate::room::join_error(&error)),
+/// gives the game the room, under the player's nickname and this install's console number while
+/// in it (two consoles in a room must not share the core's default), and tells the room the game.
+fn link_room(system: &mut System, room: &zakuro_core::room::Connection, settings: &crate::settings::Advanced, launch: &platform::Launch) {
+    system.room = Some(room.link());
+    system.config.username = crate::room::nickname(settings);
+    if let Some(id) = launch.console_id {
+        system.config.console_id = id;
     }
+    room.playing(&launch.name);
 }
 
 pub fn run(app: &AndroidApp) -> Result<(), String> {
@@ -490,7 +452,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     }
     zakuro_gpu::backend::set_renderer_options(settings.renderer_options());
     // dropped when run returns: the connection first, then the room this device opened
-    let (mut _room_server, mut room) = join_room(app, &settings);
+    let (mut _room_server, mut room): (Option<zakuro_core::room::Server>, Option<zakuro_core::room::Connection>) = (None, None);
+    // the room settings asked for at start, joined on a thread while the game loads
+    let mut joining = crate::room::open_in_background(&settings);
+    // the settings the room was joined with, for linking a restarted game
+    let mut room_settings = settings.clone();
     // Declared before surfaces/core so custom libraries outlive every Vulkan object.
     let driver = crate::driver::Driver::load(launch.driver.as_ref())?;
     let mut paused = false;
@@ -683,6 +649,19 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 present_time = Duration::ZERO;
             }
         });
+        if let Some(result) = joining.as_ref().and_then(|joined| joined.try_recv().ok()) {
+            joining = None;
+            match result {
+                Ok((server, connection, said)) => {
+                    platform::message(app, &said);
+                    if let Some(system) = &mut system {
+                        link_room(system, &connection, &room_settings, &launch);
+                    }
+                    (_room_server, room) = (server, Some(connection));
+                }
+                Err(message) => platform::message(app, &message),
+            }
+        }
         // as the desktop does: a room that went away is left, said once, and the game plays on alone
         if room.as_ref().is_some_and(|room| !room.open()) {
             // the desktop's leave_room: the room this device hosts goes too, so joining again can reopen its port
@@ -721,6 +700,11 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                         }
                     }
                 }
+                Command::LeaveRoom if joining.is_some() => {
+                    // the joining thread finds no one to hand the room to and drops it
+                    joining = None;
+                    platform::message(app, "Stopped joining the room.");
+                }
                 Command::LeaveRoom if room.is_some() => {
                     room = None;
                     _room_server = None;
@@ -731,17 +715,16 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 }
                 Command::LeaveRoom => platform::message(app, "Not in a room."),
                 Command::JoinRoom if room.is_some() => platform::message(app, "Already in a room. Leave it first."),
+                Command::JoinRoom if joining.is_some() => platform::message(app, "Already joining a room."),
                 Command::JoinRoom => {
                     // Off at launch still joins Room address, as the desktop's Join room does
                     let mut asked = settings.clone();
                     if asked.room_mode == crate::settings::RoomMode::Off {
                         asked.room_mode = crate::settings::RoomMode::Join;
                     }
-                    (_room_server, room) = join_room(app, &asked);
-                    if let (Some(room), Some(system)) = (&room, &mut system) {
-                        system.room = Some(room.link());
-                        room.playing(&launch.name);
-                    }
+                    joining = crate::room::open_in_background(&asked);
+                    room_settings = asked;
+                    platform::message(app, "Joining the room…");
                 }
                 Command::Restart => {
                     system = None;
@@ -902,13 +885,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 loaded.config.region = settings.region as u8;
             }
             if let Some(room) = &room {
-                loaded.room = Some(room.link());
-                loaded.config.username = crate::room::nickname(&settings);
-                // two consoles in a room must not share the core's default number
-                if let Some(id) = launch.console_id {
-                    loaded.config.console_id = id;
-                }
-                room.playing(&launch.name);
+                link_room(&mut loaded, room, &room_settings, &launch);
             }
             // The loader selected only enhancements matching this title/build.
             for cheat in loaded.cheats.iter_mut().filter(|cheat| cheat.builtin) {

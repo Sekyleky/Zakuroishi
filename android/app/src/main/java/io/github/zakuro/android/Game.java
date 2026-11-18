@@ -316,7 +316,7 @@ public final class Game extends NativeActivity {
         menuOpen=false;
         int[] ran={-1};
         AlertDialog d=new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Local wireless room")
-            .setMessage("Leave the room, or join it again with this game's room settings from when it started. Joining can take a few seconds.")
+            .setMessage("Leave the room, or join it again with this game's room settings from when it started. The game keeps running while it joins; a message says when it is in.")
             .setPositiveButton("Join",(dd,w) -> ran[0]=JOINROOM).setNeutralButton("Leave",(dd,w) -> ran[0]=LEAVEROOM).setNegativeButton("Cancel",null).create();
         // the command before RESUME: native runs them in order, and joining waits while the game is paused
         d.setOnDismissListener(dd -> { if(ran[0]<0) { pauseMenu(); return; } nativeCommand(ran[0]); nativeCommand(RESUME); });

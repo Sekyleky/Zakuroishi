@@ -307,7 +307,7 @@ not to a claim that the desktop settings file is read on Android.
 | `camera` | **Unsupported** webcam/picture/nothing selector and Android camera capture bridge. |
 | `camera_picture` | **Unsupported** image import into guest cameras. |
 | `nickname` | **Partial (nightly only)** `room_nickname`, the room name and console name while in a room; not a general console-name setting. |
-| `console_id` | **Partial** one number per install (GameLaunch.consoleId), used only in a local wireless room joined at start; no editor. Host-checked, not run on device. |
+| `console_id` | **Partial** one number per install (GameLaunch.consoleId), used while in a local wireless room; no editor. Host-checked, not run on device. |
 | `room_address` | **Wired (nightly only)** `room_mode` join + `room_address`, `room_password`; set at game start; pause menu leaves or joins again. Host-checked, not run on device. |
 | `room_name` | **Wired (nightly only)** `room_name`, empty is "<nickname>'s room". Host-checked, not run on device. |
 | `room_port` | **Wired (nightly only)** `room_address` holds the host port, empty is 24873. |

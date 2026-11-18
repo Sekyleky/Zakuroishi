@@ -126,10 +126,11 @@ if the room closes or the connection drops while playing. In the pause menu, **L
 room…** leaves the room, or joins (or hosts) it again with the room settings the game started
 with; when the room was Off it joins Room address.
 
-In a room joined when the game starts, the console uses this install's own console number,
-made once, so two Zakuroishi consoles in one room are told apart, as on the PC build. Outside a
-room, and in a room joined from the pause menu, the game keeps the shared default number it
-always had, so saves never see a different console. Other members see the game's name.
+Joining happens in the background while the game loads or plays (up to about 10 seconds for an
+address that does not answer); a message says when the room is joined. While in a room the
+console uses this install's own console number, made once, so two Zakuroishi consoles in one
+room are told apart, as on the PC build. Outside a room the game keeps the shared default number
+it always had. Other members see the game's name.
 Stable builds have
 no network permission and do not show these settings.
 

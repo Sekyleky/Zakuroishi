@@ -1,7 +1,52 @@
 //! What the room settings mean and what a failed room says, apart from the sockets in
 //! zakuro_core::room so the host tests reach it.
-use crate::settings::Advanced;
-use zakuro_core::room::DEFAULT_PORT;
+use crate::settings::{Advanced, RoomMode};
+use zakuro_core::room::{Connection, Server, DEFAULT_PORT};
+
+/// a room joined (and opened here when hosting), with what to tell the player.
+pub type Joined = (Option<Server>, Connection, String);
+
+/// opens and joins the room the settings ask for, as the desktop's host_room and join_room do.
+/// Blocks up to the core's connect and answer timeouts (and the address lookup), so the runtime
+/// runs it on a thread of its own: the native thread must keep reading input, or Android
+/// reports the app as not responding. Off is an error no one shows.
+pub fn open(settings: &Advanced) -> Result<Joined, String> {
+    let nickname = nickname(settings);
+    let (server, address) = match settings.room_mode {
+        RoomMode::Off => return Err(String::new()),
+        RoomMode::Join => (None, join_address(settings)?),
+        RoomMode::Host => {
+            let port = host_port(settings)?;
+            let server = Server::start(port, &name(settings), &settings.room_password, 16).map_err(|error| host_error(port, &error))?;
+            let local = format!("127.0.0.1:{}", server.port());
+            (Some(server), local)
+        }
+    };
+    let connection = Connection::join(&address, &nickname, &settings.room_password).map_err(|error| join_error(&error))?;
+    let said = match &server {
+        Some(server) => {
+            // connecting a UDP socket sends nothing; it only picks the interface the LAN route uses
+            let ip = std::net::UdpSocket::bind("0.0.0.0:0")
+                .and_then(|socket| socket.connect("192.0.2.1:9").and_then(|_| socket.local_addr()))
+                .map_or_else(|_| "this device's address".to_owned(), |local| local.ip().to_string());
+            format!("Hosting room on {ip}:{}", server.port())
+        }
+        None => format!("Joined the room {} as {nickname}.", connection.room()),
+    };
+    Ok((server, connection, said))
+}
+
+/// open on a thread of its own; the runtime polls the receiver once a frame.
+pub fn open_in_background(settings: &Advanced) -> Option<std::sync::mpsc::Receiver<Result<Joined, String>>> {
+    if settings.room_mode == RoomMode::Off {
+        return None;
+    }
+    let (send, receive) = std::sync::mpsc::channel();
+    let settings = settings.clone();
+    // a send to a receiver that was dropped (the player left first) drops the room with it
+    std::thread::Builder::new().name("room joining".into()).spawn(move || send.send(open(&settings))).ok()?;
+    Some(receive)
+}
 
 /// the name the player goes by in the room, the console's too, as on the desktop.
 pub fn nickname(settings: &Advanced) -> String {
@@ -105,6 +150,22 @@ mod tests {
         assert!(join_error("the room turned you away, the password is wrong").contains("Check Room password"));
         assert!(join_error("could not reach 10.0.0.2:24873, refused").contains("same network"));
         assert_eq!(join_error("the room turned you away, the room is full"), "Room not joined: the room turned you away, the room is full.");
+    }
+
+    /// open() hosts on a free port and joins its own room, and joins another one by address
+    #[test]
+    fn open_hosts_and_joins_a_real_room() {
+        let free = std::net::TcpListener::bind("0.0.0.0:0").unwrap().local_addr().unwrap().port();
+        let host = with(&format!(r#"{{"room_mode":"host","room_address":"{free}","room_name":"Den","room_nickname":"Thor"}}"#));
+        let (server, connection, said) = open(&host).unwrap();
+        let server = server.unwrap();
+        assert_eq!((server.port(), connection.room()), (free, "Den"));
+        assert!(said.starts_with("Hosting room on ") && said.ends_with(&format!(":{free}")), "{said}");
+        let guest = with(&format!(r#"{{"room_mode":"join","room_address":"127.0.0.1:{free}","room_nickname":"Pc"}}"#));
+        let (none, _guest, said) = open_in_background(&guest).unwrap().recv().unwrap().unwrap();
+        assert!(none.is_none() && said == "Joined the room Den as Pc.", "{said}");
+        assert!(open_in_background(&with("{}")).is_none());
+        assert!(open(&with(r#"{"room_mode":"join"}"#)).err().unwrap().contains("set the host's address"));
     }
 
     /// a real room on this machine: a wrong password is refused with the hint, the right one joins
