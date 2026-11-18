@@ -10,9 +10,10 @@ page with each release. Nothing here has been measured on more than one device, 
 - **Mod stacking** (0.5.0) on a device. Remove mods only appeared on the Game files page.
 - **Release APKs, smoke test only (2026-11-16):** installing over the released 0.5.0, play past
   the first screen, saves, and a game with the second screen on were not run with them.
-- **Nightly build only, not run:** pinning a game to the home screen, importing a ROM-only folder
-  and adding native code later. 0.6.0 hides Pin to home screen and refuses a folder without
-  native code.
+- **Nightly build only:** Pin to home screen opens the launcher's pin prompt with the game's
+  name and icon on the AYN Thor (cancelled there, so starting a game from the icon was not run).
+  Not run: importing a ROM-only folder and adding native code later. 0.6.0 hides Pin to home
+  screen and refuses a folder without native code.
 - **Updates from inside the app (nightly build only, not run):** the GitHub check, download,
   checksum and signer checks, the Install / Later prompt, the system install confirmation, the
   skipped confirmation on Android 12+ after a self-installed update, and the refusal while a game
@@ -40,9 +41,9 @@ page with each release. Nothing here has been measured on more than one device, 
 - **Add cheat…:** typing a cheat in Game files and in game, and both refusals, were checked on
   the AYN Thor; a cheat that visibly works in game was not tried.
 - **Mods…:** the list was checked on the AYN Thor; removing one part and Remove all mods were not run on device. Parts under 0.1 MB show as 0.0 MB.
-- **Camera picture (host-checked, not run on device):** choosing a picture, a game scanning a
-  QR code from it, and very large or unusual images (HEIC, CMYK JPEG) through Android's decoder.
-  There is no live camera.
+- **Camera picture:** on the AYN Thor a 1000×700 PNG was chosen, the game started with "the
+  cameras see the chosen picture", and Remove went back to black. Not run on device: a game
+  scanning a QR code from it, and unusual images (HEIC, CMYK JPEG). There is no live camera.
 - **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
 - **Storage screen:** the "A game is open" refusal and deleting an item were seen on the AYN Thor
   for an imported update; deleting the other kinds of item was not run on device.
@@ -79,7 +80,7 @@ page with each release. Nothing here has been measured on more than one device, 
   2026-11-16 (full logs, no crash or ANR); cause unknown. A code review found no path to the home
   screen.
 - **Play time** is saved every minute while a game is in front and when it is left; a game that
-  is killed loses at most its last minute (host-checked, not run on device).
+  is killed loses at most its last minute (on the AYN Thor a killed 2-minute session added 2 min).
 - **Save slot list in 0.5.0:** press the D-pad once before A; no row is selected when the list
   opens. Fixed in 0.6.0.
 - **Town Map lines** show on the Town Map in Ultra Moon, with the second-display sharing

@@ -186,7 +186,7 @@ Game files** and choose **Camera picture…**, then pick a PNG or JPEG, for exam
 asks you to scan. It is shrunk to at most 640 pixels across, kept for that game (also when the
 game is added again) and seen by both cameras, whole, from the next start. **Remove camera
 picture** goes back to black. A damaged file is named in a "Camera picture not used" message and
-the game runs with black cameras. There is no live camera. Host-checked, not run on device.
+the game runs with black cameras. There is no live camera. Loading was checked on the AYN Thor; a game scanning a QR code from it was not run on device.
 
 ## Cheats
 
