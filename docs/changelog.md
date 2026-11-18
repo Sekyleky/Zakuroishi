@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Play time survives a crash (host-checked, not run on device):** it is saved every minute while a game plays, so a game that is killed loses at most a minute instead of the whole session.
 - **Camera picture (host-checked, not run on device):** Game files → Camera picture… chooses a picture, such as a QR code, that the game's cameras see instead of black. See [android](android.md#camera-picture).
 - **Cheat log:** when cheats change a game's code, the log names the first cheat and the address it wrote, to find what touched the code.
 - **Local wireless (nightly build only; on the AYN Thor with a PC test client, not yet with two consoles in a game):** a game can join or host a room in Settings → Advanced → Local wireless, to play with another Zakuroishi or the Zakuro PC build. A hosted room can be given a name, and the pause menu can leave the room or join it again. A room that cannot be opened or joined says what to change. See [android](android.md#local-wireless-nightly-build-only).

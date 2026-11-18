@@ -78,8 +78,8 @@ page with each release. Nothing here has been measured on more than one device, 
   screen twice on 2026-11-15 with builds before 0.6.0. It was not reproduced in 4 runs on
   2026-11-16 (full logs, no crash or ANR); cause unknown. A code review found no path to the home
   screen.
-- **Play time** is recorded when a game is left normally; a game that is killed loses that
-  session's time.
+- **Play time** is saved every minute while a game is in front and when it is left; a game that
+  is killed loses at most its last minute (host-checked, not run on device).
 - **Save slot list in 0.5.0:** press the D-pad once before A; no row is selected when the list
   opens. Fixed in 0.6.0.
 - **Town Map lines** show on the Town Map in Ultra Moon, with the second-display sharing

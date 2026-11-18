@@ -665,18 +665,29 @@ public final class Game extends NativeActivity {
     @Override protected void onResume() {
         super.onResume();
         playStart=android.os.SystemClock.elapsedRealtime();
+        playClock.postDelayed(playCheckpoint,60_000);
         updateSecondDisplay();
         fullscreen();
     }
     private long playStart;
-    /** Play time and last-played for the library, in a file only this process writes. */
-    @Override protected void onPause() {
+    // a game that is killed loses at most the last minute of play time, not the session
+    private final android.os.Handler playClock=new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable playCheckpoint=new Runnable(){ @Override public void run(){ recordPlay(false); playClock.postDelayed(this,60_000); } };
+    /** Play time and last-played for the library, in a file only this process writes; the time since playStart is added once. */
+    private void recordPlay(boolean now) {
         String id=getIntent().getStringExtra("game_id");
+        long time=android.os.SystemClock.elapsedRealtime();
         if(id!=null) {
             android.content.SharedPreferences played=getSharedPreferences("played",MODE_MULTI_PROCESS);
-            played.edit().putLong(id+".ms",played.getLong(id+".ms",0)+android.os.SystemClock.elapsedRealtime()-playStart)
-                    .putLong(id+".last",System.currentTimeMillis()).commit(); // not apply(): the launcher reads this file in its onResume
+            android.content.SharedPreferences.Editor edit=played.edit().putLong(id+".ms",played.getLong(id+".ms",0)+time-playStart)
+                    .putLong(id+".last",System.currentTimeMillis());
+            if(now) edit.commit(); else edit.apply(); // commit on pause: the launcher reads this file in its onResume
         }
+        playStart=time;
+    }
+    @Override protected void onPause() {
+        playClock.removeCallbacks(playCheckpoint);
+        recordPlay(true);
         super.onPause(); // last: a native fault in here must not lose the record
     }
     private void fullscreen() {
