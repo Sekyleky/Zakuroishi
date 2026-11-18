@@ -13,6 +13,8 @@ public final class SettingsBridgeCheck {
         String platform=Files.readString(root.resolve("crates/zakuro-android/src/platform.rs"));
         String settings=Files.readString(root.resolve("crates/zakuro-android/src/settings.rs"));
         String runtime=Files.readString(root.resolve("crates/zakuro-android/src/runtime.rs"));
+        if(Files.readString(root.resolve("android/app/src/main/AndroidManifest.xml")).contains("android.intent.category.BROWSABLE"))
+            throw new AssertionError("A web page could start a game: zakuro://game must not be BROWSABLE");
         String hardware=Files.readString(root.resolve("crates/zakuro-gpu/src/raster/hardware.rs"));
         String jit=Files.readString(root.resolve("crates/zakuro-gpu/src/shader/jit.rs"));
         // the app runs from API 30: InputStream.readNBytes/readAllBytes/transferTo are API 33 (GameImport.readUpTo instead)

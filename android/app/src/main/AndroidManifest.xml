@@ -15,7 +15,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- not BROWSABLE: frontends and adb start games, a web page must not -->
                 <data android:scheme="zakuro" android:host="game" />
             </intent-filter>
             <intent-filter>
