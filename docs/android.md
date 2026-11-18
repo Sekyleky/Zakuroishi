@@ -271,6 +271,7 @@ The [feature matrix](feature-parity.md) identifies supported backend behavior
 and settings still requiring a port.
 
 - **Screen gap** (Display, 0-40, default 0): space between the two screens, in console pixels, in Stacked and Side by side; touch follows the moved bottom screen. A 30 px gap was seen on the AYN Thor in Stacked; touch on it and Side by side were not run on device.
+- **Dump textures** (Advanced, default off): saves each new texture the game uses as a PNG, named as a texture pack names it (`tex1_WxH_HASH_FORMAT_mip0.png`), in `Android/data/io.github.zakuro.android/files/dump/textures/<title id>/`, which a computer reaches over USB. A start for making a pack; it uses storage and can slow the game. Host-checked, not run on device.
 - **Small screen size** (Display, 25-100%, default 50): size of the bottom screen in Large top; 100% is the console's 320x240. Host-checked, not run on device.
 
 A selects and B cancels in the library. In play, open the pause menu for resume,

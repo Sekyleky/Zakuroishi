@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Dump textures (host-checked, not run on device):** an Advanced setting saves each new texture a game uses as a PNG named for a texture pack, in the app's folder under `Android/data`, as a start for making HD packs.
 - **Controller polish (host-checked, not run on device):** Add cheat opens with the name field selected; L1/R1 in library dialogs scroll without moving the selection off the button; an open Game files page shows a finished import (update or DLC, camera picture, cheats) without reopening it; button-hint chips grow with large font instead of clipping.
 - **Updater and rooms hardening (host-checked):** the in-app updater talks only to the exact GitHub hosts a release download uses; a room closes connections beyond 64 that have not said hello yet.
 - **Screen gap and small-screen size:** Display settings add space between the screens in Stacked and Side by side, and set the size of the small screen in Large top (gap seen on the AYN Thor; Large top sizes and touch not run on device).

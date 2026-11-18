@@ -703,21 +703,40 @@ fn halve(texels: &mut Vec<u8>, above: Level) -> Level {
     level
 }
 
+/// the file, the folder, the scale, the textures already seen, and the
+/// folder set_dump_folder gave, which goes before the environment's.
+type Record = Mutex<(Option<std::fs::File>, Option<PathBuf>, u32, std::collections::HashSet<u64>, Option<PathBuf>)>;
+
+fn records() -> &'static Record {
+    static RECORD: OnceLock<Record> = OnceLock::new();
+    RECORD.get_or_init(|| {
+        let file = std::env::var_os("ZAKURO_TEXTURE_HASHES").and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
+        let dump = std::env::var_os("ZAKURO_DUMP_TEXTURES").map(PathBuf::from);
+        let scale = std::env::var("ZAKURO_DUMP_SCALE").ok().and_then(|scale| scale.parse().ok()).unwrap_or(1u32).clamp(1, 8);
+        Mutex::new((file, dump, scale, std::collections::HashSet::new(), None))
+    })
+}
+
+/// whether set_dump_folder gave a folder.
+static DUMPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// saves each texture the game goes on to use into folder as
+/// ZAKURO_DUMP_TEXTURES does, for a host that cannot set the environment, or
+/// stops with none. each texture is saved again for a new folder.
+pub fn set_dump_folder(folder: Option<PathBuf>) {
+    let mut record = records().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    DUMPING.store(folder.is_some(), std::sync::atomic::Ordering::Release);
+    record.3.clear();
+    record.4 = folder;
+}
+
 /// ZAKURO_TEXTURE_HASHES=<file> writes each texture's hashes there as it is
 /// first seen, its size and format, then by its bytes and as Citra uploaded
 /// it, to check them against a pack's names. ZAKURO_DUMP_TEXTURES=<folder>
 /// saves each one there as Citra names a picture without a pack.json, at
 /// ZAKURO_DUMP_SCALE times its size, as a start for a pack.
 pub(crate) fn record(data: &[u8], texels: &[[u8; 4]], format: TextureFormat, width: u32, height: u32) {
-    /// the file, the folder, the scale, and the textures already seen.
-    type Record = Mutex<(Option<std::fs::File>, Option<PathBuf>, u32, std::collections::HashSet<u64>)>;
-    static RECORD: OnceLock<Record> = OnceLock::new();
-    let record = RECORD.get_or_init(|| {
-        let file = std::env::var_os("ZAKURO_TEXTURE_HASHES").and_then(|path| std::fs::OpenOptions::new().create(true).append(true).open(path).ok());
-        let dump = std::env::var_os("ZAKURO_DUMP_TEXTURES").map(PathBuf::from);
-        let scale = std::env::var("ZAKURO_DUMP_SCALE").ok().and_then(|scale| scale.parse().ok()).unwrap_or(1u32).clamp(1, 8);
-        Mutex::new((file, dump, scale, std::collections::HashSet::new()))
-    });
+    let record = records();
     let mut rows = Vec::new();
     let (Some(bytes), Some(laid_out)) = (
         hash(Hashing::Bytes, data, format, width, height, &mut rows),
@@ -726,7 +745,8 @@ pub(crate) fn record(data: &[u8], texels: &[[u8; 4]], format: TextureFormat, wid
         return;
     };
     let mut record = record.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let (file, dump, scale, seen) = &mut *record;
+    let (file, dump, scale, seen, set) = &mut *record;
+    let dump = set.as_ref().or(dump.as_ref());
     if !seen.insert(bytes) {
         return;
     }
@@ -737,7 +757,7 @@ pub(crate) fn record(data: &[u8], texels: &[[u8; 4]], format: TextureFormat, wid
     if let Some(file) = file {
         let _ = std::io::Write::write_all(file, format!("{width}x{height} {number} {bytes:016X} {laid_out:016X}\n").as_bytes());
     }
-    if let Some(dump) = dump.as_ref().filter(|_| width.is_power_of_two() && height.is_power_of_two()) {
+    if let Some(dump) = dump.filter(|_| width.is_power_of_two() && height.is_power_of_two()) {
         let path = dump.join(format!("tex1_{width}x{height}_{laid_out:016X}_{number}_mip0.png"));
         let (wide, high) = (width * *scale, height * *scale);
         let mut scaled = Vec::with_capacity((wide * high * 4) as usize);
@@ -758,10 +778,12 @@ pub(crate) fn record(data: &[u8], texels: &[[u8; 4]], format: TextureFormat, wid
     }
 }
 
-/// whether ZAKURO_TEXTURE_HASHES or ZAKURO_DUMP_TEXTURES asks for textures.
+/// whether ZAKURO_TEXTURE_HASHES, ZAKURO_DUMP_TEXTURES or set_dump_folder
+/// asks for textures.
 pub(crate) fn recording() -> bool {
     static RECORDING: OnceLock<bool> = OnceLock::new();
     *RECORDING.get_or_init(|| std::env::var_os("ZAKURO_TEXTURE_HASHES").is_some() || std::env::var_os("ZAKURO_DUMP_TEXTURES").is_some())
+        || DUMPING.load(std::sync::atomic::Ordering::Acquire)
 }
 
 #[cfg(test)]
@@ -1039,5 +1061,25 @@ mod tests {
         assert_eq!(picture.levels.last().map(|level| (level.width, level.height)), Some((1, 1)));
         assert_eq!(&picture.texels[..4], &[200; 4]);
         std::fs::remove_file(&path).unwrap();
+    }
+
+    /// a folder given by set_dump_folder gets each new texture as a PNG,
+    /// named as a pack names it, without ZAKURO_DUMP_TEXTURES.
+    #[test]
+    fn a_dump_folder_gets_each_new_texture() {
+        let dir = std::env::temp_dir().join(format!("zakuro-dump-{}", std::process::id()));
+        let data: Vec<u8> = (0..256).map(|i| (i * 13 % 241) as u8 ^ 0x5A).collect();
+        let texels: Vec<[u8; 4]> = data.chunks(4).map(|texel| [texel[0], texel[1], texel[2], texel[3]]).collect();
+        let laid_out = hash(Hashing::Rows, &data, TextureFormat::Rgba8, 8, 8, &mut Vec::new()).unwrap();
+        set_dump_folder(Some(dir.clone()));
+        assert!(recording());
+        record(&data, &texels, TextureFormat::Rgba8, 8, 8);
+        set_dump_folder(None);
+        let path = dir.join(format!("tex1_8x8_{laid_out:016X}_0_mip0.png"));
+        let mut reader = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(&path).unwrap())).read_info().unwrap();
+        let mut texels_read = vec![0; reader.output_buffer_size().unwrap()];
+        reader.next_frame(&mut texels_read).unwrap();
+        assert_eq!(&texels_read[..4], &texels[0]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -26,6 +26,8 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("Runtime does not install advanced renderer options");
         if(!runtime.contains("request_wait_idle: settings.request_wait_idle"))
             throw new AssertionError("Runtime does not pass request_wait_idle to the core config");
+        if(!runtime.contains("filter(|_| settings.dump_textures)") || !runtime.contains("zakuro_gpu::pack::set_dump_folder(dump);"))
+            throw new AssertionError("Runtime does not give dump_textures' folder to the texture dump");
         if(!runtime.contains("geometry::spacing(settings)") || !settings.contains("self.screen_gap.clamp(0, 40)") || !settings.contains("self.small_screen.clamp(25, 100)"))
             throw new AssertionError("screen_gap/small_screen are not clamped like the Java ranges or not given to the presenter");
         // local wireless: the Java choices are the Rust RoomMode, the runtime gives the game the room, stable never asks for one

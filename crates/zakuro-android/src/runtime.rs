@@ -895,6 +895,14 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             if settings.region >= 0 {
                 loaded.config.region = settings.region as u8;
             }
+            // dump_textures: each new texture as a PNG in the app's external folder, which a computer
+            // reaches over USB (Android/data/<package>/files), else under the game's data folder
+            let base = app.external_data_path().unwrap_or_else(|| launch.data.clone());
+            let dump = loaded.title.as_ref().filter(|_| settings.dump_textures).map(|title| base.join("dump/textures").join(format!("{:016X}", title.program_id())));
+            if let Some(dump) = &dump {
+                log::info!("saving textures to {}", dump.display());
+            }
+            zakuro_gpu::pack::set_dump_folder(dump);
             if let Some(room) = &room {
                 link_room(&mut loaded, room, &room_settings, &launch);
             }

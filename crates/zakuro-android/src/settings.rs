@@ -196,6 +196,8 @@ pub struct Advanced {
     pub shade_ahead: bool,
     /// upstream after 0.2.32: keep unchanged vertex arrays on the GPU across batches.
     pub kept_arrays: bool,
+    /// save each new texture as a PNG in the data folder's dump/textures/<title id>, for packs.
+    pub dump_textures: bool,
     /// the desktop queue (~125 ms target, drift trim, time stretch, fades); off is 0.2.0's.
     pub audio_queue_managed: bool,
     /// AAudio FAST track: allocated session (no RAW flag) and Game usage. Off: the Thor's
@@ -293,6 +295,7 @@ impl Default for Advanced {
             warm_before_start: false,
             shade_ahead: true,
             kept_arrays: true,
+            dump_textures: false,
             audio_queue_managed: true,
             low_latency_audio: false,
             latch_short_presses: true,
@@ -517,6 +520,7 @@ mod tests {
         assert!(!Advanced::parse(r#"{"shade_ahead":false}"#).unwrap().renderer_options().shade_ahead);
         assert!(options.kept_arrays);
         assert!(!Advanced::parse(r#"{"kept_arrays":false}"#).unwrap().renderer_options().kept_arrays);
+        assert!(!settings.dump_textures && Advanced::parse(r#"{"dump_textures":true}"#).unwrap().dump_textures);
         let off = Advanced::parse(r#"{"pooled_uploads":false,"upload_size_budget":false,"threaded_picture_copy":false,"fast_texture_decode":false}"#).unwrap().renderer_options();
         assert!(!off.pooled_uploads && !off.upload_size_budget && !off.threaded_picture_copy && !off.fast_texture_decode);
     }
