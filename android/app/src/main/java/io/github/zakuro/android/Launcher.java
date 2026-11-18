@@ -98,7 +98,7 @@ public final class Launcher extends Activity {
         status = text("", 14, p.muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
         count = text("", 14, p.muted); count.setPadding(0, 0, dp(20), 0);
         legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page · Start Menu"); legend.addView(count, 0); legend.setPadding(0, dp(6), 0, dp(6)); page.addView(legend);
-        details = text("", 16, p.ink); details.setSingleLine(true); details.setEllipsize(TextUtils.TruncateAt.END); details.setPadding(0, 0, 0, dp(10)); page.addView(details);
+        details = text("", 16, p.ink); details.setLines(getResources().getConfiguration().fontScale > 1.3f ? 2 : 1); details.setEllipsize(TextUtils.TruncateAt.END); details.setPadding(0, 0, 0, dp(10)); page.addView(details);
         list = column(); page.addView(list);
         library = new ScrollView(this); library.setFillViewport(true); library.setBackgroundColor(p.background); library.addView(page);
         setContentView(library); page.requestApplyInsets();

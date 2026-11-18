@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Easier to read on a handheld (host-checked, not run on device):** setting descriptions are 16sp instead of 14sp, and at large font the library's details line keeps two lines so the game name is not cut.
 - **4× and 5× rendering resolution (host-checked, not run on device):** the Rendering resolution setting offers 4× and 5× besides 1× to 3×; they need much more GPU memory and can slow the game.
 - **Picture effects (host-checked, not run on device):** Display → Picture effect applies Sharpen, Vivid colours, Scanlines or Smooth edges to the screens, with a strength setting; off by default, and off costs nothing extra.
 - **Texture packs with extra bytes in their pictures import (host-checked, not run on device):** a PNG with bytes after its end marker, which some pack tools leave, was refused as "Incomplete PNG image"; such bytes are now ignored, while truncated pictures, a missing end and bad checksums are still refused. Found with a Majora's Mask 3D HD pack where 89 of 1,624 pictures had them.

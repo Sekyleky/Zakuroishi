@@ -41,7 +41,7 @@ final class SettingsDialog {
     }
     private TextView text(String message, boolean secondary) {
         TextView view = new TextView(activity); view.setText(message); view.setTextColor(secondary ? p.muted : p.ink);
-        view.setTextSize(secondary ? 14 : 17); view.setPadding(0, dp(6), 0, dp(10)); return view;
+        view.setTextSize(secondary ? 16 : 17); view.setPadding(0, dp(6), 0, dp(10)); return view;
     }
     private TextView heading(String message) {
         TextView view = text(message, false); view.setTextColor(p.accent); view.setTextSize(17); view.setAccessibilityHeading(true); return view;
