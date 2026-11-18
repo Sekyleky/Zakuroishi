@@ -117,10 +117,22 @@ public final class Launcher extends Activity {
         if (state == null && Updater.due(this)) task.checkUpdate(getApplicationContext(), false); // nightly build only: self-update not yet run on a device
         View first = ids.isEmpty() ? null : list.findViewWithTag(ids.get(0) + ".play"); if (first == null || !first.requestFocus()) add.requestFocus();
     }
+    private View heldA; // the view that had focus when A went down: A clicks that one on release, even if focus moved meanwhile
+    private void clickHeld(KeyEvent event, View focus) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) { if (event.getRepeatCount() == 0) heldA = focus; return; }
+        View view = heldA; heldA = null;
+        if (event.getAction() == KeyEvent.ACTION_UP && view != null && view.isAttachedToWindow() && view.isEnabled()) view.performClick();
+    }
+    private static ScrollView firstScroll(View view) {
+        if (!view.isShown()) return null; // an AlertDialog keeps a hidden message ScrollView before the custom view
+        if (view instanceof ScrollView) return (ScrollView) view;
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) { ScrollView found = firstScroll(((ViewGroup) view).getChildAt(i)); if (found != null) return found; }
+        return null;
+    }
     int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     @Override public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_A) {
-            if (event.getAction() == KeyEvent.ACTION_UP && getCurrentFocus() != null) getCurrentFocus().performClick();
+            clickHeld(event, getCurrentFocus());
             return true;
         }
         if (event.getKeyCode() == KeyEvent.KEYCODE_BUTTON_B) {
@@ -172,7 +184,13 @@ public final class Launcher extends Activity {
         });
         dialog.setOnKeyListener((window, code, event) -> {
             if (code == KeyEvent.KEYCODE_BUTTON_A) {
-                if (event.getAction() == KeyEvent.ACTION_UP && dialog.getCurrentFocus() != null) dialog.getCurrentFocus().performClick();
+                clickHeld(event, dialog.getCurrentFocus());
+                return true;
+            }
+            if (code == KeyEvent.KEYCODE_BUTTON_L1 || code == KeyEvent.KEYCODE_BUTTON_R1) {
+                ScrollView page = firstScroll(dialog.getWindow().getDecorView());
+                if (page == null) return false;
+                if (event.getAction() == KeyEvent.ACTION_UP) page.pageScroll(code == KeyEvent.KEYCODE_BUTTON_L1 ? View.FOCUS_UP : View.FOCUS_DOWN);
                 return true;
             }
             if (code == KeyEvent.KEYCODE_BUTTON_B) {

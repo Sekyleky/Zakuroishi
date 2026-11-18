@@ -146,6 +146,7 @@ public final class Game extends NativeActivity {
         }
     }
     private AlertDialog pauseDialog;
+    private android.view.View heldA;
     private Palette palette;
     private boolean menuOpen;
     private android.widget.TextView stats;
@@ -263,7 +264,8 @@ public final class Game extends NativeActivity {
         card.addView(head);
         android.widget.Button first=null;
         android.widget.LinearLayout line=null;
-        pauseDialog=new AlertDialog.Builder(this,p.dialogTheme()).setView(card).create();
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this); scroll.addView(card); // large font: focus moves scroll the rows into view
+        pauseDialog=new AlertDialog.Builder(this,p.dialogTheme()).setView(scroll).create();
         for(int i=0;i<entries.length;i++) {
             final int which=i;
             if(i%2==0) { line=new android.widget.LinearLayout(this); card.addView(line,new android.widget.LinearLayout.LayoutParams(-1,-2)); }
@@ -283,8 +285,10 @@ public final class Game extends NativeActivity {
             if(code==KeyEvent.KEYCODE_BUTTON_X) { if(event.getAction()==KeyEvent.ACTION_UP) { saveState(0); d.dismiss(); } return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_Y) { if(event.getAction()==KeyEvent.ACTION_UP) confirmLoad(false); return true; }
             if(code==KeyEvent.KEYCODE_BUTTON_A) {
-                if(event.getAction()==KeyEvent.ACTION_UP) {
-                    if(pauseDialog.getCurrentFocus()!=null) pauseDialog.getCurrentFocus().performClick();
+                if(event.getAction()==KeyEvent.ACTION_DOWN) { if(event.getRepeatCount()==0) heldA=pauseDialog.getCurrentFocus(); }
+                else {
+                    android.view.View view=heldA; heldA=null; // click what had focus on press, even if focus moved meanwhile
+                    if(event.getAction()==KeyEvent.ACTION_UP && view!=null && view.isAttachedToWindow() && view.isEnabled()) view.performClick();
                 }
                 return true;
             }

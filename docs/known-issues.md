@@ -62,9 +62,11 @@ page with each release. Nothing here has been measured on more than one device, 
 
 ## Known problems
 
-- **Seen once on the Thor on 2026-11-16, cause unknown, open:** with injected key presses held
-  150 ms the library highlight moved unexpectedly and one A press started the neighbouring game
-  (plain presses worked; not tried with physical buttons). A game run for about 40 s still showed
+- **Seen once on the Thor on 2026-11-16:** with injected key presses held 150 ms the library
+  highlight moved unexpectedly and one A press started the neighbouring game (plain presses
+  worked; not tried with physical buttons). A now acts on what had focus when it went down, not
+  when it was released, in the library, its dialogs, the pause menu and settings, which removes
+  the likely cause (host-checked; the held-press case not run on device). A game run for about 40 s still showed
   "Not played yet". In Setup help `title.so` is drawn as an underlined link. The HUD text is
   slightly overlapped by the corner of the pause dialog.
 

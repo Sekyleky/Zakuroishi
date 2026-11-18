@@ -99,19 +99,25 @@ final class SettingsDialog {
             if (list != null) list.setSelector(p.row());
             dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
         });
+        View[] pressed = new View[1]; // the view A went down on, so a focus move before release cannot redirect the click
         dialog.setOnKeyListener((d, code, event) -> {
             if (code == KeyEvent.KEYCODE_BUTTON_A) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) pressed[0] = dialog.getCurrentFocus();
                 if (event.getAction() == KeyEvent.ACTION_UP) {
                     ListView items = dialog.getListView();
                     int selected = items == null ? -1 : items.getSelectedItemPosition();
+                    View target = pressed[0]; pressed[0] = null;
                     if (selected >= 0 && items.hasFocus()) items.performItemClick(items.getSelectedView(), selected, items.getItemIdAtPosition(selected));
-                    else if (dialog.getCurrentFocus() != null) dialog.getCurrentFocus().performClick();
+                    else if (target != null && target.isAttachedToWindow() && target.isEnabled()) {
+                        if (target instanceof EditText) { target.requestFocus(); activity.getSystemService(android.view.inputmethod.InputMethodManager.class).showSoftInput(target, 0); } // the dialog starts with the keyboard hidden; A opens it
+                        else target.performClick();
+                    }
                 }
                 return true;
             }
             Button positive = dialog.getButton(DialogInterface.BUTTON_POSITIVE);
-            if (code == KeyEvent.KEYCODE_BUTTON_START && positive != null) {
-                if (event.getAction() == KeyEvent.ACTION_UP) positive.performClick();
+            if (code == KeyEvent.KEYCODE_BUTTON_START && positive != null) { // a destructive confirm needs a deliberate press on its button: there Start does nothing
+                if (event.getAction() == KeyEvent.ACTION_UP && !destructive) positive.performClick();
                 return true;
             }
             if (code == KeyEvent.KEYCODE_BUTTON_L1 || code == KeyEvent.KEYCODE_BUTTON_R1) {

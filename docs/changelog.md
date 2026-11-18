@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Controller fixes (checked on the AYN Thor):** A on a text field (Add cheat, Game name, room settings) opens the on-screen keyboard; Start no longer confirms a destructive dialog such as Discard changes or Remove cheats; L1/R1 scroll long library dialogs such as Setup help; A acts on what had focus when it was pressed, not when it was released; the pause menu scrolls when it does not fit (large font not run on device).
 - **Play time survives a crash (checked on the AYN Thor):** it is saved every minute while a game plays, so a game that is killed loses at most a minute instead of the whole session.
 - **Camera picture (loading checked on the AYN Thor; a game scanning it not run on device):** Game files → Camera picture… chooses a picture, such as a QR code, that the game's cameras see instead of black. See [android](android.md#camera-picture).
 - **Cheat log:** when cheats change a game's code, the log names the first cheat or enhancement and the address it wrote, and the enhancements a game's settings switch on are logged. On the AYN Thor this showed that Ultra Moon's "1 functions run in the interpreter" line came from its No Outlines enhancement patching code, as it should, not from a player's cheat.
