@@ -120,7 +120,9 @@ In a game's **Settings → Advanced → Local wireless**:
 
 When hosting, the game shows "Hosting room on <address>:<port>"; enter that on the other console.
 If the room cannot be joined, the game says why and runs without local wireless; the same happens
-if the room closes or the connection drops while playing. Other members see the game's name.
+if the room closes or the connection drops while playing. In the pause menu, **Local wireless
+room…** leaves the room, or joins (or hosts) it again with the room settings the game started
+with; when the room was Off it joins Room address. Other members see the game's name.
 Stable builds have
 no network permission and do not show these settings.
 

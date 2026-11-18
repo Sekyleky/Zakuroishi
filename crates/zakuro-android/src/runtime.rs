@@ -501,7 +501,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     }
     zakuro_gpu::backend::set_renderer_options(settings.renderer_options());
     // dropped when run returns: the connection first, then the room this device opened
-    let (_room_server, mut room) = join_room(app, &settings);
+    let (mut _room_server, mut room) = join_room(app, &settings);
     // Declared before surfaces/core so custom libraries outlive every Vulkan object.
     let driver = crate::driver::Driver::load(launch.driver.as_ref())?;
     let mut paused = false;
@@ -718,6 +718,30 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 // here freed this thread's looper while the input queue was still attached,
                 // and NativeActivity.onPause then crashed detaching it.
                 Command::Exit => paused = true,
+                // the connection goes before the room this device opened, as at the end of run
+                Command::LeaveRoom if room.is_some() => {
+                    room = None;
+                    _room_server = None;
+                    if let Some(system) = &mut system {
+                        system.room = None;
+                    }
+                    platform::message(app, "Left the room. The game runs without local wireless.");
+                }
+                Command::LeaveRoom => platform::message(app, "Not in a room."),
+                Command::JoinRoom if room.is_some() => platform::message(app, "Already in a room. Leave it first."),
+                Command::JoinRoom => {
+                    // Off at launch still joins Room address, as the desktop's Join room does
+                    let mut asked = settings.clone();
+                    if asked.room_mode == crate::settings::RoomMode::Off {
+                        asked.room_mode = crate::settings::RoomMode::Join;
+                    }
+                    (_room_server, room) = join_room(app, &asked);
+                    if let (Some(room), Some(system)) = (&room, &mut system) {
+                        system.room = Some(room.link());
+                        room.playing(&launch.name);
+                        platform::message(app, &format!("Joined the room {}.", room.room()));
+                    }
+                }
                 Command::Restart => {
                     system = None;
                     if let Some(s) = &mut surface {

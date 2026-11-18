@@ -14,7 +14,7 @@ public final class Game extends NativeActivity {
     // Register bridge exports with ART as well as NativeActivity's native loader.
     static { System.loadLibrary("zakuro_android"); }
     // Shared with bridge.rs.
-    private static final int PAUSE=0, SAVE=1, LOAD=2, RESTART=3, RECALIBRATE=4, SWAP=5, RESUME=6, EXIT=7;
+    private static final int PAUSE=0, SAVE=1, LOAD=2, RESTART=3, RECALIBRATE=4, SWAP=5, RESUME=6, EXIT=7, LEAVEROOM=8, JOINROOM=9;
     private native void nativeCommand(int command);
     private native void nativeButton(int keyCode, boolean pressed);
     private native void nativeStick(int stick, float x, float y);
@@ -249,7 +249,8 @@ public final class Game extends NativeActivity {
         if(menuOpen || errorDialog!=null || isFinishing()) return;
         menuOpen=true; nativeCommand(PAUSE);
         // Two per row in reading order; the index is the case in pauseAction.
-        String[] entries={"Resume","Settings…","Save state…","Load state…","Swap screens","Recalibrate motion",hudLabel(),"Screenshot","Restart game","Exit to library"};
+        String[] entries={"Resume","Settings…","Save state…","Load state…","Swap screens","Recalibrate motion",hudLabel(),"Screenshot","Restart game","Exit to library","Local wireless room…"};
+        if(!GameImport.nightly(this)) entries=java.util.Arrays.copyOf(entries,10); // stable has no network permission
         Palette p=palette;
         android.widget.LinearLayout card=new android.widget.LinearLayout(this);
         card.setOrientation(android.widget.LinearLayout.VERTICAL); card.setPadding(p.dp(24),p.dp(22),p.dp(24),p.dp(22));
@@ -304,8 +305,28 @@ public final class Game extends NativeActivity {
             case 7: hud.postDelayed(this::screenshot,250); break; // once the menu is gone
             case 8: confirmRestart(); break;
             case 9: confirmExit(); break;
+            case 10: roomMenu(); break;
         }
         return true;
+    }
+    /** Nightly: leave the room, or join (host) it again with this launch's room settings. */
+    private void roomMenu() {
+        menuOpen=false;
+        int[] ran={-1};
+        AlertDialog d=new AlertDialog.Builder(this,palette.dialogTheme()).setTitle("Local wireless room")
+            .setMessage("Leave the room, or join it again with this game's room settings from when it started. Joining can take a few seconds.")
+            .setPositiveButton("Join",(dd,w) -> ran[0]=JOINROOM).setNeutralButton("Leave",(dd,w) -> ran[0]=LEAVEROOM).setNegativeButton("Cancel",null).create();
+        // the command before RESUME: native runs them in order, and joining waits while the game is paused
+        d.setOnDismissListener(dd -> { if(ran[0]<0) { pauseMenu(); return; } nativeCommand(ran[0]); nativeCommand(RESUME); });
+        d.setOnKeyListener((dd,code,event) -> {
+            if(code!=KeyEvent.KEYCODE_BUTTON_A && code!=KeyEvent.KEYCODE_BUTTON_B) return false;
+            if(event.getAction()==KeyEvent.ACTION_UP) {
+                if(code==KeyEvent.KEYCODE_BUTTON_B) dd.cancel();
+                else if(d.getCurrentFocus()!=null) d.getCurrentFocus().performClick();
+            }
+            return true;
+        });
+        d.show(); palette.dialog(d,true); android.widget.Button cancel=d.getButton(AlertDialog.BUTTON_NEGATIVE); cancel.post(cancel::requestFocusFromTouch);
     }
     private void confirmRestart() {
         menuOpen=false;

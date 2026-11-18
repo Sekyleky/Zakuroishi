@@ -307,7 +307,7 @@ not to a claim that the desktop settings file is read on Android.
 | `camera_picture` | **Unsupported** image import into guest cameras. |
 | `nickname` | **Partial (nightly only)** `room_nickname`, the room name and console name while in a room; not a general console-name setting. |
 | `console_id` | **Unsupported** Android identity editor/launch override. |
-| `room_address` | **Wired (nightly only)** `room_mode` join + `room_address`, `room_password`; set at game start, no in-game join/leave. Host-checked, not run on device. |
+| `room_address` | **Wired (nightly only)** `room_mode` join + `room_address`, `room_password`; set at game start; pause menu leaves or joins again. Host-checked, not run on device. |
 | `room_name` | **Wired (nightly only)** `room_name`, empty is "<nickname>'s room". Host-checked, not run on device. |
 | `room_port` | **Wired (nightly only)** `room_address` holds the host port, empty is 24873. |
 
@@ -378,7 +378,7 @@ Intent extras decoded by P. New3DS details are in
 | Desktop `Cheat`, `AddCheat`, `ReloadCheats` | **Partial** matched built-in enhancements selectable; no arbitrary cheat text editor/import/reload menu. Core loading cheat files is not an Android management UI. | Source only. |
 | Desktop `ChooseBackground` | **Unsupported**. | No implementation/test claim. |
 | Desktop `ChooseCameraPicture` | **Unsupported**. | No implementation/test claim. |
-| Desktop `HostRoom`, `JoinRoom`, `LeaveRoom`, `DlpJoin`, `DlpLeave` | **Partial (nightly only)** host or join at game start from `room_mode`, leave at game exit. No in-game join/leave, no Download Play. | Settings parse **Host passed**; host-checked, not run on device. |
+| Desktop `HostRoom`, `JoinRoom`, `LeaveRoom`, `DlpJoin`, `DlpLeave` | **Partial (nightly only)** host or join at game start from `room_mode`; pause menu **Local wireless room…** leaves or joins (hosts) again with the launch settings. No Download Play. | Settings parse **Host passed**; host-checked, not run on device. |
 | Desktop `Keyboard(String, usize)` | **Unsupported** guest software-keyboard dialog bridge. | No implementation/test claim. |
 | Desktop `Fullscreen` | **Fixed equivalent** Game immersive fullscreen; no desktop window/fullscreen toggle. | Source only. |
 | Desktop `CopyReport` | **Partial** Game runtime error/details/copy UI, logcat and benchmark logging; no equivalent complete desktop game-report action. | Source only. |

@@ -23,7 +23,7 @@ page with each release. Nothing here has been measured on more than one device, 
   re-import of the game, a rejected (invalid) file, and a cheat that really changes game memory.
 - **Local wireless rooms (nightly build only, host-checked, not run on device):** hosting and
   joining a room, two consoles trading packets, the "Hosting room on" address, the lost-room
-  message and the stable build hiding the settings. Only the settings parsing, the Java/native
+  message, the pause menu's Leave/Join, and the stable build hiding the settings. Only the settings parsing, the Java/native
   contract and the core room tests (loopback, one PC) ran.
 - **Presets** (Battery, Balanced, Quality): their values are a first guess, not measured.
 - **Storage screen:** the "A game is open" refusal and actually deleting an item. Only the

@@ -18,6 +18,9 @@ pub enum Command {
     Recalibrate,
     Swap,
     Exit,
+    /// local wireless from the pause menu (nightly): leave the room, or join or host it again.
+    LeaveRoom,
+    JoinRoom,
 }
 use crate::input::VirtualInput;
 struct State {
@@ -119,6 +122,8 @@ fn decode(command: i32) -> Option<Command> {
         5 => Command::Swap,
         6 => Command::Resume,
         7 => Command::Exit,
+        8 => Command::LeaveRoom,
+        9 => Command::JoinRoom,
         _ => return None,
     })
 }
@@ -263,7 +268,8 @@ mod tests {
         assert!(matches!(decode(2), Some(Command::Load(0))));
         assert!(matches!(decode(1 | 3 << 4), Some(Command::Save(3))));
         assert!(matches!(decode(2 | 9 << 4), Some(Command::Load(9))));
-        assert!(decode(1 | 10 << 4).is_none() && decode(8).is_none() && decode(-1).is_none());
+        assert!(decode(1 | 10 << 4).is_none() && decode(10).is_none() && decode(-1).is_none());
+        assert!(matches!(decode(8), Some(Command::LeaveRoom)) && matches!(decode(9), Some(Command::JoinRoom)));
         assert!(matches!(decode(7), Some(Command::Exit)));
     }
 }
