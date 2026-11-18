@@ -147,7 +147,7 @@ impl Machine<'_> {
         let after = ctx.tick_last + if last_tick { cost } else { 0 };
         let budget = ctx.tick_end.saturating_sub(after).min(i32::MAX as u64) as i32;
         // what ran before the last svc, the ticks aside
-        self.ran += (self.budget.saturating_sub(budget).max(0) as u64).saturating_sub(cost * ticks as u64);
+        self.ran += (self.budget.saturating_sub(budget).max(0) as u64).saturating_sub(cost.saturating_mul(ticks as u64)); // ticks comes from the native code
         self.cycles = after;
         self.budget = budget;
         self.went_on = true;
