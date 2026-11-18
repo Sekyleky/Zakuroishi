@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Screen gap and small-screen size:** Display settings add space between the screens in Stacked and Side by side, and set the size of the small screen in Large top (gap seen on the AYN Thor; Large top sizes and touch not run on device).
+- **Faster texture decoding:** textures are decoded tile by tile, 1.4 to 3.3 times faster on a PC test per format; on the AYN Thor Ultra Moon draws correctly at 60 fps. Device frame-time gains not measured yet.
 - **Sturdier rooms (tests on Windows and Linux; on the AYN Thor a hosted room took a 10-emoji nickname and cut a 300-character game name to 64):** a room now turns away nicknames over 40 bytes and cuts game names to 64 bytes, drops a member that stops receiving instead of waiting on it, caps what a console keeps unread at 4 MiB, and a console refuses a malformed answer from a host instead of stopping.
 - **Controller fixes (checked on the AYN Thor):** A on a text field (Add cheat, Game name, room settings) opens the on-screen keyboard; Start no longer confirms a destructive dialog such as Discard changes or Remove cheats; L1/R1 scroll long library dialogs such as Setup help; A acts on what had focus when it was pressed, not when it was released; the pause menu scrolls when it does not fit (large font not run on device).
 - **Play time survives a crash (checked on the AYN Thor):** it is saved every minute while a game plays, so a game that is killed loses at most a minute instead of the whole session.
