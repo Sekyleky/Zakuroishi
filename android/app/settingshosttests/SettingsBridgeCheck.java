@@ -31,7 +31,8 @@ public final class SettingsBridgeCheck {
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("room_mode") && !String.join("|",setting.choices).equals("off|join|host"))
             throw new AssertionError("room_mode choices differ from Rust RoomMode");
         if(!settings.contains("choice!(RoomMode, Off, Off, Join, Host);") || !runtime.contains("system.room = Some(room.link());")
-                || !launch.contains("if (!GameImport.nightly(context)) settings.values.put(\"room_mode\",\"off\");"))
+                || !launch.contains("intent.putExtra(\"rooms\",GameImport.nightly(context));") || !platform.contains("new_string(\"rooms\")")
+                || !runtime.contains("if !launch.rooms {"))
             throw new AssertionError("Room settings are not wired: RoomMode, runtime room link or the stable gate");
         if(!launch.contains("intent.putExtra(\"console_id\",consoleId(context))") || !platform.contains("extra(\"console_id\")") || !runtime.contains("system.config.console_id = id;"))
             throw new AssertionError("The install's console number does not reach the core in a room");

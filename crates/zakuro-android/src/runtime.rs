@@ -431,6 +431,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let launch = platform::launch(app)?;
     let _session = bridge::Session::start(app);
     let mut settings = launch.advanced.clone();
+    if !launch.rooms {
+        settings.room_mode = crate::settings::RoomMode::Off; // stable: no network permission, a room stored by a nightly is ignored
+    }
     // The stock Qualcomm driver throws a C++ exception from pipeline creation for
     // translated vertex shaders, which Rust cannot unwind: the process aborts.
     // shortcut: "no custom driver" stands for "stock Qualcomm"; check the device name if other SoCs matter.
@@ -716,6 +719,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 Command::LeaveRoom => platform::message(app, "Not in a room."),
                 Command::JoinRoom if room.is_some() => platform::message(app, "Already in a room. Leave it first."),
                 Command::JoinRoom if joining.is_some() => platform::message(app, "Already joining a room."),
+                Command::JoinRoom if !launch.rooms => platform::message(app, "Local wireless rooms are in the nightly build only."),
                 Command::JoinRoom => {
                     // Off at launch still joins Room address, as the desktop's Join room does
                     let mut asked = settings.clone();

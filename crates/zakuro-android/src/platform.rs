@@ -75,6 +75,8 @@ pub struct Launch {
     pub addons: Option<(PathBuf, u64)>,
     /// this install's console number (GameLaunch.consoleId), used only in a local wireless room.
     pub console_id: Option<u64>,
+    /// local wireless rooms are allowed: the nightly build, which has the network permission.
+    pub rooms: bool,
 }
 
 pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
@@ -99,6 +101,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         name,
         addons,
         console_id,
+        rooms,
     ) = with_activity(app, |env, activity| {
         let intent = env
             .call_method(activity, "getIntent", "()Landroid/content/Intent;", &[])?
@@ -138,6 +141,10 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             .get_field(info, "nativeLibraryDir", "Ljava/lang/String;")?
             .l()?;
         let hooks: String = env.get_string(&JString::from(hooks))?.into();
+        let key = env.new_string("rooms")?;
+        let rooms = env
+            .call_method(&intent, "getBooleanExtra", "(Ljava/lang/String;Z)Z", &[JValue::Object(&key), JValue::Bool(0)])?
+            .z()?;
         let key = env.new_string("texture_packs")?;
         let texture_packs = env
             .call_method(
@@ -184,6 +191,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
             name,
             addons,
             console_id,
+            rooms,
         ))
     })?;
     let advanced = crate::settings::Advanced::parse(&advanced_json)?;
@@ -235,6 +243,7 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
         name,
         addons,
         console_id,
+        rooms,
     })
 }
 
