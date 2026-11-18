@@ -256,6 +256,7 @@ everyday settings, then **All settings…**, **Button mapping…** and **Game fi
 Presets (Battery, Balanced, Quality) set resolution, HD textures, frame cap and
 in-between pictures at once and store nothing of their own; the row shows the
 matching preset or Custom. Their values are proposals not yet measured on a device.
+Rendering resolution goes from 1× to 5× the console's; 4× and 5× need much more GPU memory and can slow the game.
 **Default settings** (in **Menu**, also called Settings for all games) apply to every game; a game keeps only what it changes,
 marked *changed*, and **Use defaults for this game** drops those. Name, HD pack
 switch, driver and enhancements stay per game.

@@ -79,7 +79,7 @@ public final class DebugSettings extends BroadcastReceiver {
             switch (key) {
                 case "resolution":
                     if (!(value instanceof Number) || ((Number) value).doubleValue() != Math.rint(((Number) value).doubleValue())
-                        || ((Number) value).intValue() < 1 || ((Number) value).intValue() > 3) throw new IllegalArgumentException("resolution must be an integer 1-3");
+                        || ((Number) value).intValue() < 1 || ((Number) value).intValue() > GameSettings.MAX_RESOLUTION) throw new IllegalArgumentException("resolution must be an integer 1-" + GameSettings.MAX_RESOLUTION);
                     staged.put(key, ((Number) value).intValue()); break;
                 case "textures":
                     if (!(value instanceof Boolean)) throw new IllegalArgumentException("textures must be true or false");

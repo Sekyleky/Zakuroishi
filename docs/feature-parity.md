@@ -192,7 +192,7 @@ Reference mechanisms: PN `Settings`, `GameSettings`, `menu::sections/change`,
 | `smooth` | **Wired**: `filter=smooth/sharp/pixels`, S/G and presenter scaling. |
 | `stretched` | **Wired equivalent**: `stretch` fills main layout areas and `external_stretch` independently fills the physical external display. These are per-display booleans rather than PN's guest-top/bottom enum; screen swapping changes routing. |
 | `aspect` | **Partial**: `top_width`, `integer_scale`, `stretch`; original and wide shapes. No PN six-value enum/preset equivalence. |
-| `resolution` | **Partial**: J/P `resolution` Intent → R `Config.resolution`, integer 1–3. PN supports 1–3.5 in quarter steps. |
+| `resolution` | **Partial**: J/P `resolution` Intent → R `Config.resolution`, integer 1–5. PN supports 1–3.5 in quarter steps. |
 | `vulkan` | **Fixed presentation backend**: Vulkan presenter with hardware or software 3D selected by `hardware_renderer`; no Android OpenGL ES selector. R fails explicitly when selected hardware Vulkan cannot start. |
 | `custom_driver` | **Wired code**: same key, J selected driver/Intent paths, `DriverSpec::validate`, `Driver::load`, adrenotools and `VulkanPresenter::with_entry`. Packaged hooks and compatible hardware require separate verification. |
 | `interpolate_to` | **Partial**: `interpolate` → R `Config.interpolate`, `System::set_interpolation(true)`; upstream shared-GPU interpolation, no PN target-30/60 selector. Failure is surfaced. |
@@ -283,7 +283,7 @@ not to a claim that the desktop settings file is read on Android.
 | `language` | **Wired**: `language`, J/R. |
 | `renderer` | **Fixed** Vulkan; desktop Vulkan/OpenGL selection absent. |
 | `hardware_rasterizer` | **Wired** `hardware_renderer`, R Config; real software 3D fallback selectable while Vulkan remains the presenter. |
-| `resolution` | **Wired** 1–3 integer J/P/R resolution. |
+| `resolution` | **Wired** 1–5 integer J/P/R resolution. |
 | `texture_packs` | **Wired** J textures toggle, P/R and ImportPlan; optional original-texture game works. **Host passed** planner checks. |
 | `frame_interpolation` | **Wired** `interpolate`, R; shared GPU prerequisite, not universal title compatibility. |
 | `recompiled` | **Wired** `aot`, R strict required AOT; interpreter troubleshooting when false. |

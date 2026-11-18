@@ -225,13 +225,13 @@ public final class GameImportCheck {
         GameSettings merged = SettingsTransfer.parse(small, id -> current).get("00040000001B5100");
         require(merged.resolution == 2 && merged.driver.equals(current.driver) && merged.number("volume") == 0.5f && current.number("volume") == 1f);
         // each of these changes one thing in an otherwise valid export and must refuse the whole file
-        String[] bad = {"surprise", "resolution=4", "volume=2", "filter=blurry", "touch_controls=1", "nonsense=1", "custom_driver=true", "resolution=1", "binding 99999=a", "binding 5=teleport", "binding x=a", "enhancements=", "id"};
+        String[] bad = {"surprise", "resolution=6", "volume=2", "filter=blurry", "touch_controls=1", "nonsense=1", "custom_driver=true", "resolution=1", "binding 99999=a", "binding 5=teleport", "binding x=a", "enhancements=", "id"};
         for (String change : bad) {
             java.util.Map<String, Object> allGames = new java.util.LinkedHashMap<>((java.util.Map<String, Object>) exported.get("games")), root = new java.util.LinkedHashMap<>(exported);
             java.util.Map<String, Object> first = new java.util.LinkedHashMap<>((java.util.Map<String, Object>) allGames.get("00040000001B5100"));
             java.util.Map<String, Object> adv = new java.util.LinkedHashMap<>((java.util.Map<String, Object>) first.get("advanced"));
             if (change.equals("surprise")) first.put("surprise", 1);
-            else if (change.equals("resolution=4")) first.put("resolution", 4);
+            else if (change.equals("resolution=6")) first.put("resolution", 6);
             else if (change.equals("enhancements=")) first.put("enhancements", java.util.Collections.singletonList(""));
             else if (change.startsWith("binding ")) first.put("controller_bindings", java.util.Collections.singletonMap(change.substring(8).split("=")[0], change.split("=")[1]));
             else if (change.equals("id")) { allGames.remove("00040000001B5100"); allGames.put("00040000001b5100", first); }

@@ -104,6 +104,14 @@ impl Binding {
     }
 }
 
+/// Highest rendering resolution, times the console's; GameSettings.MAX_RESOLUTION in Java.
+pub const MAX_RESOLUTION: u32 = 5;
+
+/// The `resolution` Intent extra as a scale, 1 to MAX_RESOLUTION.
+pub fn resolution(extra: i32) -> u32 {
+    extra.clamp(1, MAX_RESOLUTION as i32) as u32
+}
+
 /// Stable Intent `advanced` JSON contract, shared with the Java settings editor.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -457,6 +465,10 @@ impl Advanced {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn resolution_extra_clamps_to_1_through_5() {
+        assert_eq!([-1, 0, 1, 3, 4, 5, 6, i32::MAX].map(resolution), [1, 1, 1, 3, 4, 5, 5, 5]);
+    }
     #[test]
     fn upstream_renderer_controls_use_supported_options_and_reset_to_defaults() {
         let defaults = Advanced::default().renderer_options();

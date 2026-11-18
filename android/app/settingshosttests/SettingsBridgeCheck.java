@@ -36,6 +36,9 @@ public final class SettingsBridgeCheck {
         if(!settings.contains("choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges);") || !settings.contains("self.effect_strength.clamp(0, 100)")
                 || !runtime.contains("set_picture_effect(effect, strength)"))
             throw new AssertionError("Picture effect settings are not wired: PictureEffect, strength clamp or the presenter");
+        // rendering resolution: the Intent extra is clamped to the Java range
+        if(!settings.contains("pub const MAX_RESOLUTION: u32 = "+GameSettings.MAX_RESOLUTION+";") || !platform.contains("crate::settings::resolution(resolution)"))
+            throw new AssertionError("The resolution extra is not clamped to GameSettings.MAX_RESOLUTION");
         // local wireless: the Java choices are the Rust RoomMode, the runtime gives the game the room, stable never asks for one
         String launch=Files.readString(root.resolve("android/app/src/main/java/io/github/zakuro/android/GameLaunch.java"));
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("room_mode") && !String.join("|",setting.choices).equals("off|join|host"))

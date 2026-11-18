@@ -166,8 +166,8 @@ pub fn launch(app: &AndroidApp) -> Result<Launch, String> {
                 "(Ljava/lang/String;I)I",
                 &[JValue::Object(&key), JValue::Int(1)],
             )?
-            .i()?
-            .clamp(1, 3) as u32;
+            .i()?;
+        let resolution = crate::settings::resolution(resolution);
         let key = env.new_string("advanced")?;
         let value = env
             .call_method(

@@ -443,8 +443,9 @@ final class SettingsDialog {
     /** Resolution and the HD pack switch; the pack is per game, so All games has no switch. */
     private void picture(LinearLayout content, GameSettings draft) {
         Button resolution = button(resolutionLabel(draft) + " · " + draft.resolution + "×"); resolution.setTag("resolution");
-        resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail"}));
+        resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3, 4, 5}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail", "4× · Needs a strong GPU", "5× · Needs a strong GPU"}));
         addButton(content, resolution);
+        content.addView(text("4× and 5× need much more GPU memory and can slow the game.", true));
         if (defaults) return;
         boolean pack = GameSettings.hasTextures(version, settings.id);
         Switch use = toggle("HD texture pack (optional)", pack && draft.textures);

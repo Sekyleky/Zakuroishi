@@ -44,6 +44,9 @@ public final class GameSettingsCheck {
         prefs.put(id + ".textures", false);
         GameSettings original = GameSettings.from(prefs,id);
         require(original.name.equals("Existing title") && original.resolution == 3 && !original.textures);
+        Map<String,Object> scaled = new HashMap<>(); scaled.put(id + ".resolution", 5);
+        require(GameSettings.from(scaled, id).resolution == 5);
+        scaled.put(id + ".resolution", 9); require(GameSettings.from(scaled, id).resolution == GameSettings.MAX_RESOLUTION);
         require(original.values.get("shader_mode").equals("auto") && original.values.get("shader_execution").equals("compiled"));
         require(original.values.get("shader_compilation").equals("async"));
         require(original.flag("cpu_shader_jit") && original.flag("depth_blits") && !original.flag("generic_shaders") && !original.flag("float_depth") && !original.flag("static_blend"));
