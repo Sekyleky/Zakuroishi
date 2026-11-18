@@ -95,7 +95,7 @@ public final class Launcher extends Activity {
         heading.addView(actions); page.addView(heading); if (!wide) page.addView(search, new LinearLayout.LayoutParams(-1, -2));
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); progress.setIndeterminate(true);
         progress.setIndeterminateTintList(ColorStateList.valueOf(p.accent)); progress.setVisibility(View.GONE); page.addView(progress, new LinearLayout.LayoutParams(-1, dp(4)));
-        status = text("", 14, p.muted); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
+        status = text("", 14, p.muted); status.setFontFeatureSettings("tnum"); status.setPadding(0, dp(8), 0, dp(8)); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); page.addView(status);
         count = text("", 14, p.muted); count.setPadding(0, 0, dp(20), 0);
         legend = p.legend("A Play · Y Settings · X Saves · L1/R1 Page · Start Menu"); legend.addView(count, 0); legend.setPadding(0, dp(6), 0, dp(6)); page.addView(legend);
         details = text("", 16, p.ink); details.setLines(getResources().getConfiguration().fontScale > 1.3f ? 2 : 1); details.setEllipsize(TextUtils.TruncateAt.END); details.setPadding(0, 0, 0, dp(10)); page.addView(details);
@@ -301,14 +301,14 @@ public final class Launcher extends Activity {
         super.onSaveInstanceState(state);
     }
     void importDriver(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingDriverId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/zip").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivityForResult(intent, IMPORT_DRIVER);
     }
     void importLossless() {
-        if (task.busy) return;
+        if (busyNotice()) return;
         // ponytail: a DLL has no MIME type pickers agree on, so any file; the import checks it
         startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), IMPORT_LOSSLESS);
     }
@@ -324,6 +324,8 @@ public final class Launcher extends Activity {
         });
     }
     boolean busy() { return task != null && task.busy; }
+    /** True while an import or update check runs; tells the user why the press did nothing. */
+    private boolean busyNotice() { if (!busy()) return false; Toast.makeText(this, "An import is running. Wait for it to finish.", Toast.LENGTH_LONG).show(); return true; }
     /** The header's Menu (also Start). */
     private void tools() {
         String[][] items = {
@@ -391,7 +393,7 @@ public final class Launcher extends Activity {
         catch (IllegalStateException e) { Toast.makeText(this, "The home screen can't add a shortcut right now.", Toast.LENGTH_LONG).show(); }
     }
     private void pickDocument(boolean create, String type, String title, int request) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         Intent intent = new Intent(create ? Intent.ACTION_CREATE_DOCUMENT : Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type);
         if (create) intent.putExtra(Intent.EXTRA_TITLE, title + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + (type.equals("text/plain") ? ".txt" : ".json"));
         try { startActivityForResult(intent, request); }
@@ -401,7 +403,7 @@ public final class Launcher extends Activity {
     private void exportSettings() { pickDocument(true, "application/json", "Zakuroishi-settings", EXPORT_SETTINGS); }
     private void importSettings() { pickDocument(false, "*/*", null, IMPORT_SETTINGS); }
     void saves(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Saves · " + name(id))
                 .setMessage("Export your in-game saves to Downloads, an SD card or cloud storage. The ZIP contains ordinary save files you can extract on a computer.\n\nSave in-game and exit to the library first. Restore accepts a Zakuroishi save ZIP for this game. Quick save states are separate and are not included.")
                 .setPositiveButton("Export ZIP…", (d, w) -> pickSave(id, false))
@@ -409,7 +411,7 @@ public final class Launcher extends Activity {
                 .setNegativeButton("Cancel", null).create()).show();
     }
     private void pickSave(String id, boolean restore) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         try (SaveArchive.Guard ignored = SaveArchive.lock(getFilesDir(), id)) {
             SaveArchive.recover(getFilesDir(), id);
         } catch (Exception e) {
@@ -425,7 +427,7 @@ public final class Launcher extends Activity {
         catch (ActivityNotFoundException e) { pendingSaveId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
     }
     private void replaceCode(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingCodeId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.setType("*/*"); intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -433,14 +435,14 @@ public final class Launcher extends Activity {
         startActivityForResult(intent, REPLACE_CODE);
     }
     private void replaceTextures(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingTextureId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         startActivityForResult(intent, REPLACE_TEXTURES);
     }
     void importCheats(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingCheatId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -448,7 +450,7 @@ public final class Launcher extends Activity {
         catch (ActivityNotFoundException e) { pendingCheatId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
     }
     void importCamera(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingCameraId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -456,7 +458,7 @@ public final class Launcher extends Activity {
         catch (ActivityNotFoundException e) { pendingCameraId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
     }
     void importAddon(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingAddonId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -464,7 +466,7 @@ public final class Launcher extends Activity {
         catch (ActivityNotFoundException e) { pendingAddonId = null; Toast.makeText(this, "No document picker is available on this device.", Toast.LENGTH_LONG).show(); }
     }
     private void replaceMods(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         pendingModId = id;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
@@ -677,7 +679,7 @@ public final class Launcher extends Activity {
             }).setNegativeButton("Cancel",null).create()).show();
     }
     private void play(String id) {
-        if (task.busy) return;
+        if (busyNotice()) return;
         try {
             startActivity(GameLaunch.intent(this,id));
         } catch (Exception e) { controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle("Couldn't open this game").setMessage("Open Settings to replace native game code without copying the ROM.\n\n" + e.getMessage()).setPositiveButton("OK", null).create()).show(); }
@@ -687,7 +689,7 @@ public final class Launcher extends Activity {
         boolean arm64 = Arrays.asList(Build.SUPPORTED_64_BIT_ABIS).contains("arm64-v8a"); add.setEnabled(!task.busy && arm64); progress.setVisibility(task.busy ? View.VISIBLE : View.GONE);
         status.setAccessibilityLiveRegion(task.busy ? View.ACCESSIBILITY_LIVE_REGION_NONE : View.ACCESSIBILITY_LIVE_REGION_POLITE);
         progress.setContentDescription(task.message);
-        status.setText(!arm64 ? "Playing games requires an ARM64 Android device." : task.message); status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
+        status.setText(!arm64 ? "Playing games requires an ARM64 Android device." : task.busy && task.message.length() > 0 ? task.message + " Keep the app open until it finishes." : task.message); status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
         if (task.error != null && !isFinishing()) { String error = task.error; task.error = null;
             String title = task.errorTitle == null ? "Couldn't complete the operation" : task.errorTitle; task.errorTitle = null;
             controllerDialog(new AlertDialog.Builder(this, p.dialogTheme()).setTitle(title).setMessage(error).setPositiveButton("OK", null).create()).show(); }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Clearer feedback (host-checked, not run on device):** pressing Play or another import while an import runs says why nothing happens; the progress line says to keep the app open and its numbers no longer jitter; on the Storage screen a failed delete is shown in a dialog, Cancel returns to the list without scanning again, and small items show their size in KB.
 - **Games start only from the app, frontends and shortcuts (host-checked):** a `zakuro://game/…` link in a web page no longer opens Zakuroishi; frontends and home-screen shortcuts are unaffected.
 - **Cycle layout button (host-checked, not run on device):** Button mapping can bind Cycle layout, which switches between the five screen layouts while playing (not with two displays); the saved layout is unchanged.
 - **Faster HD-pack lookups (host-measured, not run on device):** a texture whose size and format no pack picture is named for skips both pack hashes (on a PC 45-820 µs to 0 per miss); matches are unchanged. Turning off Fast texture decoding also turns this filter off.

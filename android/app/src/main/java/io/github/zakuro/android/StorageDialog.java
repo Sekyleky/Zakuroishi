@@ -37,7 +37,8 @@ final class StorageDialog {
 
     static String size(long bytes) {
         return bytes >= 1L << 30 ? String.format(Locale.getDefault(), "%.1f GB", bytes / (double) (1L << 30))
-                : String.format(Locale.getDefault(), "%.0f MB", bytes / (double) (1L << 20));
+                : bytes >= 1L << 19 ? String.format(Locale.getDefault(), "%.0f MB", bytes / (double) (1L << 20))
+                : String.format(Locale.getDefault(), "%d KB", Math.max(1, (bytes + 512) >> 10));
     }
 
     /** Pointer targets (import folder name to title ID). Anything unreadable fails the whole listing: when unsure, nothing is offered. */
@@ -167,15 +168,17 @@ final class StorageDialog {
             List<Item> items = null; String problem = null;
             try { items = scan(launcher.getFilesDir()); } catch (Exception e) { problem = e.getMessage(); }
             List<Item> found = items; String failure = problem;
-            launcher.runOnUiThread(() -> { if (!launcher.isFinishing()) list(launcher, found, failure); });
+            launcher.runOnUiThread(() -> { if (!launcher.isFinishing()) list(launcher, found, failure, null); });
         }, "storage-scan").start();
     }
 
-    private static void list(Launcher launcher, List<Item> items, String problem) {
+    /** Lists the kept items; {@code chosen} (if any) is the row to leave focused. */
+    private static void list(Launcher launcher, List<Item> items, String problem, Item chosen) {
         LinearLayout content = launcher.column(); content.setPadding(launcher.dp(24), launcher.dp(8), launcher.dp(24), launcher.dp(12));
         long free = new StatFs(launcher.getFilesDir().getAbsolutePath()).getAvailableBytes(), total = 0;
         content.addView(launcher.text("Free space: " + size(free), 16, launcher.p.ink));
         AlertDialog[] dialog = new AlertDialog[1];
+        Button[] focus = new Button[1];
         if (problem != null) content.addView(launcher.text(problem, 16, launcher.p.danger));
         else if (items.isEmpty()) content.addView(launcher.text("Nothing to clean up. Games in use, your saves and quick save states are never listed here.", 14, launcher.p.muted));
         else {
@@ -183,32 +186,37 @@ final class StorageDialog {
             content.addView(launcher.text(size(total) + " can be freed. Choose an item to delete it. Games in use and your in-game saves are never listed.", 14, launcher.p.muted));
             for (Item item : items) {
                 Button row = launcher.button(item.label + "\n" + size(item.bytes), false, "storage." + item.file.getName());
-                row.setOnClickListener(v -> { dialog[0].dismiss(); confirm(launcher, item); });
+                row.setOnClickListener(v -> { dialog[0].dismiss(); confirm(launcher, items, item); });
+                if (item == chosen) focus[0] = row;
                 LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.setMargins(0, launcher.dp(8), 0, 0); content.addView(row, gap);
             }
         }
         ScrollView scroll = new ScrollView(launcher); scroll.addView(content);
         dialog[0] = launcher.controllerDialog(new AlertDialog.Builder(launcher, launcher.p.dialogTheme()).setTitle("Storage").setView(scroll).setNegativeButton("Close", null).create(), false);
-        dialog[0].show(); launcher.focusFirst(dialog[0]);
+        dialog[0].show();
+        if (focus[0] != null) dialog[0].getWindow().getDecorView().post(focus[0]::requestFocusFromTouch); else launcher.focusFirst(dialog[0]);
     }
 
-    private static void confirm(Launcher launcher, Item item) {
+    private static void confirm(Launcher launcher, List<Item> items, Item item) {
         launcher.controllerDialog(new AlertDialog.Builder(launcher, launcher.p.dialogTheme()).setTitle("Delete " + item.label + "?")
                 .setMessage(size(item.bytes) + " will be freed. " + item.detail + (item.warning == null ? "" : "\n\n" + item.warning)
                         + "\n\nThis cannot be undone. Your in-game saves are not touched.")
-                .setPositiveButton("Delete", (d, w) -> delete(launcher, item))
-                .setNegativeButton("Cancel", (d, w) -> show(launcher)).create(), true).show();
+                .setPositiveButton("Delete", (d, w) -> delete(launcher, items, item))
+                .setNegativeButton("Cancel", (d, w) -> list(launcher, items, null, item)).create(), true).show();
     }
 
-    private static void delete(Launcher launcher, Item item) {
+    private static void delete(Launcher launcher, List<Item> items, Item item) {
         new Thread(() -> {
             String problem = null;
             try { delete(launcher.getFilesDir(), item.file, () -> blockedReason(launcher)); } catch (Exception e) { problem = e.getMessage(); }
             String failure = problem;
             launcher.runOnUiThread(() -> {
                 if (launcher.isFinishing()) return;
-                Toast.makeText(launcher, failure == null ? "Deleted. " + size(item.bytes) + " freed." : failure, Toast.LENGTH_LONG).show();
-                show(launcher);
+                if (failure == null) {
+                    Toast.makeText(launcher, "Deleted. " + size(item.bytes) + " freed.", Toast.LENGTH_LONG).show();
+                    items.remove(item); list(launcher, items, null, null);
+                } else launcher.controllerDialog(new AlertDialog.Builder(launcher, launcher.p.dialogTheme()).setTitle("Couldn't delete").setMessage(failure)
+                        .setPositiveButton("OK", (d, w) -> show(launcher)).setOnCancelListener(d -> show(launcher)).create(), false).show();
             });
         }, "storage-delete").start();
     }
