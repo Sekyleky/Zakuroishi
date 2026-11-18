@@ -163,7 +163,7 @@ Open a game's **Settings → Game files** and choose **Import update or DLC…**
 decrypted `.cia`: the game's update, a DLC, or its Download Play child. Repeat for each file;
 Game files lists what is imported and **Remove updates and DLC** deletes them all. They are kept
 when the game is added again. At the next start the game uses the newest update, every DLC and
-the Download Play child (which a hosted local wireless game can then send to guests); a file for
+the Download Play child (which a game hosting a local wireless room can then send to Download Play guests on the PC build; Zakuroishi itself cannot be a Download Play guest yet); a file for
 another game, an encrypted one or one that is not a CIA is named in a "Not used" message. An
 update that changes the game's code needs a title.so built from the game with that update;
 otherwise the game says so and runs in the interpreter (or refuses when native code is required).
