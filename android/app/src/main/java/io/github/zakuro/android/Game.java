@@ -14,7 +14,7 @@ public final class Game extends NativeActivity {
     // Register bridge exports with ART as well as NativeActivity's native loader.
     static { System.loadLibrary("zakuro_android"); }
     // Shared with bridge.rs.
-    private static final int PAUSE=0, SAVE=1, LOAD=2, RESTART=3, RECALIBRATE=4, SWAP=5, RESUME=6, EXIT=7, LEAVEROOM=8, JOINROOM=9, RELOADCHEATS=10, CYCLELAYOUT=11;
+    private static final int PAUSE=0, SAVE=1, LOAD=2, RESTART=3, RECALIBRATE=4, SWAP=5, RESUME=6, EXIT=7, LEAVEROOM=8, JOINROOM=9, RELOADCHEATS=10, CYCLELAYOUT=11, SCREENSHOT=12;
     private native void nativeCommand(int command);
     private native void nativeButton(int keyCode, boolean pressed);
     private native void nativeStick(int stick, float x, float y);
@@ -494,21 +494,16 @@ public final class Game extends NativeActivity {
         super.surfaceChanged(holder,format,width,height); gameSurface=holder; surfaceWidth=width; surfaceHeight=height;
     }
     @Override public void surfaceDestroyed(android.view.SurfaceHolder holder) { gameSurface=null; super.surfaceDestroyed(holder); }
-    /**
-     * Copies the game picture on this display to Pictures/Zakuroishi.
-     * ponytail: this display's surface only (the top screen, or both screens when the layout shows both here); the second
-     * display is a separate surface and is not in the picture. Capture both if anyone asks for a bottom-screen shot.
-     */
+    /** Asks the game for a picture of both screens, the top above the bottom; the native side answers with storeNativeScreenshot. */
     private void screenshot() {
-        android.view.SurfaceHolder holder=gameSurface;
-        if(holder==null || surfaceWidth<=0 || surfaceHeight<=0 || isFinishing()) { showNativeMessage("Screenshot failed: the game picture is not ready."); return; }
-        android.graphics.Bitmap shot=android.graphics.Bitmap.createBitmap(surfaceWidth,surfaceHeight,android.graphics.Bitmap.Config.ARGB_8888);
-        try {
-            android.view.PixelCopy.request(holder.getSurface(),shot,result -> {
-                if(result!=android.view.PixelCopy.SUCCESS) { shot.recycle(); showNativeMessage("Screenshot failed: the picture could not be copied (error "+result+")."); return; }
-                new Thread(() -> showNativeMessage(storeScreenshot(shot)),"screenshot").start();
-            },hud);
-        } catch(RuntimeException e) { shot.recycle(); showNativeMessage("Screenshot failed: "+e.getMessage()); }
+        if(isFinishing()) return;
+        nativeCommand(SCREENSHOT);
+    }
+    /** Called from the native thread with the RGBA pixels of the picture. */
+    public void storeNativeScreenshot(byte[] pixels, int width, int height) {
+        android.graphics.Bitmap shot=android.graphics.Bitmap.createBitmap(width,height,android.graphics.Bitmap.Config.ARGB_8888);
+        shot.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(pixels));
+        new Thread(() -> showNativeMessage(storeScreenshot(shot)),"screenshot").start();
     }
     /** MediaStore needs no permission on API 30+ for the app's own pictures. Returns the message to show. */
     private String storeScreenshot(android.graphics.Bitmap shot) {

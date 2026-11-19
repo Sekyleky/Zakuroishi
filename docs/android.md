@@ -275,6 +275,7 @@ and settings still requiring a port.
 - **Dump textures** (Advanced, default off): saves each new texture the game uses as a PNG, named as a texture pack names it (`tex1_WxH_HASH_FORMAT_mip0.png`), in `Android/data/io.github.zakuro.android/files/dump/textures/<title id>/`, which a computer reaches over USB. A start for making a pack; it uses storage and can slow the game. Host-checked, not run on device.
 - **Small screen size** (Display, 25-100%, default 50): size of the bottom screen in Large top and of both small screens in Hybrid; 100% is the console's 320x240. Host-checked, not run on device.
 - **Hybrid** (Display → Screen layout): the top screen large on the left and, in a column on the right, a small copy of it above the small bottom screen; touch uses the small bottom screen. Host-checked, not run on device.
+- **Screen rotation** (Display, default Normal): Upright (90° clockwise), Upright (counter-clockwise) or Upside down turns both screens inside the display, to hold the handheld sideways for book-style games; touch and the touch cursor turn with them, device motion does not. Host-checked, not run on device.
 - **Picture effect** (Display, default None) and **Effect strength** (0-100%, default 50): Sharpen, Vivid colours, Scanlines or Smooth edges over the final picture, in the present shader's single pass; None leaves the picture as before. Host-checked, not run on device.
 - **Custom picture shaders** (Picture effect → Custom shader, plus **Custom shader file**): draws the screens with your own GLSL picture shader. Put a `.glsl` file in `Android/data/io.github.zakuro.android/files/shaders/` (reachable over USB) and type its file name (letters, digits, spaces, `.`, `-`, `_`, up to 64 characters, no folders) in Custom shader file. The file (up to 64 KiB) holds one function, with no `#version` line and no `main`:
 
@@ -296,9 +297,8 @@ A selects and B cancels in the library. In play, open the pause menu for resume,
 save and load states (quick slot and slots 1-9; X quick-saves and Y quick-loads),
 restart, screen swap, gyro recalibration and settings. B or Cancel in a list or
 question goes back to the pause menu. The **HUD** tile shows or hides the clock and
-battery at once and remembers it for the game. **Screenshot** saves the picture on
-the main display as a PNG in `Pictures/Zakuroishi` (the second display is not
-included). Optional
+battery at once and remembers it for the game. **Screenshot** saves both screens, the top
+above the bottom, as one PNG in `Pictures/Zakuroishi` (host-checked, not run on device). Optional
 on-screen controls provide buttons and sticks. Controller settings include
 Nintendo/Xbox face layout, remapping, stick dead zone, C-stick/touch cursor and
 stick-generated motion. Bottom-screen touch remains available on the game image.

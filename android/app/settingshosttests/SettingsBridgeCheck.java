@@ -37,6 +37,12 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("layout choices differ from Rust Layout");
         if(!settings.contains("choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid);") || !settings.contains("Self::Hybrid => \"Hybrid\","))
             throw new AssertionError("Layout is not the Java layout choices or Hybrid has no label");
+        // screen rotation: the Java choices are the Rust ScreenRotation, given to the presenter, the touch and the cursor
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("screen_rotation") && !String.join("|",setting.choices).equals("normal|clockwise|counterclockwise|upside_down"))
+            throw new AssertionError("screen_rotation choices differ from Rust ScreenRotation");
+        if(!settings.contains("choice!(ScreenRotation, Normal, Normal, Clockwise, Counterclockwise, UpsideDown);") || !runtime.contains("set_orientation(geometry::orientation(settings))")
+                || !runtime.contains("geometry::point(&self.settings, v, cursor)"))
+            throw new AssertionError("screen_rotation is not ScreenRotation or not given to the presenter and the cursor");
         // picture effect: the Java choices are the Rust PictureEffect, strength clamped like the Java range and given to the presenter
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("picture_effect") && !String.join("|",setting.choices).equals("none|sharpen|vivid_colours|scanlines|smooth_edges|custom"))
             throw new AssertionError("picture_effect choices differ from Rust PictureEffect");
@@ -72,7 +78,7 @@ public final class SettingsBridgeCheck {
                     || !(hardware+jit).contains("options."+pair[1]))
                 throw new AssertionError("Missing native shader consumer: "+pair[0]);
         }
-        String[] commands={"Pause","Save","Load","Restart","Recalibrate","Swap","Resume","Exit","LeaveRoom","JoinRoom","ReloadCheats","CycleLayout"};
+        String[] commands={"Pause","Save","Load","Restart","Recalibrate","Swap","Resume","Exit","LeaveRoom","JoinRoom","ReloadCheats","CycleLayout","Screenshot"};
         for(int i=0;i<commands.length;i++) {
             if(!Pattern.compile("\\b"+commands[i].toUpperCase(Locale.ROOT)+"\\s*=\\s*"+i+"\\b").matcher(java).find()
                     || !Pattern.compile("\\b"+i+"\\s*=>\\s*Command::"+commands[i]+"\\b").matcher(rust).find())
@@ -106,6 +112,6 @@ public final class SettingsBridgeCheck {
                 throw new AssertionError("Missing JNI export: "+method);
         if(!java.contains("native String nativeRoomStatus(") || !rust.contains("Game_nativeRoomStatus("))
             throw new AssertionError("Missing JNI export: nativeRoomStatus");
-        System.out.println("Java/native contracts passed: twelve command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
+        System.out.println("Java/native contracts passed: thirteen command IDs, JNI exports, platform callbacks, advanced keys, eight shader consumer mappings, binding targets, hotkeys and room settings.");
     }
 }

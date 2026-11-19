@@ -28,6 +28,8 @@ mod camera;
 mod room;
 #[cfg(target_os = "android")]
 mod runtime;
+#[cfg(any(target_os = "android", test))]
+mod shot;
 #[cfg(target_os = "android")]
 mod sensors;
 pub mod settings;

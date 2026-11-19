@@ -1,4 +1,5 @@
-use crate::settings::{Advanced, Filter, Layout, PictureEffect, StereoMode};
+use crate::settings::{Advanced, Filter, Layout, PictureEffect, ScreenRotation, StereoMode};
+use zakuro_gpu::backend::ScreenOrientation;
 use zakuro_gpu::{ScreenFilter, ScreenLayout, Shown, Stereo, Viewport};
 
 pub fn display(settings: &Advanced, external: bool, connected: bool) -> Advanced {
@@ -72,8 +73,8 @@ pub fn places(settings: &Advanced, width: u32, height: u32, right: bool) -> Vec<
         width,
         height,
         layout(settings),
-        // ponytail: the Activity's orientation setting turns the window here, so contents stay North; add a setting if a handheld's panel ever needs them turned too
-        zakuro_gpu::backend::ScreenOrientation::North,
+        // the Activity's orientation setting turns the window; this turns the screens inside it
+        orientation(settings),
         settings.top_width,
         settings.integer_scale,
         stereo(settings),
@@ -83,14 +84,54 @@ pub fn places(settings: &Advanced, width: u32, height: u32, right: bool) -> Vec<
         spacing(settings),
     )
 }
+pub fn orientation(settings: &Advanced) -> ScreenOrientation {
+    match settings.screen_rotation {
+        ScreenRotation::Normal => ScreenOrientation::North,
+        ScreenRotation::Clockwise => ScreenOrientation::East,
+        ScreenRotation::UpsideDown => ScreenOrientation::South,
+        ScreenRotation::Counterclockwise => ScreenOrientation::West,
+    }
+}
 pub fn touch(settings: &Advanced, width: u32, height: u32, x: f32, y: f32) -> Option<(u16, u16)> {
+    let orientation = orientation(settings);
     places(settings, width, height, true)
         .into_iter()
         .find_map(|(v, shown)| {
             (shown == Shown::Bottom)
-                .then(|| crate::transform::touch(x, y, [v.x, v.y, v.width, v.height]))
+                .then(|| {
+                    if orientation == ScreenOrientation::North {
+                        return crate::transform::touch(x, y, [v.x, v.y, v.width, v.height]);
+                    }
+                    // the window point as a share of the turned screen, turned back to the console's
+                    let (u, w) = ((x - v.x) / v.width, (y - v.y) / v.height);
+                    if !(0.0..1.0).contains(&u) || !(0.0..1.0).contains(&w) {
+                        return None;
+                    }
+                    let (u, w) = turn(orientation, u, w);
+                    Some((((u * 320.0) as u16).min(319), ((w * 240.0) as u16).min(239)))
+                })
                 .flatten()
         })
+}
+/// a share of the turned screen, window-side, as a share of the console's screen.
+fn turn(orientation: ScreenOrientation, u: f32, w: f32) -> (f32, f32) {
+    match orientation {
+        ScreenOrientation::North => (u, w),
+        ScreenOrientation::East => (w, 1.0 - u),
+        ScreenOrientation::South => (1.0 - u, 1.0 - w),
+        ScreenOrientation::West => (1.0 - w, u),
+    }
+}
+/// where a console point of the bottom screen shows in the window, inside its viewport v.
+pub fn point(settings: &Advanced, v: Viewport, [x, y]: [f32; 2]) -> (f32, f32) {
+    let (u, w) = (x / 320.0, y / 240.0);
+    let (u, w) = match orientation(settings) {
+        ScreenOrientation::North => (u, w),
+        ScreenOrientation::East => (1.0 - w, u),
+        ScreenOrientation::South => (1.0 - u, 1.0 - w),
+        ScreenOrientation::West => (w, 1.0 - u),
+    };
+    (v.x + u * v.width, v.y + w * v.height)
 }
 
 #[cfg(test)]
@@ -226,6 +267,38 @@ mod tests {
         };
         assert_eq!(touch(&settings, 1920, 1080, 1600.8, 732.8), Some((160, 120)));
         assert_eq!(touch(&settings, 1920, 1080, 1600.0, 348.0), None);
+    }
+    #[test]
+    fn rotated_screens_stay_inside_and_touch_turns_with_them() {
+        // where the console's top-left corner shows in the turned bottom screen, as shares of it
+        for (rotation, corner) in [
+            (ScreenRotation::Normal, (0.0, 0.0)),
+            (ScreenRotation::Clockwise, (1.0, 0.0)),
+            (ScreenRotation::UpsideDown, (1.0, 1.0)),
+            (ScreenRotation::Counterclockwise, (0.0, 1.0)),
+        ] {
+            let settings = Advanced {
+                screen_rotation: rotation,
+                ..Advanced::default()
+            };
+            let places = places(&settings, 1920, 1080, false);
+            for (v, _) in &places {
+                assert!(v.x >= 0.0 && v.y >= 0.0 && v.x + v.width <= 1920.0 && v.y + v.height <= 1080.0, "{rotation:?}");
+                assert_eq!(v.height > v.width, orientation(&settings).is_portrait(), "{rotation:?}");
+            }
+            let v = places.iter().find(|(_, s)| *s == Shown::Bottom).unwrap().0;
+            // half a console pixel in from the corner, along the window's axes
+            let (cx, cy) = (corner.0 * v.width, corner.1 * v.height);
+            let inward = |at: f32, size: f32| if at == 0.0 { 0.5 } else { -0.5 } * size;
+            let (px, py) = if orientation(&settings).is_portrait() { (v.width / 240.0, v.height / 320.0) } else { (v.width / 320.0, v.height / 240.0) };
+            let (x, y) = (v.x + cx + inward(cx, px), v.y + cy + inward(cy, py));
+            assert_eq!(touch(&settings, 1920, 1080, x, y), Some((0, 0)), "{rotation:?}");
+            let (x, y) = point(&settings, v, [160.5, 120.5]);
+            assert_eq!(touch(&settings, 1920, 1080, x, y), Some((160, 120)), "{rotation:?}");
+            let (x, y) = point(&settings, v, [300.5, 20.5]);
+            assert_eq!(touch(&settings, 1920, 1080, x, y), Some((300, 20)), "{rotation:?}");
+            assert_eq!(touch(&settings, 1920, 1080, v.x - 1.0, v.y), None, "{rotation:?}");
+        }
     }
     #[test]
     fn stretch_fills_display_and_stereo_bottoms_both_accept_touch() {

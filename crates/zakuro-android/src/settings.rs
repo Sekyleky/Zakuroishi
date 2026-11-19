@@ -10,6 +10,7 @@ macro_rules! choice {
 }
 choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid);
 choice!(Filter, Smooth, Smooth, Sharp, Pixels);
+choice!(ScreenRotation, Normal, Normal, Clockwise, Counterclockwise, UpsideDown);
 choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges, Custom);
 choice!(ButtonMapping, Nintendo, Nintendo, Xbox);
 choice!(LeftStick, CirclePad, CirclePad, Dpad);
@@ -157,6 +158,8 @@ pub struct Advanced {
     pub custom_shader: String,
     pub stretch: bool,
     pub swap_screens: bool,
+    /// both screens turned inside the window, to hold the handheld sideways.
+    pub screen_rotation: ScreenRotation,
     pub dual_display: bool,
     pub external_stretch: bool,
     pub custom_driver: bool,
@@ -275,6 +278,7 @@ impl Default for Advanced {
             custom_shader: String::new(),
             stretch: false,
             swap_screens: false,
+            screen_rotation: ScreenRotation::Normal,
             dual_display: false,
             external_stretch: false,
             custom_driver: false,
@@ -642,6 +646,20 @@ mod tests {
         assert_eq!((settings.screen_gap, settings.small_screen), (40, 25));
         let settings = Advanced::parse(r#"{"screen_gap":-3,"small_screen":400}"#).unwrap();
         assert_eq!((settings.screen_gap, settings.small_screen), (0, 100));
+    }
+    #[test]
+    fn screen_rotation_defaults_and_parses() {
+        assert_eq!(Advanced::default().screen_rotation, ScreenRotation::Normal);
+        assert_eq!(Advanced::parse("{}").unwrap().screen_rotation, ScreenRotation::Normal);
+        for (name, rotation) in [
+            ("normal", ScreenRotation::Normal),
+            ("clockwise", ScreenRotation::Clockwise),
+            ("counterclockwise", ScreenRotation::Counterclockwise),
+            ("upside_down", ScreenRotation::UpsideDown),
+        ] {
+            assert_eq!(Advanced::parse(&format!(r#"{{"screen_rotation":"{name}"}}"#)).unwrap().screen_rotation, rotation);
+        }
+        assert!(Advanced::parse(r#"{"screen_rotation":"sideways"}"#).is_err());
     }
     #[test]
     fn picture_effect_defaults_parses_and_clamps() {

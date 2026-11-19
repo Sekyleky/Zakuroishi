@@ -25,6 +25,8 @@ pub enum Command {
     ReloadCheats,
     /// the Cycle layout hotkey: next screen layout for this session, not saved.
     CycleLayout,
+    /// the Screenshot button: both screens as one picture, handed to Game to store.
+    Screenshot,
 }
 use crate::input::VirtualInput;
 struct State {
@@ -140,6 +142,7 @@ fn decode(command: i32) -> Option<Command> {
         9 => Command::JoinRoom,
         10 => Command::ReloadCheats,
         11 => Command::CycleLayout,
+        12 => Command::Screenshot,
         _ => return None,
     })
 }
@@ -286,6 +289,7 @@ mod tests {
         assert!(matches!(decode(2 | 9 << 4), Some(Command::Load(9))));
         assert!(decode(1 | 10 << 4).is_none() && decode(12).is_none() && decode(-1).is_none());
         assert!(matches!(decode(11), Some(Command::CycleLayout)));
+        assert!(matches!(decode(12), Some(Command::Screenshot)));
         assert!(matches!(decode(8), Some(Command::LeaveRoom)) && matches!(decode(9), Some(Command::JoinRoom)));
         assert!(matches!(decode(7), Some(Command::Exit)));
     }

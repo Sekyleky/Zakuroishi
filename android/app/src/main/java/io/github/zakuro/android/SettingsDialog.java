@@ -587,6 +587,8 @@ final class SettingsDialog {
             case "hybrid": return "Hybrid";
             case "top_only": return "Top screen only";
             case "bottom_only": return "Bottom screen only";
+            case "clockwise": return "Upright (90° clockwise)";
+            case "counterclockwise": return "Upright (counter-clockwise)";
             case "circle_pad": return "Circle Pad";
             case "circle_up": return "Circle Pad up"; case "circle_down": return "Circle Pad down";
             case "circle_left": return "Circle Pad left"; case "circle_right": return "Circle Pad right";

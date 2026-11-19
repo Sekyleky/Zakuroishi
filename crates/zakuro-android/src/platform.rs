@@ -304,6 +304,19 @@ pub fn message(app: &AndroidApp, text: &str) {
     log::info!("{text}");
     java_text(app, "showNativeMessage", text);
 }
+/// hands Game the screenshot's RGBA pixels to store in Pictures/Zakuroishi.
+pub fn screenshot(app: &AndroidApp, pixels: &[u8], width: u32, height: u32) {
+    let _ = with_activity(app, |env, activity| {
+        let pixels = env.byte_array_from_slice(pixels)?;
+        env.call_method(
+            activity,
+            "storeNativeScreenshot",
+            "([BII)V",
+            &[JValue::Object(&pixels), JValue::Int(width as i32), JValue::Int(height as i32)],
+        )
+        .map(|_| ())
+    });
+}
 fn java_text(app: &AndroidApp, method: &str, text: &str) {
     let _ = with_activity(app, |env, activity| {
         let text = env.new_string(text)?;

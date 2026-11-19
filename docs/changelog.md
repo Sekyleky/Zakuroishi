@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Screen rotation (host-checked, not run on device):** Display → Screen rotation turns both screens upright (clockwise or counter-clockwise) or upside down inside the display, for book-style games held sideways; touch turns with the screens.
+- **Screenshot of both screens (host-checked, not run on device):** Screenshot (pause menu or button) saves the top screen above the bottom screen in one PNG at the current resolution, as before in `Pictures/Zakuroishi`.
 - **Hybrid screen layout (host-checked, not run on device):** Display → Screen layout → Hybrid shows the top screen large with a small copy of it above the small bottom screen in a column beside it; touch uses the small bottom screen, Small screen size sets the column, and Cycle layout includes it after Large top.
 - **Fast-forward toggle button (host-checked, not run on device):** Button mapping can bind Fast-forward (toggle): one press turns fast-forward on, the next turns it off; the hold-to-run Fast-forward button works as before.
 - **Library sorting (host-checked, not run on device):** Menu → Sort switches the library between Last played (default, as before), Name and Play time, and remembers the choice.

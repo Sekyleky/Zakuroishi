@@ -53,6 +53,7 @@ final class GameSettings {
         flag("Display", "swap_screens", "Swap top and bottom screens", false, "Exchange their positions in the selected layout."),
         flag("Display", "external_stretch", "Fill second display", false, "Fill the physical second display independently of the main display. Can change the picture proportions."),
         choice("Display", "orientation", "Display orientation", "landscape", "auto|landscape|portrait", "Automatic follows device rotation. Landscape and Portrait follow the sensor within the selected orientation."),
+        choice("Display", "screen_rotation", "Screen rotation", "normal", "normal|clockwise|counterclockwise|upside_down", "Turns both screens inside the display, to hold the handheld sideways for book-style games. Touch turns with them."),
         choice("Display", "filter", "Picture filter", "smooth", "smooth|sharp|pixels", "How the screens look when scaled."),
         choice("Display", "picture_effect", "Picture effect", "none", "none|sharpen|vivid_colours|scanlines|smooth_edges|custom", "Sharpen: crisper detail. Vivid colours: richer colour and contrast. Scanlines: darkened lines like an old screen. Smooth edges: softens jagged edges. Custom shader: your own picture shader from the shaders folder, 2D only."),
         number("Display", "effect_strength", "Effect strength (%)", 50, 0, 100, "How strongly the picture effect applies."),

@@ -100,6 +100,7 @@ impl Surface {
     fn configure(&mut self, settings: &Advanced) {
         self.settings = settings.clone();
         self.presenter.set_layout(geometry::layout(settings));
+        self.presenter.set_orientation(geometry::orientation(settings));
         self.presenter.set_top_width(settings.top_width);
         self.presenter
             .set_scaling(geometry::filter(settings), settings.integer_scale);
@@ -229,8 +230,7 @@ impl Surface {
             if shown != zakuro_gpu::Shown::Bottom {
                 continue;
             }
-            let x = v.x + cursor[0] / 320.0 * v.width;
-            let y = v.y + cursor[1] / 240.0 * v.height;
+            let (x, y) = geometry::point(&self.settings, v, cursor);
             let mut mesh = OverlayMesh {
                 texture: id,
                 clip: [
@@ -783,6 +783,15 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                 Command::CycleLayout if settings.dual_display && second.is_some() => {
                     platform::message(app, "Layout is fixed with two displays")
                 }
+                Command::Screenshot => match &mut system {
+                    Some(system) => {
+                        let top = system.read_screen_scaled(Screen::Top);
+                        let bottom = system.read_screen_scaled(Screen::Bottom);
+                        let (pixels, width, height) = crate::shot::both_screens((&top.0, top.1, top.2), (&bottom.0, bottom.1, bottom.2));
+                        platform::screenshot(app, &pixels, width, height);
+                    }
+                    None => platform::message(app, "Screenshot failed: the game picture is not ready."),
+                },
                 Command::Swap | Command::CycleLayout => {
                     if matches!(command, Command::Swap) {
                         settings.swap_screens = !settings.swap_screens;
