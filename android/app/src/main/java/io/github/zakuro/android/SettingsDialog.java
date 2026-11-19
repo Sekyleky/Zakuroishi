@@ -469,6 +469,8 @@ final class SettingsDialog {
                 case "dual_display": section = "Screens"; break;
                 case "filter": section = "Scaling & shape"; break;
                 case "show_fps": section = "On-screen info"; break;
+                case "background": section = "Background"; break;
+                case "top_x": section = "Custom layout · used by Screen layout → Custom"; break;
                 case "stereo": section = "3D"; break;
                 case "speed_limit": section = "Everyday"; break;
                 case "frame_generation": section = "Frame generation"; break;
@@ -663,7 +665,8 @@ final class SettingsDialog {
                 public void afterTextChanged(android.text.Editable text) { draft.values.put(setting.key, text.toString()); }
             }); content.addView(field);
         } else {
-            float step = setting.max <= 1 ? 0.05f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
+            // whole steps for wide ranges (percent, gap): a D-pad press moves one unit, not a quarter
+            float step = setting.max <= 1 ? 0.05f : setting.max - setting.min >= 10 ? 1f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
             TextView caption = text(name(draft, setting) + " · " + format(setting, draft.number(setting.key)), false); content.addView(caption);
             SeekBar slider = new SeekBar(activity); slider.setTag(setting.key); slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border));
             slider.setThumbTintList(ColorStateList.valueOf(p.accent)); slider.setMax(Math.round((setting.max - setting.min) / step));
@@ -682,7 +685,7 @@ final class SettingsDialog {
     }
     private boolean interpreterOnly(GameSettings.Setting setting) { return setting.key.equals("aot") && version != null && !GameSettings.hasNativeCode(version); }
     private static String format(GameSettings.Setting setting, float value) {
-        return setting.max <= 1 ? Math.round(value * 100) + "%" : String.format(Locale.getDefault(), "%.2f", value);
+        return setting.max <= 1 ? Math.round(value * 100) + "%" : setting.max - setting.min >= 10 ? String.valueOf(Math.round(value)) : String.format(Locale.getDefault(), "%.2f", value);
     }
     private void numbers(GameSettings draft, Button button, GameSettings.Setting setting, String heading, float[] values, String[] names) {
         float current = setting == null ? draft.resolution : draft.number(setting.key);
