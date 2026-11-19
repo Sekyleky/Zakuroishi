@@ -94,6 +94,7 @@ final class GameSettings {
         flag("Advanced", "warm_pipelines", "Warm up GPU pipelines at launch", true, "Remember the GPU pipelines this game used and create them in the background when it starts. Turn off only to compare. Requires restart."),
         flag("Performance", "custom_driver", "Use selected custom Vulkan driver", false, "Requires an imported ARM64 Android Vulkan driver and packaged native driver support. Restart after changing. Driver compatibility depends on your GPU."),
         choice("Controls", "button_mapping", "Face button layout", "nintendo", "nintendo|xbox", "Choose Nintendo positions or Xbox button labels."),
+        choice("Controls", "dpad_mode", "D-pad mode", "dpad", "dpad|circle_pad", "What the D-pad drives: the 3DS D-pad, or the Circle Pad at full tilt (for games that only read the stick)."),
         choice("Controls", "left_stick", "Left stick", "circle_pad", "circle_pad|dpad", "Map the physical left stick to the Circle Pad or D-pad."),
         choice("Controls", "right_stick", "Right stick", "c_stick", "c_stick|cursor", "Use the C-stick or move a cursor on the bottom screen."),
         number("Controls", "deadzone", "Stick dead zone", 0.15f, 0, 0.9f, "Ignore small stick movement around the center."),

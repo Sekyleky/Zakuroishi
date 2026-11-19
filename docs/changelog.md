@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **D-pad mode (host-checked, not run on device):** Controls → D-pad mode → Circle Pad makes the D-pad drive the Circle Pad at full tilt, for games that only read the stick
 - **Swap screens with a sideways screen rotation (host-checked, not run on device):** with Screen rotation set upright (clockwise or counter-clockwise), swapped screens are no longer squashed to a landscape shape; each keeps its own shape on its side, in every layout.
 - **Microphone (host-checked, not run on device):** Audio → Microphone → Handheld microphone lets games that listen hear the handheld's microphone while they sample it; Android asks for the microphone permission the first time. Off, the default, keeps the silence of before; Blow into microphone still works with both.
 - **Custom screen layout (host-checked, not run on device):** Display → Screen layout → Custom places each screen by six settings in percent of the display (left, top and width of the top and the bottom screen), set with the controller, no drag editor; screens keep their shape, stay inside the display and may overlap with the bottom screen on top; touch uses the bottom screen and Cycle layout includes it after Hybrid.

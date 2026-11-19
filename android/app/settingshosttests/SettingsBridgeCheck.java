@@ -64,6 +64,11 @@ public final class SettingsBridgeCheck {
         if(!settings.contains("choice!(Background, Black, Black, DarkGrey, Grey, White, Custom);") || !settings.contains("pub background_hex: String,")
                 || !runtime.contains("set_background(geometry::background(settings))"))
             throw new AssertionError("Background colour is not wired: Background, background_hex or the presenter");
+        // D-pad mode: the Java choices are the Rust DpadMode, applied to the pad state
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("dpad_mode") && !String.join("|",setting.choices).equals("dpad|circle_pad"))
+            throw new AssertionError("dpad_mode choices differ from Rust DpadMode");
+        if(!settings.contains("choice!(DpadMode, Dpad, Dpad, CirclePad);") || !Files.readString(root.resolve("crates/zakuro-android/src/input.rs")).contains("settings.dpad_mode == DpadMode::CirclePad"))
+            throw new AssertionError("dpad_mode is not DpadMode or not applied by the input mapping");
         // rendering resolution: the Intent extra is clamped to the Java range
         if(!settings.contains("pub const MAX_RESOLUTION: u32 = "+GameSettings.MAX_RESOLUTION+";") || !platform.contains("crate::settings::resolution(resolution)"))
             throw new AssertionError("The resolution extra is not clamped to GameSettings.MAX_RESOLUTION");

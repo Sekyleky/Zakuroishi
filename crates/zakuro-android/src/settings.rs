@@ -15,6 +15,7 @@ choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges
 choice!(Background, Black, Black, DarkGrey, Grey, White, Custom);
 choice!(ButtonMapping, Nintendo, Nintendo, Xbox);
 choice!(LeftStick, CirclePad, CirclePad, Dpad);
+choice!(DpadMode, Dpad, Dpad, CirclePad);
 choice!(RightStick, CStick, CStick, Cursor);
 choice!(ShaderMode, Auto, Auto, Gpu, Cpu);
 choice!(ShaderExecution, Compiled, Compiled, Interpreted);
@@ -203,6 +204,8 @@ pub struct Advanced {
     /// Android keycode -> guest button; explicit bindings override the face preset.
     pub controller_bindings: std::collections::BTreeMap<i32, Binding>,
     pub left_stick: LeftStick,
+    /// what the physical D-pad drives: the 3DS D-pad, or the Circle Pad at full tilt.
+    pub dpad_mode: DpadMode,
     pub right_stick: RightStick,
     pub cursor_speed: f32,
     pub deadzone: f32,
@@ -332,6 +335,7 @@ impl Default for Advanced {
             button_mapping: ButtonMapping::Nintendo,
             controller_bindings: std::collections::BTreeMap::new(),
             left_stick: LeftStick::CirclePad,
+            dpad_mode: DpadMode::Dpad,
             right_stick: RightStick::CStick,
             cursor_speed: 1.0,
             deadzone: 0.15,
@@ -748,6 +752,12 @@ mod tests {
             assert_eq!(custom(bad), [0, 0, 0], "{bad}");
         }
         assert!(Advanced::parse(r#"{"background":"pink"}"#).is_err());
+    }
+    #[test]
+    fn dpad_mode_defaults_to_dpad_and_parses() {
+        assert_eq!(Advanced::parse("{}").unwrap().dpad_mode, DpadMode::Dpad);
+        assert_eq!(Advanced::parse(r#"{"dpad_mode":"circle_pad"}"#).unwrap().dpad_mode, DpadMode::CirclePad);
+        assert!(Advanced::parse(r#"{"dpad_mode":"touch"}"#).is_err());
     }
     #[test]
     fn custom_shader_parses_and_refuses_paths() {

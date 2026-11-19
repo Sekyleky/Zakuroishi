@@ -204,7 +204,7 @@ Reference mechanisms: PN `Settings`, `GameSettings`, `menu::sections/change`,
 | `touch_speed` | **Wired equivalent**: `cursor_speed`, I right-stick cursor update; numeric gain instead of Slow/Normal/Fast. |
 | `buttons` | **Wired**: `button_mapping=nintendo/xbox`, S `binding`. |
 | `left_stick` | **Wired**: `left_stick=circle_pad/dpad`, I axis-to-guest mapping. |
-| `dpad` | **Partial**: physical directions and per-key bindings; no Dpad/CirclePad/Touch mode selector or D-pad cursor path. |
+| `dpad` | **Partial**: physical directions and per-key bindings; `dpad_mode=dpad/circle_pad` selects the 3DS D-pad or a full Circle Pad push (host-checked); no Touch mode or D-pad cursor path. |
 | `right_stick` | **Wired**: `right_stick=c_stick/cursor`, I; cursor touch press uses ZR. PN's R3 runtime mode toggle is not equivalent. |
 | `reverse_tilt_x` | **Wired**: same key, I independent stick-tilt horizontal inversion. |
 | `reverse_tilt_y` | **Wired**: same key, I independent stick-tilt vertical inversion. |

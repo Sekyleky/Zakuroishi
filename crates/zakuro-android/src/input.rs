@@ -1,5 +1,5 @@
 //! Platform-independent controller mapping and motion/cursor configuration.
-use crate::settings::{Advanced, Binding, LeftStick, RightStick};
+use crate::settings::{Advanced, Binding, DpadMode, LeftStick, RightStick};
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -267,6 +267,33 @@ mod tests {
         let dpad = Advanced::parse(r#"{"left_stick":"dpad","controller_bindings":{"19":"circle_up"}}"#).unwrap();
         input.keys = [19].into_iter().collect();
         let result = input.configured(&dpad, &VirtualInput::default(), None);
+        assert!(result.buttons.contains(PadState::UP) && result.circle_y == 0.0);
+    }
+    #[test]
+    fn circle_pad_mode_turns_the_dpad_into_a_full_push_and_leaves_the_stick_otherwise() {
+        let settings = Advanced::parse(r#"{"dpad_mode":"circle_pad"}"#).unwrap();
+        let mut input = Input::default();
+        let dpad = |bits: u32| VirtualInput { buttons: bits, ..VirtualInput::default() };
+        let result = input.configured(&settings, &dpad(PadState::UP.bits()), None);
+        assert_eq!((result.circle_x, result.circle_y), (0.0, 1.0));
+        assert!(!result.buttons.contains(PadState::UP));
+        let result = input.configured(&settings, &dpad((PadState::UP | PadState::RIGHT).bits()), None);
+        let diagonal = std::f32::consts::FRAC_1_SQRT_2;
+        assert!((result.circle_x - diagonal).abs() < 1e-6 && (result.circle_y - diagonal).abs() < 1e-6);
+        let result = input.configured(&settings, &dpad(0), None);
+        assert_eq!((result.circle_x, result.circle_y), (0.0, 0.0));
+        // opposite directions cancel
+        let result = input.configured(&settings, &dpad((PadState::LEFT | PadState::RIGHT).bits()), None);
+        assert_eq!((result.circle_x, result.circle_y), (0.0, 0.0));
+        // the real stick is kept while the D-pad is idle and loses to a held D-pad direction
+        let stick = VirtualInput { sticks: [Some([0.5, -0.5]), None], ..VirtualInput::default() };
+        let result = input.configured(&settings, &stick, None);
+        assert_eq!((result.circle_x, result.circle_y), (settings.axis(0.5), settings.axis(-0.5)));
+        let both = VirtualInput { buttons: PadState::LEFT.bits(), ..stick };
+        let result = input.configured(&settings, &both, None);
+        assert_eq!((result.circle_x, result.circle_y), (-1.0, 0.0));
+        // the default mode leaves the D-pad alone
+        let result = input.configured(&Advanced::default(), &dpad(PadState::UP.bits()), None);
         assert!(result.buttons.contains(PadState::UP) && result.circle_y == 0.0);
     }
     #[test]
@@ -561,6 +588,16 @@ impl Input {
         let pick = |stick: [f32; 2], push: [f32; 2]| if push == [0.0, 0.0] { stick } else { push.map(|v| v.clamp(-1.0, 1.0)) };
         [input.circle_x, input.circle_y] = pick([left_x, left_y], pushed[0]);
         [input.c_stick_x, input.c_stick_y] = pick([right_x, right_y], pushed[1]);
+        if settings.dpad_mode == DpadMode::CirclePad {
+            // the physical D-pad is a full push of the Circle Pad, diagonals normalised; like a direction key it wins over the stick
+            let held = |bit| if input.buttons.contains(bit) { 1.0f32 } else { 0.0 };
+            let push = [held(PadState::RIGHT) - held(PadState::LEFT), held(PadState::UP) - held(PadState::DOWN)];
+            input.buttons.remove(PadState::UP | PadState::DOWN | PadState::LEFT | PadState::RIGHT);
+            if push != [0.0, 0.0] {
+                let length = (push[0] * push[0] + push[1] * push[1]).sqrt();
+                [input.circle_x, input.circle_y] = push.map(|v| v / length);
+            }
+        }
         let [left_x, left_y] = [input.circle_x, input.circle_y];
         if settings.left_stick == LeftStick::Dpad {
             input.buttons |= zakuro_core::services::hid::directions(
