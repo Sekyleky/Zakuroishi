@@ -34,6 +34,14 @@ public final class GameSettingsCheck {
         }
     }
     public static void main(String[] args) throws Exception {
+        // rows that only matter under another choice, each rule both ways; values are never touched
+        Map<String,Object> shown=new HashMap<>(); shown.put("layout","custom"); shown.put("background","custom"); shown.put("picture_effect","scanlines");
+        Map<String,Object> hidden=new HashMap<>(); hidden.put("layout","stacked"); hidden.put("background","black"); hidden.put("picture_effect","none"); hidden.put("effect_strength",70f);
+        for(String key:new String[]{"top_x","top_y","top_size","bottom_x","bottom_y","bottom_size","background_hex"}) require(GameSettings.visible(key,shown) && !GameSettings.visible(key,hidden));
+        require(GameSettings.visible("effect_strength",shown) && !GameSettings.visible("effect_strength",hidden) && hidden.get("effect_strength").equals(70f));
+        require(!GameSettings.visible("custom_shader",hidden) && !GameSettings.visible("custom_shader",Collections.singletonMap("picture_effect","sharpen")));
+        shown.put("picture_effect","custom"); require(GameSettings.visible("custom_shader",shown) && GameSettings.visible("effect_strength",shown));
+        require(GameSettings.visible("layout",hidden) && GameSettings.visible("filter",hidden) && GameSettings.visible("unknown",hidden));
         require(Arrays.equals(GameSettings.hexRgb("#203040"), new int[]{32, 48, 64}) && GameSettings.rgbHex(32, 48, 64).equals("#203040"));
         require(GameSettings.rgbHex(255, 0, 171).equals("#FF00AB") && Arrays.equals(GameSettings.hexRgb("#ff00ab"), new int[]{255, 0, 171}));
         for (String bad : new String[]{null, "", "203040", "#20304", "#2030400", "#20304g", " #203040", "#+20304"}) require(Arrays.equals(GameSettings.hexRgb(bad), new int[]{0, 0, 0}));

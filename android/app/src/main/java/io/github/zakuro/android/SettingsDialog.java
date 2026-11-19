@@ -453,6 +453,17 @@ final class SettingsDialog {
         use.setOnCheckedChangeListener((button, checked) -> { draft.textures = checked; syncPreset(draft); }); content.addView(use);
         content.addView(text(pack ? "Uses the imported pack. Higher resolutions and large textures use more GPU memory." : "No texture pack attached. Original textures are used. Import a pack under Game files if you want one.", true));
     }
+    /** The setting each row view of an open group belongs to, so a choice can show and hide the rows that depend on it. */
+    private final Map<View, String> rowOf = new WeakHashMap<>();
+    /** Shows or hides the rows by GameSettings.visible; focus on a row that hid moves to the choice (changed) that hid it. */
+    private void showRows(LinearLayout content, GameSettings draft, View changed) {
+        View focused = content.findFocus();
+        for (int i = 0; i < content.getChildCount(); i++) {
+            View row = content.getChildAt(i); String key = rowOf.get(row);
+            if (key != null) row.setVisibility(GameSettings.visible(key, draft.values) ? View.VISIBLE : View.GONE);
+        }
+        if (focused != null && focused.getVisibility() != View.VISIBLE && changed != null) changed.requestFocusFromTouch();
+    }
     private void group(String group) {
         GameSettings draft = settings.copy(); LinearLayout content = column();
         String start = snapshot(draft, draft.name);
@@ -464,6 +475,7 @@ final class SettingsDialog {
         for (GameSettings.Setting setting : GameSettings.ALL) if (setting.group.equals(group)) {
             if (defaults && setting.key.equals("custom_driver")) continue; // the driver is chosen per game
             if (setting.key.startsWith("room_") && !GameImport.nightly(activity)) continue; // local wireless: nightly only
+            int rowStart = content.getChildCount();
             String section;
             switch (setting.key) {
                 case "dual_display": section = "Screens"; break;
@@ -491,6 +503,7 @@ final class SettingsDialog {
                 content.addView(heading(section));
             }
             control(content, draft, setting);
+            for (int i = rowStart; i < content.getChildCount(); i++) rowOf.put(content.getChildAt(i), setting.key);
             if (setting.key.equals("frame_generation_flow")) {
                 // in-game the activity is Game: casting it would end the running game
                 if (activity instanceof Launcher) {
@@ -501,6 +514,7 @@ final class SettingsDialog {
                 state.getViewTreeObserver().addOnWindowFocusChangeListener(focused -> state.setText(losslessState()));
             }
         }
+        showRows(content, draft, null);
         if (group.equals("Performance") && !defaults) {
             File home=new File(activity.getFilesDir(),"drivers");
             File[] folders=home.listFiles(f -> f.isDirectory() && f.getName().matches("[0-9a-fA-F-]{36}"));
@@ -636,6 +650,7 @@ final class SettingsDialog {
                 AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(setting.label)
                         .setSingleChoiceItems(shown, checked, (d, which) -> {
                             draft.values.put(setting.key, setting.choices[which]); choose.setText(name(draft, setting) + " · " + names[which]); d.dismiss();
+                            showRows(content, draft, choose);
                         }).setNegativeButton("Cancel", null).create(); choices(list, checked);
             }); addButton(content, choose);
         } else if (setting.key.equals("top_width") || setting.key.equals("frame_cap") || setting.key.equals("speed_limit") || setting.key.equals("fast_forward_speed") || setting.key.equals("region") || setting.key.equals("language") || setting.key.equals("frame_generation_multiplier") || setting.key.equals("frame_generation_flow")) {

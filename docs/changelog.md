@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Settings that depend on another choice hide until it applies (host-checked, not run on device):** the Custom layout numbers show only for Screen layout Custom, the custom colour only for Background Custom, the shader file only for Custom shader and Effect strength only with an effect; hidden values are kept
 - **0.5× rendering resolution (host-checked, not run on device):** Rendering resolution offers 0.5× below 1×, drawing the screens at half the console's size for the lowest GPU load; a GPU that can't blit depth buffers draws at 1× instead and logs it. 1× to 5× draw exactly as before.
 - **Display settings are easier on a gamepad (host-checked, not run on device):** percent and gap sliders move one unit per D-pad press instead of a quarter; Background colour and the Custom layout numbers have their own headings
 - **D-pad mode (host-checked, not run on device):** Controls → D-pad mode → Circle Pad makes the D-pad drive the Circle Pad at full tilt, for games that only read the stick

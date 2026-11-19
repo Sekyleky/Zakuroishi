@@ -323,6 +323,16 @@ final class GameSettings {
     static String rgbHex(int r, int g, int b) {
         return String.format(Locale.ROOT, "#%02X%02X%02X", Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b)));
     }
+    /** Whether a setting's row shows: one that only matters under another choice hides without losing its value. */
+    static boolean visible(String key, Map<String, Object> values) {
+        switch (key) {
+            case "top_x": case "top_y": case "top_size": case "bottom_x": case "bottom_y": case "bottom_size": return "custom".equals(values.get("layout"));
+            case "background_hex": return "custom".equals(values.get("background"));
+            case "custom_shader": return "custom".equals(values.get("picture_effect"));
+            case "effect_strength": return !"none".equals(values.get("picture_effect"));
+            default: return true;
+        }
+    }
     /** A ROM-only import has no title.so; such a game runs in the interpreter whatever the aot switch says. */
     static boolean hasNativeCode(File version) { return version != null && new File(version, "code/title.so").isFile(); }
     static String driverLibrary(File folder) throws java.io.IOException, org.json.JSONException {
