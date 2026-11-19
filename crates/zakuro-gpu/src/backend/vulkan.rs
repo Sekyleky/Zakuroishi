@@ -181,6 +181,8 @@ pub struct VulkanPresenter {
     integer: bool,
     effect: PictureEffect,
     effect_strength: f32,
+    /// the colour around the screens, RGB 0 to 1.
+    background: [f32; 3],
     /// the user's picture shader, drawn with for PictureEffect::Custom in
     /// place of pipeline, on its own layout made like pipeline's.
     custom: Option<(vk::PipelineLayout, vk::Pipeline)>,
@@ -209,6 +211,10 @@ impl VulkanPresenter {
     pub fn set_picture_effect(&mut self, effect: PictureEffect, strength: f32) {
         self.effect = effect;
         self.effect_strength = if strength.is_finite() { strength.clamp(0.0, 1.0) } else { 0.0 };
+    }
+    /// the colour around the screens from the next frame on, each channel 0 to 1.
+    pub fn set_background(&mut self, rgb: [f32; 3]) {
+        self.background = rgb.map(|c| if c.is_finite() { c.clamp(0.0, 1.0) } else { 0.0 });
     }
     /// draws PictureEffect::Custom with a picture shader picture_shader
     /// compiled, or with the built-in shader again for none. on an error
@@ -522,6 +528,7 @@ impl VulkanPresenter {
             integer: false,
             effect: PictureEffect::None,
             effect_strength: 0.0,
+            background: [0.0; 3],
             custom: None,
             stereo: Stereo::default(),
             stretch: false,
@@ -1026,7 +1033,7 @@ impl VulkanPresenter {
 
             let clear = [vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.0, 0.0, 0.0, 1.0],
+                    float32: [self.background[0], self.background[1], self.background[2], 1.0],
                 },
             }];
             device.cmd_begin_render_pass(

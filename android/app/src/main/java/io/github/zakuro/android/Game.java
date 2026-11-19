@@ -190,6 +190,12 @@ public final class Game extends NativeActivity {
         edit.requestFocus();
     }); }
     public void showNativeMessage(String text) { runOnUiThread(() -> android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show()); }
+    private static final int MICROPHONE=1;
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code,permissions,results);
+        if(code==MICROPHONE && (results.length==0 || results[0]!=android.content.pm.PackageManager.PERMISSION_GRANTED))
+            showNativeMessage("No microphone permission: the game hears silence. Blow still works.");
+    }
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
     private void overlays() {
         String id = getIntent().getStringExtra("game_id");
@@ -198,6 +204,9 @@ public final class Game extends NativeActivity {
         String orientation=(String)settings.values.get("orientation");
         setRequestedOrientation(orientation.equals("portrait") ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
                 : orientation.equals("auto") ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        // the handheld's microphone: asked for at launch; refused, the native side cannot open it and the game hears silence
+        if("device".equals(settings.values.get("microphone")) && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)!=android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},MICROPHONE);
         if(settings.flag("show_battery")) {
             registerReceiver(batteryReceiver,new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)); batteryRegistered=true;
         }

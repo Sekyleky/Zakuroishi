@@ -1,7 +1,7 @@
 use crate::audio_queue::{enqueue, Queue as Managed, Stretch};
 use ndk::audio::{
     AudioCallbackResult, AudioDirection, AudioFormat, AudioPerformanceMode, AudioStream,
-    AudioStreamBuilder, AudioStreamDataCallback, AudioUsage,
+    AudioInputPreset, AudioStreamBuilder, AudioStreamDataCallback, AudioUsage,
 };
 use std::{
     cell::RefCell,
@@ -175,5 +175,55 @@ impl Audio {
 impl Drop for Audio {
     fn drop(&mut self) {
         let _ = self.stream.request_stop();
+    }
+}
+
+/// Opens the handheld's microphone, mono 16-bit, into heard until what it gives drops. None when it cannot
+/// (RECORD_AUDIO refused, no microphone): the game then hears silence.
+pub fn listen(heard: Arc<Mutex<crate::input::Heard>>) -> Option<Box<dyn Send>> {
+    let opened = AudioStreamBuilder::new().and_then(|builder| {
+        builder
+            .direction(AudioDirection::Input)
+            .channel_count(1)
+            .format(AudioFormat::PCM_I16)
+            .input_preset(AudioInputPreset::Generic)
+            .data_callback(Box::new(move |stream, data, count| {
+                // SAFETY: AAudio hands count frames in the negotiated format, checked mono 16-bit below
+                // before the stream starts.
+                let samples = unsafe { std::slice::from_raw_parts(data.cast::<i16>(), count.max(0) as usize) };
+                if let Ok(mut heard) = heard.lock() {
+                    heard.push(f64::from(stream.sample_rate()), samples);
+                }
+                AudioCallbackResult::Continue
+            }))
+            .open_stream()
+    });
+    let stream = match opened {
+        Ok(stream) => stream,
+        Err(error) => {
+            log::warn!("could not open the microphone, the game hears silence: {error}");
+            return None;
+        }
+    };
+    if stream.channel_count() != 1 || stream.format() != AudioFormat::PCM_I16 || stream.sample_rate() <= 0 {
+        log::warn!("the microphone did not give mono 16-bit sound, the game hears silence");
+        return None;
+    }
+    if let Err(error) = stream.request_start() {
+        log::warn!("could not start the microphone, the game hears silence: {error}");
+        return None;
+    }
+    log::info!("listening to the microphone at {} Hz", stream.sample_rate());
+    Some(Box::new(Listening(stream)))
+}
+
+/// An open microphone, stopped and closed when dropped.
+struct Listening(AudioStream);
+// SAFETY: an AAudio stream may be stopped and closed from any thread but its own callback's, and the callback
+// never holds the Listening.
+unsafe impl Send for Listening {}
+impl Drop for Listening {
+    fn drop(&mut self) {
+        let _ = self.0.request_stop();
     }
 }

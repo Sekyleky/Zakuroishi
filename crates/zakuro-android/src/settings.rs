@@ -8,10 +8,11 @@ macro_rules! choice {
         impl Default for $name { fn default() -> Self { Self::$default } }
     };
 }
-choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid);
+choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid, Custom);
 choice!(Filter, Smooth, Smooth, Sharp, Pixels);
 choice!(ScreenRotation, Normal, Normal, Clockwise, Counterclockwise, UpsideDown);
 choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges, Custom);
+choice!(Background, Black, Black, DarkGrey, Grey, White, Custom);
 choice!(ButtonMapping, Nintendo, Nintendo, Xbox);
 choice!(LeftStick, CirclePad, CirclePad, Dpad);
 choice!(RightStick, CStick, CStick, Cursor);
@@ -20,6 +21,7 @@ choice!(ShaderExecution, Compiled, Compiled, Interpreted);
 choice!(ShaderCompilation, Async, Async, Wait);
 choice!(TiltButton, L3, Always, L1, L2, R1, R2, L3, R3);
 choice!(RoomMode, Off, Off, Join, Host);
+choice!(MicrophoneSource, Off, Off, Device);
 
 impl Layout {
     /// The Cycle layout hotkey's order, wrapping back to Stacked.
@@ -28,7 +30,8 @@ impl Layout {
             Self::Stacked => Self::SideBySide,
             Self::SideBySide => Self::LargeTop,
             Self::LargeTop => Self::Hybrid,
-            Self::Hybrid => Self::TopOnly,
+            Self::Hybrid => Self::Custom,
+            Self::Custom => Self::TopOnly,
             Self::TopOnly => Self::BottomOnly,
             Self::BottomOnly => Self::Stacked,
         }
@@ -40,6 +43,7 @@ impl Layout {
             Self::SideBySide => "Side by side",
             Self::LargeTop => "Large top, small bottom",
             Self::Hybrid => "Hybrid",
+            Self::Custom => "Custom",
             Self::TopOnly => "Top screen only",
             Self::BottomOnly => "Bottom screen only",
         }
@@ -151,11 +155,22 @@ pub struct Advanced {
     pub screen_gap: i32,
     /// the bottom screen's size in large top, percent of the console's.
     pub small_screen: i32,
+    /// the Custom layout's places, percent of the window: left, top and width
+    /// of the top screen (its height follows its shape) and of the bottom one.
+    pub top_x: i32,
+    pub top_y: i32,
+    pub top_size: i32,
+    pub bottom_x: i32,
+    pub bottom_y: i32,
+    pub bottom_size: i32,
     /// the picture effect over the screens, and its strength in percent.
     pub picture_effect: PictureEffect,
     pub effect_strength: i32,
     /// the picture shader file in the shaders folder that Custom draws with.
     pub custom_shader: String,
+    /// the colour around the screens, and its #RRGGBB for Custom.
+    pub background: Background,
+    pub background_hex: String,
     pub stretch: bool,
     pub swap_screens: bool,
     /// both screens turned inside the window, to hold the handheld sideways.
@@ -254,6 +269,9 @@ pub struct Advanced {
     /// a request to a system service sleeps its thread even when no other thread is ready, as
     /// before. Off: the reply is there at once, the idle core no longer waits on the GPU.
     pub request_wait_idle: bool,
+    /// what the game's microphone hears: off is silence, device the handheld's microphone while
+    /// the game samples. The Blow binding blows over either.
+    pub microphone: MicrophoneSource,
     /// local wireless through a room (nightly only, the stable launcher sends off): join
     /// room_address (host:port), or host one on room_address's port, else room::DEFAULT_PORT.
     pub room_mode: RoomMode,
@@ -273,9 +291,17 @@ impl Default for Advanced {
             top_width: 400.0,
             screen_gap: 0,
             small_screen: 50,
+            top_x: 27,
+            top_y: 0,
+            top_size: 46,
+            bottom_x: 32,
+            bottom_y: 50,
+            bottom_size: 36,
             picture_effect: PictureEffect::None,
             effect_strength: 50,
             custom_shader: String::new(),
+            background: Background::Black,
+            background_hex: String::new(),
             stretch: false,
             swap_screens: false,
             screen_rotation: ScreenRotation::Normal,
@@ -348,6 +374,7 @@ impl Default for Advanced {
             latch_short_presses: true,
             short_vsync_queue: false,
             request_wait_idle: false,
+            microphone: MicrophoneSource::Off,
             room_mode: RoomMode::Off,
             room_address: String::new(),
             room_nickname: String::new(),
@@ -402,6 +429,23 @@ impl Advanced {
         settings.validate();
         Ok(settings)
     }
+    /// the colour around the screens as 8-bit RGB; a Custom that is not exactly # and six hex digits is black.
+    pub fn background_rgb(&self) -> [u8; 3] {
+        match self.background {
+            Background::Black => [0, 0, 0],
+            Background::DarkGrey => [0x30; 3],
+            Background::Grey => [0x80; 3],
+            Background::White => [0xff; 3],
+            Background::Custom => {
+                let hex = self.background_hex.as_bytes();
+                if hex.len() != 7 || hex[0] != b'#' || !hex[1..].iter().all(u8::is_ascii_hexdigit) {
+                    return [0, 0, 0];
+                }
+                let channel = |i: usize| u8::from_str_radix(&self.background_hex[i..i + 2], 16).unwrap_or(0);
+                [channel(1), channel(3), channel(5)]
+            }
+        }
+    }
     pub fn validate(&mut self) {
         fn bounded(value: f32, min: f32, max: f32, fallback: f32) -> f32 {
             if value.is_finite() {
@@ -413,6 +457,11 @@ impl Advanced {
         self.top_width = bounded(self.top_width, 320.0, 800.0, 400.0);
         self.screen_gap = self.screen_gap.clamp(0, 40);
         self.small_screen = self.small_screen.clamp(25, 100);
+        for place in [&mut self.top_x, &mut self.top_y, &mut self.bottom_x, &mut self.bottom_y] {
+            *place = (*place).clamp(0, 100);
+        }
+        self.top_size = self.top_size.clamp(10, 100);
+        self.bottom_size = self.bottom_size.clamp(10, 100);
         self.effect_strength = self.effect_strength.clamp(0, 100);
         // a file name in the shaders folder, as picture_shader::valid_name allows: no path
         let name = &self.custom_shader;
@@ -504,15 +553,26 @@ impl Advanced {
 mod tests {
     use super::*;
     #[test]
-    fn cycle_layout_visits_all_six_and_wraps() {
+    fn cycle_layout_visits_all_seven_and_wraps() {
         let mut seen = vec![Layout::Stacked];
-        for _ in 0..6 {
+        for _ in 0..7 {
             seen.push(seen.last().unwrap().next());
         }
         use Layout::*;
-        assert_eq!(seen, [Stacked, SideBySide, LargeTop, Hybrid, TopOnly, BottomOnly, Stacked]);
+        assert_eq!(seen, [Stacked, SideBySide, LargeTop, Hybrid, Custom, TopOnly, BottomOnly, Stacked]);
         assert_eq!(Advanced::parse(r#"{"layout":"hybrid"}"#).unwrap().layout, Hybrid);
         assert_eq!(Hybrid.label(), "Hybrid");
+        assert_eq!(Advanced::parse(r#"{"layout":"custom"}"#).unwrap().layout, Custom);
+        assert_eq!(Custom.label(), "Custom");
+    }
+    #[test]
+    fn custom_layout_places_default_and_clamp() {
+        let places = |s: &Advanced| [s.top_x, s.top_y, s.top_size, s.bottom_x, s.bottom_y, s.bottom_size];
+        assert_eq!(places(&Advanced::parse("{}").unwrap()), [27, 0, 46, 32, 50, 36]);
+        let settings = Advanced::parse(r#"{"top_x":5,"top_y":10,"top_size":60,"bottom_x":70,"bottom_y":60,"bottom_size":30}"#).unwrap();
+        assert_eq!(places(&settings), [5, 10, 60, 70, 60, 30]);
+        let settings = Advanced::parse(r#"{"top_x":-5,"top_y":101,"top_size":5,"bottom_x":400,"bottom_y":-1,"bottom_size":101}"#).unwrap();
+        assert_eq!(places(&settings), [0, 100, 10, 100, 0, 100]);
     }
     #[test]
     fn resolution_extra_clamps_to_1_through_5() {
@@ -675,6 +735,21 @@ mod tests {
         assert!(Advanced::parse(r#"{"picture_effect":"blur"}"#).is_err());
     }
     #[test]
+    fn background_parses_and_custom_hex_is_strict() {
+        let settings = Advanced::parse("{}").unwrap();
+        assert_eq!((settings.background, settings.background_rgb()), (Background::Black, [0, 0, 0]));
+        for (name, rgb) in [("dark_grey", [0x30; 3]), ("grey", [0x80; 3]), ("white", [0xff; 3])] {
+            let json = format!(r#"{{"background":"{name}"}}"#);
+            assert_eq!(Advanced::parse(&json).unwrap().background_rgb(), rgb, "{name}");
+        }
+        let custom = |hex: &str| Advanced::parse(&format!(r##"{{"background":"custom","background_hex":"{hex}"}}"##)).unwrap().background_rgb();
+        assert_eq!(custom("#1a2B3c"), [0x1a, 0x2b, 0x3c]);
+        for bad in ["", "1a2b3c", "#1a2b3", "#1a2b3c4", "#1a2b3g", " #1a2b3c", "#1a2b3é"] {
+            assert_eq!(custom(bad), [0, 0, 0], "{bad}");
+        }
+        assert!(Advanced::parse(r#"{"background":"pink"}"#).is_err());
+    }
+    #[test]
     fn custom_shader_parses_and_refuses_paths() {
         let settings = Advanced::parse("{}").unwrap();
         assert_eq!(settings.custom_shader, "");
@@ -697,6 +772,14 @@ mod tests {
         assert_eq!((host.room_mode, host.room_name.as_str()), (RoomMode::Host, "Thor room"));
         assert!(settings.room_name.is_empty());
         assert!(Advanced::parse(r#"{"room_mode":"fake"}"#).is_err());
+    }
+    #[test]
+    fn microphone_defaults_off_and_parses() {
+        assert_eq!(Advanced::default().microphone, MicrophoneSource::Off);
+        assert_eq!(Advanced::parse("{}").unwrap().microphone, MicrophoneSource::Off);
+        assert_eq!(Advanced::parse(r#"{"microphone":"off"}"#).unwrap().microphone, MicrophoneSource::Off);
+        assert_eq!(Advanced::parse(r#"{"microphone":"device"}"#).unwrap().microphone, MicrophoneSource::Device);
+        assert!(Advanced::parse(r#"{"microphone":"loud"}"#).is_err());
     }
     #[test]
     fn deadzone_and_gyro_controls_apply() {

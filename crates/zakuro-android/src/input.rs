@@ -1,8 +1,8 @@
 //! Platform-independent controller mapping and motion/cursor configuration.
 use crate::settings::{Advanced, Binding, LeftStick, RightStick};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use zakuro_core::microphone::{Microphone, Noise};
 use zakuro_core::services::hid::{InputState, MotionSample, PadState};
 
@@ -11,21 +11,93 @@ pub fn turbo(buttons: PadState, held: bool, frame: u32) -> PadState {
     if held && frame % 4 >= 2 { buttons - (PadState::A | PadState::B | PadState::X | PadState::Y) } else { buttons }
 }
 
-/// The game's microphone on Android: silence, and noise while the Blow key is held. ponytail: no host microphone.
+/// How far behind the handheld's microphone a game may fall, in seconds, before the oldest of what it heard goes, down to KEEP.
+const MOST: f64 = 0.25;
+const KEEP: f64 = 0.05;
+
+/// What the handheld's microphone heard and the game has not, one channel at its own rate.
+#[derive(Default)]
+pub struct Heard {
+    samples: VecDeque<f32>,
+    /// its samples a second, none until something is heard.
+    rate: f64,
+}
+impl Heard {
+    /// Adds 16-bit samples heard at rate a second; past MOST seconds the oldest go, down to KEEP.
+    pub fn push(&mut self, rate: f64, samples: &[i16]) {
+        self.rate = rate;
+        self.samples.extend(samples.iter().map(|&sample| f32::from(sample) / 32768.0));
+        if self.samples.len() as f64 > rate * MOST {
+            let excess = self.samples.len() - (rate * KEEP) as usize;
+            self.samples.drain(..excess);
+        }
+    }
+    /// Fills out at rate samples a second from position between the first two samples, silence where nothing was
+    /// heard yet; drops what it used and gives where it got to.
+    fn take(&mut self, mut position: f64, rate: f64, out: &mut [f32]) -> f64 {
+        if self.rate <= 0.0 || rate <= 0.0 {
+            out.fill(0.0);
+            return 0.0;
+        }
+        let step = self.rate / rate;
+        for sample in out.iter_mut() {
+            let first = position as usize;
+            if first + 1 >= self.samples.len() {
+                // ran dry, the game is ahead of the microphone
+                *sample = 0.0;
+                continue;
+            }
+            let (a, b) = (self.samples[first], self.samples[first + 1]);
+            *sample = a + (b - a) * position.fract() as f32;
+            position += step;
+        }
+        let used = (position as usize).min(self.samples.len());
+        self.samples.drain(..used);
+        position - used as f64
+    }
+}
+
+/// Opens the handheld's microphone into heard; it stays open until what it gives drops. None when it cannot.
+pub type Listen = fn(Arc<Mutex<Heard>>) -> Option<Box<dyn Send>>;
+
+/// The game's microphone on Android: the handheld's own while the game samples when listen is given, else silence,
+/// and noise over it while the Blow key is held.
 pub struct BlowMicrophone {
     blowing: Arc<AtomicBool>,
     noise: Noise,
+    listen: Option<Listen>,
+    open: Option<Box<dyn Send>>,
+    heard: Arc<Mutex<Heard>>,
+    /// where between the first two samples heard the next one read falls.
+    position: f64,
 }
 impl BlowMicrophone {
-    pub fn new(blowing: Arc<AtomicBool>) -> Self {
+    pub fn new(blowing: Arc<AtomicBool>, listen: Option<Listen>) -> Self {
         // a breath on a microphone is about as loud as it gets, as the desktop's
-        Self { blowing, noise: Noise::new(0.8) }
+        Self { blowing, noise: Noise::new(0.8), listen, open: None, heard: Arc::default(), position: 0.0 }
     }
 }
 impl Microphone for BlowMicrophone {
-    fn sampling(&mut self, _on: bool) {}
+    fn sampling(&mut self, on: bool) {
+        if !on {
+            self.open = None;
+            if let Ok(mut heard) = self.heard.lock() {
+                *heard = Heard::default();
+            }
+            self.position = 0.0;
+        } else if self.open.is_none() {
+            self.open = self.listen.and_then(|listen| listen(self.heard.clone()));
+        }
+    }
     fn read(&mut self, rate: f64, out: &mut [f32]) {
-        if self.blowing.load(Ordering::Relaxed) { self.noise.read(rate, out) } else { out.fill(0.0) }
+        // taken while blowing too, so the microphone does not fall behind meanwhile
+        match self.heard.lock() {
+            Ok(mut heard) => self.position = heard.take(self.position, rate, out),
+            Err(_) => out.fill(0.0),
+        }
+        if self.blowing.load(Ordering::Relaxed) {
+            self.noise.read(rate, out);
+        }
     }
 }
 
@@ -282,7 +354,7 @@ mod tests {
         let settings = Advanced::parse(r#"{"controller_bindings":{"2":"blow"}}"#).unwrap();
         let mut input = Input::default();
         let blowing = Arc::new(AtomicBool::new(false));
-        let mut microphone = BlowMicrophone::new(blowing.clone());
+        let mut microphone = BlowMicrophone::new(blowing.clone(), None);
         let mut out = [1.0; 256];
         microphone.sampling(true);
         microphone.read(16364.0, &mut out);
@@ -296,6 +368,53 @@ mod tests {
         blowing.store(input.held(&settings, &VirtualInput::default(), Binding::Blow), Ordering::Relaxed);
         microphone.read(16364.0, &mut out);
         assert!(out.iter().all(|sample| *sample == 0.0));
+    }
+
+    /// a stand-in for the handheld's microphone: hears four samples at 16 kHz when opened.
+    fn four_samples(heard: Arc<Mutex<Heard>>) -> Option<Box<dyn Send>> {
+        heard.lock().unwrap().push(16000.0, &[16384, -16384, 8192, 0]);
+        Some(Box::new(()))
+    }
+
+    #[test]
+    fn the_handheld_microphone_is_heard_while_sampling_and_blowing_overrides_it() {
+        let blowing = Arc::new(AtomicBool::new(false));
+        let mut microphone = BlowMicrophone::new(blowing.clone(), Some(four_samples));
+        let mut out = [1.0; 4];
+        microphone.read(16000.0, &mut out);
+        assert_eq!(out, [0.0; 4], "nothing heard before sampling");
+        microphone.sampling(true);
+        assert!(microphone.open.is_some());
+        microphone.read(16000.0, &mut out);
+        assert_eq!(out, [0.5, -0.5, 0.25, 0.0], "16-bit samples as -1..1, the last waits for its successor");
+        microphone.heard.lock().unwrap().push(16000.0, &[16384, -16384, 8192, 0]);
+        let mut half = [1.0; 3];
+        microphone.read(8000.0, &mut half);
+        assert_eq!(half, [0.0, -0.5, 0.0], "read at half the rate every other sample, then dry");
+        microphone.heard.lock().unwrap().push(16000.0, &[16384; 8]);
+        blowing.store(true, Ordering::Relaxed);
+        let mut blown = [0.0; 4];
+        microphone.read(16000.0, &mut blown);
+        let mut noise = [0.0; 4];
+        Noise::new(0.8).read(16000.0, &mut noise);
+        assert_eq!(blown, noise, "Blow replaces what the microphone heard");
+        blowing.store(false, Ordering::Relaxed);
+        microphone.sampling(false);
+        assert!(microphone.open.is_none());
+        microphone.read(16000.0, &mut out);
+        assert_eq!(out, [0.0; 4], "what was heard goes when sampling stops");
+    }
+
+    #[test]
+    fn what_was_heard_stays_bounded() {
+        let mut heard = Heard::default();
+        for _ in 0..100 {
+            heard.push(32000.0, &[100; 1000]);
+        }
+        assert!(heard.samples.len() as f64 <= 32000.0 * MOST, "{} samples kept", heard.samples.len());
+        let mut out = [0.0; 4];
+        heard.take(0.0, 32000.0, &mut out);
+        assert!(out.iter().all(|sample| *sample == 100.0 / 32768.0));
     }
 
     #[test]

@@ -33,10 +33,11 @@ and a well-formed library can still do anything the app can do.
 
 ## Network
 
-The manifest (`android/app/src/main/AndroidManifest.xml`) declares no permissions, so
-the app has no `INTERNET` permission and its own code, including a `title.so`, cannot open
-network connections. That limits sending your files away from the device. It does not stop
-a bad library from damaging or deleting what the app can reach, such as saves and imported
+The manifest (`android/app/src/main/AndroidManifest.xml`) declares only `RECORD_AUDIO`, which
+Android grants only after you allow it when a game set to Microphone > Handheld microphone
+starts; once allowed, a `title.so` could listen too. The app has no `INTERNET` permission,
+so its own code, including a `title.so`, cannot open network connections. That limits
+sending your files away from the device. It does not stop a bad library from damaging or deleting what the app can reach, such as saves and imported
 games, or from crashing the device's graphics driver. Android's sandbox still applies.
 
 This holds for the stable APK only. The nightly APK (version name containing `-nightly`) adds

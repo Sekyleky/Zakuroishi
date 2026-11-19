@@ -188,6 +188,8 @@ pub enum ScreenLayout {
     /// the top screen big, and beside it a small copy of it over the small
     /// bottom one.
     Hybrid,
+    /// each screen where the player put it, ScreenSpacing::custom.
+    Custom,
 }
 
 /// the Orientation of both screens. north is up
@@ -282,7 +284,8 @@ impl ScreenLayout {
 
     fn size_f(self, top_width: f32, spacing: ScreenSpacing) -> (f32, f32) {
         match self {
-            ScreenLayout::Stacked => (top_width.max(320.0), 480.0 + spacing.gap),
+            // the custom places are shares of the window: as big as stacked
+            ScreenLayout::Stacked | ScreenLayout::Custom => (top_width.max(320.0), 480.0 + spacing.gap),
             ScreenLayout::SideBySide => (top_width + 320.0 + spacing.gap, 240.0),
             ScreenLayout::TopOnly => (top_width, 240.0),
             ScreenLayout::BottomOnly => (320.0, 240.0),
@@ -304,11 +307,15 @@ pub struct ScreenSpacing {
     pub gap: f32,
     /// the bottom screen's size next to the big top one, a share of the console's.
     pub small: f32,
+    /// the Custom layout's top and bottom screen: left, top and width as
+    /// shares of the window; the height follows the screen's shape.
+    pub custom: [[f32; 3]; 2],
 }
 
 impl Default for ScreenSpacing {
     fn default() -> Self {
-        Self { gap: 0.0, small: 0.5 }
+        // centred, the top screen over the bottom one
+        Self { gap: 0.0, small: 0.5, custom: [[0.27, 0.0, 0.46], [0.32, 0.5, 0.36]] }
     }
 }
 
@@ -328,7 +335,12 @@ fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayou
 
 /// layout_spaced, and the place of the small copy of the top screen Hybrid shows.
 fn layout_copied(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_w: f32, integer: bool, spacing: ScreenSpacing) -> (Option<Viewport>, Option<Viewport>, Option<Viewport>) {
-    let (layout_width, layout_height) = arrangement.size_f(top_w, spacing);
+    // custom places fill the window, turned as the screens are, at scale 1
+    let (layout_width, layout_height) = match arrangement {
+        ScreenLayout::Custom if orientation.is_portrait() => (window_height as f32, window_width as f32),
+        ScreenLayout::Custom => (window_width as f32, window_height as f32),
+        _ => arrangement.size_f(top_w, spacing),
+    };
     let (total_width, total_height) = if matches!(orientation, ScreenOrientation::East | ScreenOrientation::West) {
         (layout_height, layout_width)
     } else {
@@ -340,13 +352,27 @@ fn layout_copied(window_width: u32, window_height: u32, arrangement: ScreenLayou
         scale = scale.floor();
     }
 
-    let top = (arrangement != ScreenLayout::BottomOnly).then_some(Viewport {
+    // a custom screen as wide as asked, smaller when its shape would not fit
+    // the height, and moved back inside the window
+    let custom = |[x, y, size]: [f32; 3], source_width: f32| {
+        let mut scale = (size * layout_width / source_width).min(layout_height / 240.0);
+        if integer && scale >= 1.0 {
+            scale = scale.floor();
+        }
+        let (width, height) = (source_width * scale, 240.0 * scale);
+        let (mut x, mut y) = ((x * layout_width).min(layout_width - width).max(0.0), (y * layout_height).min(layout_height - height).max(0.0));
+        if integer {
+            (x, y) = (x.floor(), y.floor());
+        }
+        Viewport { x, y, width, height }
+    };
+    let top = (arrangement != ScreenLayout::BottomOnly).then_some(if arrangement == ScreenLayout::Custom { custom(spacing.custom[0], top_w) } else { Viewport {
         x: 0.0,
         // centred beside a hybrid column taller than it
         y: if arrangement == ScreenLayout::Hybrid { (layout_height - 240.0) / 2.0 * scale } else { 0.0 },
         width: top_w * scale,
         height: 240.0 * scale,
-    });
+    } });
     // the hybrid column: the small screens' scale, as large top sizes its one
     let small = if integer && spacing.small * scale >= 1.0 { (spacing.small * scale).floor() } else { spacing.small * scale };
     let column = |width: f32, below: f32| Viewport {
@@ -383,6 +409,7 @@ fn layout_copied(window_width: u32, window_height: u32, arrangement: ScreenLayou
             })
         }
         ScreenLayout::Hybrid => Some(column(320.0, 240.0)),
+        ScreenLayout::Custom => Some(custom(spacing.custom[1], 320.0)),
         ScreenLayout::TopOnly => None,
         ScreenLayout::BottomOnly => Some(Viewport {
             x: 0.0,
@@ -520,12 +547,14 @@ pub fn place_configured(window_width: u32, window_height: u32, arrangement: Scre
                 },
             };
             if !stretch {
-                let source_width = if *shown == Shown::Bottom { 320.0 } else { top_width }
-                    * if stereo.mode == StereoMode::HalfSideBySide { 0.5 } else { 1.0 };
-                let mut scale = (viewport.width / source_width).min(viewport.height / 240.0);
+                // the picture's size as it shows, turned a quarter on its side
+                let source_width = if *shown == Shown::Bottom { 320.0 } else { top_width };
+                let (source_width, source_height) = if orientation.is_portrait() { (240.0, source_width) } else { (source_width, 240.0) };
+                let source_width = source_width * if stereo.mode == StereoMode::HalfSideBySide { 0.5 } else { 1.0 };
+                let mut scale = (viewport.width / source_width).min(viewport.height / source_height);
                 if integer && scale >= 1.0 { scale = scale.floor(); }
                 let width = source_width * scale;
-                let height = 240.0 * scale;
+                let height = source_height * scale;
                 viewport.x += (viewport.width - width) / 2.0;
                 viewport.y += (viewport.height - height) / 2.0;
                 if integer { viewport.x = viewport.x.floor(); viewport.y = viewport.y.floor(); }
@@ -713,7 +742,7 @@ mod tests {
         }
         // a bigger small screen makes the column taller than the top screen,
         // which is centred beside it
-        let (top, bottom, copy) = layout_copied(800, 480, ScreenLayout::Hybrid, ScreenOrientation::North, TOP_WIDTH, false, ScreenSpacing { gap: 0.0, small: 1.0 });
+        let (top, bottom, copy) = layout_copied(800, 480, ScreenLayout::Hybrid, ScreenOrientation::North, TOP_WIDTH, false, ScreenSpacing { gap: 0.0, small: 1.0, ..ScreenSpacing::default() });
         assert_eq!(bounds(top.unwrap()), (0.0, 120.0, 400.0, 240.0));
         assert_eq!(bounds(copy.unwrap()), (400.0, 0.0, 400.0, 240.0));
         assert_eq!(bounds(bottom.unwrap()), (440.0, 240.0, 320.0, 240.0));
@@ -723,7 +752,7 @@ mod tests {
     /// small screen at 100% is the console's size.
     #[test]
     fn the_gap_and_small_screen_size_move_the_bottom_screen() {
-        let spaced = |gap, small| ScreenSpacing { gap, small };
+        let spaced = |gap, small| ScreenSpacing { gap, small, ..ScreenSpacing::default() };
         let spacing = spaced(20.0, 0.5);
         // scale 2: stacked 400x500, side by side 740x240
         let (top, bottom) = layout_spaced(800, 1000, ScreenLayout::Stacked, ScreenOrientation::North, TOP_WIDTH, false, spacing);
@@ -898,6 +927,62 @@ mod tests {
                         assert!((right - 1280.0).abs() < 0.01 && (bottom - 720.0).abs() < 0.01);
                     }
                 } }
+            }
+        }
+    }
+
+    /// swapped screens turned a quarter keep their shapes, on their side.
+    #[test]
+    fn swapped_screens_keep_their_shape_turned() {
+        for arrangement in [ScreenLayout::Stacked, ScreenLayout::SideBySide, ScreenLayout::LargeTop, ScreenLayout::Hybrid, ScreenLayout::TopOnly, ScreenLayout::BottomOnly, ScreenLayout::Custom] {
+            for integer in [false, true] {
+                let places = place_configured(1920, 1080, arrangement, ScreenOrientation::East, TOP_WIDTH, integer, Stereo::default(), false, false, true, ScreenSpacing::default());
+                assert!(!places.is_empty());
+                for (v, shown) in places {
+                    let shape = if shown == Shown::Bottom { 240.0 / 320.0 } else { 240.0 / 400.0 };
+                    assert!((v.width / v.height - shape).abs() < 0.02, "{arrangement:?} {integer} {shown:?} {v:?}");
+                    assert!(v.x >= -0.01 && v.y >= -0.01 && v.x + v.width <= 1920.01 && v.y + v.height <= 1080.01, "{arrangement:?} {v:?}");
+                }
+            }
+        }
+    }
+
+    /// custom places each screen by shares of the window, keeping its shape.
+    #[test]
+    fn custom_places_the_screens_by_share_of_the_window() {
+        let near = |v: Viewport, (x, y, width, height): (f32, f32, f32, f32)| {
+            assert!((v.x - x).abs() < 0.01 && (v.y - y).abs() < 0.01 && (v.width - width).abs() < 0.01 && (v.height - height).abs() < 0.01, "{v:?}");
+        };
+        // the defaults: top 46% wide at 27%,0; bottom 36% wide at 32%,50%
+        let custom = |custom| ScreenSpacing { custom, ..ScreenSpacing::default() };
+        let (top, bottom) = layout_spaced(1920, 1080, ScreenLayout::Custom, ScreenOrientation::North, TOP_WIDTH, false, ScreenSpacing::default());
+        near(top.unwrap(), (518.4, 0.0, 883.2, 529.92));
+        near(bottom.unwrap(), (614.4, 540.0, 691.2, 518.4));
+        // a wider top screen is lower for its width
+        let top = layout_spaced(1920, 1080, ScreenLayout::Custom, ScreenOrientation::North, 800.0, false, ScreenSpacing::default()).0.unwrap();
+        near(top, (518.4, 0.0, 883.2, 264.96));
+        // too big for the height: shrunk to fit it, and moved back inside
+        let (top, bottom) = layout_spaced(1920, 1080, ScreenLayout::Custom, ScreenOrientation::North, TOP_WIDTH, false, custom([[0.9, 0.9, 1.0], [1.0, 1.0, 1.0]]));
+        near(top.unwrap(), (120.0, 0.0, 1800.0, 1080.0));
+        near(bottom.unwrap(), (480.0, 0.0, 1440.0, 1080.0));
+        // overlapping screens are allowed, the bottom one drawn last
+        let places = place_configured(1920, 1080, ScreenLayout::Custom, ScreenOrientation::North, TOP_WIDTH, false, Stereo::default(), false, false, false, custom([[0.0, 0.0, 1.0], [0.6, 0.6, 0.3]]));
+        assert_eq!(places.last().unwrap().1, Shown::Bottom);
+        // inside the window and in shape for every turn, 3D, swap and whole-pixel scaling
+        for orientation in [ScreenOrientation::North, ScreenOrientation::East, ScreenOrientation::South, ScreenOrientation::West] {
+            for mode in [StereoMode::Off, StereoMode::SideBySide, StereoMode::HalfSideBySide] {
+                for (swap, integer) in [(false, false), (true, false), (false, true)] {
+                    for spacing in [ScreenSpacing::default(), custom([[1.0, 1.0, 1.0], [0.0, 1.0, 0.1]])] {
+                        let places = place_configured(1920, 1080, ScreenLayout::Custom, orientation, TOP_WIDTH, integer, Stereo { mode, swap: false }, false, false, swap, spacing);
+                        assert_eq!(places.len(), if mode == StereoMode::Off { 2 } else { 4 });
+                        for (v, shown) in places {
+                            assert!(v.width > 0.0 && v.x >= -0.01 && v.y >= -0.01 && v.x + v.width <= 1920.01 && v.y + v.height <= 1080.01, "{orientation:?} {mode:?} {v:?}");
+                            let shape: f32 = if shown == Shown::Bottom { 320.0 / 240.0 } else { 400.0 / 240.0 };
+                            let shape = if orientation.is_portrait() { 1.0 / shape } else { shape } * if mode == StereoMode::HalfSideBySide { 0.5 } else { 1.0 };
+                            assert!((v.width / v.height - shape).abs() < 0.02, "{orientation:?} {mode:?} {v:?}");
+                        }
+                    }
+                }
             }
         }
     }

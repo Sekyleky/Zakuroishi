@@ -28,12 +28,14 @@ pub fn layout(settings: &Advanced) -> ScreenLayout {
         Layout::BottomOnly => ScreenLayout::BottomOnly,
         Layout::LargeTop => ScreenLayout::LargeTop,
         Layout::Hybrid => ScreenLayout::Hybrid,
+        Layout::Custom => ScreenLayout::Custom,
     }
 }
 pub fn spacing(settings: &Advanced) -> zakuro_gpu::backend::ScreenSpacing {
     zakuro_gpu::backend::ScreenSpacing {
         gap: settings.screen_gap as f32,
         small: settings.small_screen as f32 / 100.0,
+        custom: [[settings.top_x, settings.top_y, settings.top_size], [settings.bottom_x, settings.bottom_y, settings.bottom_size]].map(|place| place.map(|percent| percent as f32 / 100.0)),
     }
 }
 pub fn filter(settings: &Advanced) -> ScreenFilter {
@@ -54,6 +56,10 @@ pub fn effect(settings: &Advanced) -> (zakuro_gpu::PictureEffect, f32) {
         PictureEffect::Custom => Effect::Custom,
     };
     (effect, settings.effect_strength as f32 / 100.0)
+}
+/// the colour around the screens as RGB, 0 to 1.
+pub fn background(settings: &Advanced) -> [f32; 3] {
+    settings.background_rgb().map(|c| c as f32 / 255.0)
 }
 pub fn stereo(settings: &Advanced) -> Stereo {
     use zakuro_gpu::StereoMode as Mode;
@@ -212,6 +218,7 @@ mod tests {
             Layout::BottomOnly,
             Layout::LargeTop,
             Layout::Hybrid,
+            Layout::Custom,
         ] {
             for swap in [false, true] {
                 for stretch in [false, true] {
@@ -267,6 +274,21 @@ mod tests {
         };
         assert_eq!(touch(&settings, 1920, 1080, 1600.8, 732.8), Some((160, 120)));
         assert_eq!(touch(&settings, 1920, 1080, 1600.0, 348.0), None);
+        // custom at 1920x1080: the bottom screen 36% wide at 32%,50% is 614.4,540
+        // 691.2x518.4, centre 960,799.2; the top screen above it takes no touch
+        let settings = Advanced {
+            layout: Layout::Custom,
+            ..Advanced::default()
+        };
+        assert_eq!(touch(&settings, 1920, 1080, 961.0, 800.0), Some((160, 120)));
+        assert_eq!(touch(&settings, 1920, 1080, 960.0, 200.0), None);
+        // where it overlaps the top screen, touch still goes to the bottom one
+        let settings = Advanced {
+            layout: Layout::Custom,
+            top_size: 100,
+            ..settings
+        };
+        assert_eq!(touch(&settings, 1920, 1080, 961.0, 800.0), Some((160, 120)));
     }
     #[test]
     fn rotated_screens_stay_inside_and_touch_turns_with_them() {

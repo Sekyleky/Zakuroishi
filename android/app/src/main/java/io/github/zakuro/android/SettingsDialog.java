@@ -573,6 +573,10 @@ final class SettingsDialog {
         view.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{p.accent, p.muted}));
         view.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{0x73000000 | (p.accent & 0xffffff), p.border})); return view;
     }
+    /** The choice's label; "custom" is the picture shader except as the screen layout or background. */
+    private static String label(GameSettings.Setting setting, String value) {
+        return (setting.key.equals("layout") || setting.key.equals("background")) && value.equals("custom") ? "Custom" : label(value);
+    }
     private static String label(String value) {
         switch (value) {
             case "fast_forward": return "Fast-forward (hold)";
@@ -595,6 +599,7 @@ final class SettingsDialog {
             case "c_up": return "C-stick up"; case "c_down": return "C-stick down";
             case "c_left": return "C-stick left"; case "c_right": return "C-stick right";
             case "turbo": return "Turbo A/B/X/Y (hold)"; case "blow": return "Blow into microphone (hold)";
+            case "device": return "Handheld microphone";
             case "c_stick": return "C-stick";
             case "cursor": return "Touch cursor";
             case "half_side_by_side": return "Side by side, half width";
@@ -621,9 +626,9 @@ final class SettingsDialog {
                 }
             }); content.addView(toggle);
         } else if (setting.choices != null) {
-            Button choose = button(name(draft, setting) + " · " + label((String) value)); choose.setTag(setting.key);
+            Button choose = button(name(draft, setting) + " · " + label(setting, (String) value)); choose.setTag(setting.key);
             choose.setOnClickListener(v -> {
-                String[] names = Arrays.stream(setting.choices).map(SettingsDialog::label).toArray(String[]::new), shown = names.clone();
+                String[] names = Arrays.stream(setting.choices).map(choice -> label(setting, choice)).toArray(String[]::new), shown = names.clone();
                 for (int i = 0; i < shown.length; i++) if (setting.choices[i].equals(draft.inherited(setting))) shown[i] += " (default)";
                 int checked = Arrays.asList(setting.choices).indexOf(draft.values.get(setting.key));
                 AlertDialog list = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle(setting.label)

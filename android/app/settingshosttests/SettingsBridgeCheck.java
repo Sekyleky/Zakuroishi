@@ -33,10 +33,14 @@ public final class SettingsBridgeCheck {
         if(!runtime.contains("geometry::spacing(settings)") || !settings.contains("self.screen_gap.clamp(0, 40)") || !settings.contains("self.small_screen.clamp(25, 100)"))
             throw new AssertionError("screen_gap/small_screen are not clamped like the Java ranges or not given to the presenter");
         // screen layout: the Java choices are the Rust Layout, each with a label
-        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("layout") && !String.join("|",setting.choices).equals("stacked|side_by_side|large_top|hybrid|top_only|bottom_only"))
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("layout") && !String.join("|",setting.choices).equals("stacked|side_by_side|large_top|hybrid|custom|top_only|bottom_only"))
             throw new AssertionError("layout choices differ from Rust Layout");
-        if(!settings.contains("choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid);") || !settings.contains("Self::Hybrid => \"Hybrid\","))
-            throw new AssertionError("Layout is not the Java layout choices or Hybrid has no label");
+        if(!settings.contains("choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid, Custom);") || !settings.contains("Self::Hybrid => \"Hybrid\",") || !settings.contains("Self::Custom => \"Custom\","))
+            throw new AssertionError("Layout is not the Java layout choices or Hybrid/Custom has no label");
+        // the Custom layout's places: clamped like the Java ranges and given to the presenter with the spacing
+        if(!settings.contains("*place = (*place).clamp(0, 100);") || !settings.contains("self.top_size = self.top_size.clamp(10, 100);") || !settings.contains("self.bottom_size = self.bottom_size.clamp(10, 100);")
+                || !Files.readString(root.resolve("crates/zakuro-android/src/geometry.rs")).contains("custom: [[settings.top_x, settings.top_y, settings.top_size], [settings.bottom_x, settings.bottom_y, settings.bottom_size]]"))
+            throw new AssertionError("Custom layout places are not clamped like the Java ranges or not given to the presenter");
         // screen rotation: the Java choices are the Rust ScreenRotation, given to the presenter, the touch and the cursor
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("screen_rotation") && !String.join("|",setting.choices).equals("normal|clockwise|counterclockwise|upside_down"))
             throw new AssertionError("screen_rotation choices differ from Rust ScreenRotation");
@@ -54,6 +58,12 @@ public final class SettingsBridgeCheck {
                 || !runtime.contains("picture_shader::load(&base.join(\"shaders\"), name)") || !runtime.contains("set_custom_shader(Some(&spirv))")
                 || !runtime.contains("s.load_picture_shader(app);") || !runtime.contains("external.load_picture_shader(app);"))
             throw new AssertionError("custom_shader is not validated, loaded from the shaders folder or given to the presenter");
+        // background colour: the Java choices are the Rust Background, the hex is read strictly and given to the presenter
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("background") && !String.join("|",setting.choices).equals("black|dark_grey|grey|white|custom"))
+            throw new AssertionError("background choices differ from Rust Background");
+        if(!settings.contains("choice!(Background, Black, Black, DarkGrey, Grey, White, Custom);") || !settings.contains("pub background_hex: String,")
+                || !runtime.contains("set_background(geometry::background(settings))"))
+            throw new AssertionError("Background colour is not wired: Background, background_hex or the presenter");
         // rendering resolution: the Intent extra is clamped to the Java range
         if(!settings.contains("pub const MAX_RESOLUTION: u32 = "+GameSettings.MAX_RESOLUTION+";") || !platform.contains("crate::settings::resolution(resolution)"))
             throw new AssertionError("The resolution extra is not clamped to GameSettings.MAX_RESOLUTION");
@@ -65,6 +75,14 @@ public final class SettingsBridgeCheck {
                 || !launch.contains("intent.putExtra(\"rooms\",GameImport.nightly(context));") || !platform.contains("new_string(\"rooms\")")
                 || !runtime.contains("if !launch.rooms {"))
             throw new AssertionError("Room settings are not wired: RoomMode, runtime room link or the stable gate");
+        // microphone: the Java choices are the Rust MicrophoneSource, only device opens the handheld's (AAudio), Game asks for RECORD_AUDIO
+        if(Arrays.stream(GameSettings.ALL).noneMatch(setting->setting.key.equals("microphone") && String.join("|",setting.choices).equals("off|device")))
+            throw new AssertionError("microphone is missing or its choices differ from Rust MicrophoneSource");
+        String audio=Files.readString(root.resolve("crates/zakuro-android/src/audio.rs"));
+        if(!settings.contains("choice!(MicrophoneSource, Off, Off, Device);") || !runtime.contains("(settings.microphone == crate::settings::MicrophoneSource::Device).then_some(crate::audio::listen")
+                || !audio.contains("pub fn listen(heard: Arc<Mutex<crate::input::Heard>>)") || !java.contains("requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},MICROPHONE)")
+                || !Files.readString(root.resolve("android/app/src/main/AndroidManifest.xml")).contains("<uses-permission android:name=\"android.permission.RECORD_AUDIO\" />"))
+            throw new AssertionError("The microphone setting is not wired: MicrophoneSource, the runtime, AAudio input, the permission request or the manifest");
         if(!launch.contains("intent.putExtra(\"console_id\",consoleId(context))") || !platform.contains("extra(\"console_id\")") || !runtime.contains("system.config.console_id = id;"))
             throw new AssertionError("The install's console number does not reach the core in a room");
         if(!launch.contains("intent.putExtra(\"camera\",GameImport.cameraFile(context,id)") || !platform.contains("extra(\"camera\")") || !runtime.contains("loaded.camera = Some(Box::new(picture));"))

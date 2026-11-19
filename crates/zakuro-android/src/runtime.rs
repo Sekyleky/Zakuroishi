@@ -109,6 +109,7 @@ impl Surface {
             .set_geometry(settings.stretch, settings.swap_screens, geometry::spacing(settings));
         let (effect, strength) = geometry::effect(settings);
         self.presenter.set_picture_effect(effect, strength);
+        self.presenter.set_background(geometry::background(settings));
     }
     /// the Custom picture effect's shader from the app's shaders folder, compiled once per
     /// presenter; on any error the normal picture shows and the message names the file.
@@ -949,7 +950,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             if let Some(room) = &room {
                 link_room(&mut loaded, room, &room_settings, &launch);
             }
-            loaded.microphone = Some(Box::new(crate::input::BlowMicrophone::new(blowing.clone())));
+            // the handheld's microphone only when chosen; Game asked for RECORD_AUDIO, refused it hears silence
+            let listen = (settings.microphone == crate::settings::MicrophoneSource::Device).then_some(crate::audio::listen as crate::input::Listen);
+            loaded.microphone = Some(Box::new(crate::input::BlowMicrophone::new(blowing.clone(), listen)));
             // without a picture the cameras see black, as before
             if let Some(path) = &launch.camera {
                 match crate::camera::load(path) {
