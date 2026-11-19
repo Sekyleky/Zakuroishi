@@ -329,6 +329,7 @@ public final class Launcher extends Activity {
     /** The header's Menu (also Start). */
     private void tools() {
         String[][] items = {
+            {"Sort: " + SORTS[sortOrder()], "Change the library order: last played, name, or play time."},
             {"Default settings…", "Settings every game starts with until you change them in that game's Settings."},
             {"Setup help", "What a game folder needs, and how to play."},
             {"Frontends…", "Export launch files so another game frontend can start your games."},
@@ -337,8 +338,8 @@ public final class Launcher extends Activity {
             {"Export settings…", "Save every game's settings and controller mapping to a file."},
             {"Import settings…", "Load a file saved with Export settings. If anything in it is invalid, nothing is changed."},
             {"Check for updates…", "Look for a newer Zakuroishi on GitHub, and choose whether to check when the app opens."}};
-        chooser("Menu", GameImport.nightly(this) ? items : Arrays.copyOf(items, 7), // nightly build only: self-update not yet run on a device
-            new Runnable[]{() -> SettingsDialog.show(this, GameSettings.DEFAULTS, null, "All games", false, this::showLibrary, null, null, null, null), () -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings, this::updates});
+        chooser("Menu", GameImport.nightly(this) ? items : Arrays.copyOf(items, 8), // nightly build only: self-update not yet run on a device
+            new Runnable[]{this::nextSort, () -> SettingsDialog.show(this, GameSettings.DEFAULTS, null, "All games", false, this::showLibrary, null, null, null, null), () -> help(false), this::frontends, () -> StorageDialog.show(this), this::exportDiagnostics, this::exportSettings, this::importSettings, this::updates});
     }
     /** Menu > Check for updates (nightly build only): the launch check switch and a check now. */
     private void updates() {
@@ -520,8 +521,25 @@ public final class Launcher extends Activity {
                 icons.put(id, pixels == null ? null : android.graphics.Bitmap.createBitmap(pixels, GameMetadata.ICON, GameMetadata.ICON, android.graphics.Bitmap.Config.ARGB_8888));
             } catch (Exception e) { icons.put(id, null); }
         }
-        // Most recently played first, then by name.
-        ids.sort((a, b) -> { int recent = Long.compare(lastPlayed.get(b), lastPlayed.get(a)); return recent != 0 ? recent : names.get(a).compareToIgnoreCase(names.get(b)); });
+        ids = sorted(ids, names, lastPlayed, playMs, sortOrder());
+    }
+    static final String[] SORTS = {"Last played", "Name", "Play time"};
+    /** The library order: 0 last played (never played last), 1 name A-Z, 2 play time (most first); ties by name. */
+    static List<String> sorted(Collection<String> ids, Map<String, String> names, Map<String, Long> last, Map<String, Long> ms, int order) {
+        java.text.Collator collator = java.text.Collator.getInstance(); collator.setStrength(java.text.Collator.SECONDARY); // case-insensitive, locale-aware
+        List<String> out = new ArrayList<>(ids);
+        out.sort((a, b) -> {
+            int by = order == 0 ? Long.compare(last.get(b), last.get(a)) : order == 2 ? Long.compare(ms.get(b), ms.get(a)) : 0;
+            return by != 0 ? by : collator.compare(names.get(a), names.get(b));
+        });
+        return out;
+    }
+    private int sortOrder() { return Math.max(0, Math.min(SORTS.length - 1, getSharedPreferences("launcher", MODE_PRIVATE).getInt("sort", 0))); }
+    /** Menu > Sort: next order, keeping focus on the same game. */
+    private void nextSort() {
+        getSharedPreferences("launcher", MODE_PRIVATE).edit().putInt("sort", (sortOrder() + 1) % SORTS.length).apply();
+        ids = sorted(ids, names, lastPlayed, playMs, sortOrder()); String keep = focused; render();
+        View tile = keep == null ? null : list.findViewWithTag(keep + ".play"); if (tile != null) tile.requestFocus();
     }
     private String summary(String id, boolean second) {
         String summary = Math.max(1, Math.min(GameSettings.MAX_RESOLUTION, GameSettings.load(this, id).resolution)) + "× resolution";
