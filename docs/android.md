@@ -273,7 +273,8 @@ and settings still requiring a port.
 
 - **Screen gap** (Display, 0-40, default 0): space between the two screens, in console pixels, in Stacked and Side by side; touch follows the moved bottom screen. A 30 px gap was seen on the AYN Thor in Stacked; touch on it and Side by side were not run on device.
 - **Dump textures** (Advanced, default off): saves each new texture the game uses as a PNG, named as a texture pack names it (`tex1_WxH_HASH_FORMAT_mip0.png`), in `Android/data/io.github.zakuro.android/files/dump/textures/<title id>/`, which a computer reaches over USB. A start for making a pack; it uses storage and can slow the game. Host-checked, not run on device.
-- **Small screen size** (Display, 25-100%, default 50): size of the bottom screen in Large top; 100% is the console's 320x240. Host-checked, not run on device.
+- **Small screen size** (Display, 25-100%, default 50): size of the bottom screen in Large top and of both small screens in Hybrid; 100% is the console's 320x240. Host-checked, not run on device.
+- **Hybrid** (Display → Screen layout): the top screen large on the left and, in a column on the right, a small copy of it above the small bottom screen; touch uses the small bottom screen. Host-checked, not run on device.
 - **Picture effect** (Display, default None) and **Effect strength** (0-100%, default 50): Sharpen, Vivid colours, Scanlines or Smooth edges over the final picture, in the present shader's single pass; None leaves the picture as before. Host-checked, not run on device.
 - **Custom picture shaders** (Picture effect → Custom shader, plus **Custom shader file**): draws the screens with your own GLSL picture shader. Put a `.glsl` file in `Android/data/io.github.zakuro.android/files/shaders/` (reachable over USB) and type its file name (letters, digits, spaces, `.`, `-`, `_`, up to 64 characters, no folders) in Custom shader file. The file (up to 64 KiB) holds one function, with no `#version` line and no `main`:
 
@@ -418,7 +419,7 @@ For developers: the adb settings hook (`.DebugSettings`, see `DebugSettings.java
 `{"controller_bindings":{"96":"a","102":"quick_save"}}`. Targets are `fast_forward`, `a`, `b`,
 `x`, `y`, `l`, `r`, `zl`, `zr`, `start`, `select`, `up`, `down`, `left`, `right`, `none`,
 `motion_gate`, `quick_save`, `quick_load`, `swap_screens`, `screenshot`, `pause_menu`, `cycle_layout`,
-`circle_up`, `circle_down`, `circle_left`, `circle_right`, `c_up`, `c_down`, `c_left`, `c_right`, `turbo` and `blow`. The
+`circle_up`, `circle_down`, `circle_left`, `circle_right`, `c_up`, `c_down`, `c_left`, `c_right`, `turbo`, `blow` and `fast_forward_toggle`. The
 object replaces the whole set, as Save on the Button mapping page does. A key code that is not
 1-4 digits or an unknown target refuses the whole call and nothing is written. Changes apply at
 the next launch. The hook ran no test on a device for this key.
@@ -511,9 +512,10 @@ with their save time (file modified time); overwriting and loading ask first, an
 removes its whole `states` folder, so every slot goes with it.
 Each save also writes a small `N.png` thumbnail beside `N.state` (the game as the pause menu opened, or at the Quick save hotkey), shown in the slot list; states from older builds show a blank tile and load as before.
 **Button mapping** can also bind Quick save, Quick load (asks first), Swap screens, Screenshot and Pause menu to controller buttons; they act once per press and never reach the game. It can also bind a button to a Circle Pad or C-stick direction (up, down, left, right): held, it pushes that stick all the way, over what the stick itself does; two opposite buttons cancel (checked on the AYN Thor).
-**Cycle layout** (a Button mapping action) switches the screen layout live to the next of Top over bottom, Side by side, Large top, Top screen only and Bottom screen only, then back, with a short message naming it; like Swap screens it lasts for the session and does not change saved settings. With Bottom screen on second display and a second display connected it only says "Layout is fixed with two displays". Host-checked, not run on device.
+**Cycle layout** (a Button mapping action) switches the screen layout live to the next of Top over bottom, Side by side, Large top, Hybrid, Top screen only and Bottom screen only, then back, with a short message naming it; like Swap screens it lasts for the session and does not change saved settings. With Bottom screen on second display and a second display connected it only says "Layout is fixed with two displays". Host-checked, not run on device.
 **Turbo** (a Button mapping action): while held, A, B, X and Y that are also held repeat about 15 times a second (2 frames down, 2 up); alone it does nothing. Host-checked, not run on device.
 **Blow into microphone** (a Button mapping action): while held, the game's microphone hears blowing (noise); otherwise it hears silence, as Android gives games no real microphone yet. Host-checked, not run on device.
+**Fast-forward (toggle)** (a Button mapping action): one press turns fast-forward on, the next turns it off, with a short message; it runs at the Fast-forward speed setting, and the hold-to-run Fast-forward button still works alongside it. Host-checked, not run on device.
 
 Reimport keeps in-game saves; quick states are version-specific and are not a
 substitute for in-game saving. Component replacement keeps the current import's

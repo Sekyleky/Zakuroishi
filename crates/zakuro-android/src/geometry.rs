@@ -26,6 +26,7 @@ pub fn layout(settings: &Advanced) -> ScreenLayout {
         Layout::TopOnly => ScreenLayout::TopOnly,
         Layout::BottomOnly => ScreenLayout::BottomOnly,
         Layout::LargeTop => ScreenLayout::LargeTop,
+        Layout::Hybrid => ScreenLayout::Hybrid,
     }
 }
 pub fn spacing(settings: &Advanced) -> zakuro_gpu::backend::ScreenSpacing {
@@ -169,6 +170,7 @@ mod tests {
             Layout::TopOnly,
             Layout::BottomOnly,
             Layout::LargeTop,
+            Layout::Hybrid,
         ] {
             for swap in [false, true] {
                 for stretch in [false, true] {
@@ -216,6 +218,14 @@ mod tests {
             ..Advanced::default()
         };
         assert_eq!(touch(&settings, 720, 240, 560.5, 120.5), Some((160, 120)));
+        // hybrid at 1920x1080: the bottom screen is 1344,540 512x384 under the
+        // small top copy, which takes no touch
+        let settings = Advanced {
+            layout: Layout::Hybrid,
+            ..Advanced::default()
+        };
+        assert_eq!(touch(&settings, 1920, 1080, 1600.8, 732.8), Some((160, 120)));
+        assert_eq!(touch(&settings, 1920, 1080, 1600.0, 348.0), None);
     }
     #[test]
     fn stretch_fills_display_and_stereo_bottoms_both_accept_touch() {

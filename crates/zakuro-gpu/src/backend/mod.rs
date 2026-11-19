@@ -185,6 +185,9 @@ pub enum ScreenLayout {
     BottomOnly,
     /// the top screen big, the bottom one small at its lower right.
     LargeTop,
+    /// the top screen big, and beside it a small copy of it over the small
+    /// bottom one.
+    Hybrid,
 }
 
 /// the Orientation of both screens. north is up
@@ -284,6 +287,7 @@ impl ScreenLayout {
             ScreenLayout::TopOnly => (top_width, 240.0),
             ScreenLayout::BottomOnly => (320.0, 240.0),
             ScreenLayout::LargeTop => (top_width + 320.0 * spacing.small, 240.0),
+            ScreenLayout::Hybrid => (top_width + top_width.max(320.0) * spacing.small, 240f32.max(480.0 * spacing.small)),
         }
     }
 }
@@ -318,6 +322,12 @@ pub fn layout(window_width: u32, window_height: u32, arrangement: ScreenLayout, 
 
 /// layout, with room between the screens and the small one sized.
 fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_w: f32, integer: bool, spacing: ScreenSpacing) -> (Option<Viewport>, Option<Viewport>) {
+    let (top, bottom, _) = layout_copied(window_width, window_height, arrangement, orientation, top_w, integer, spacing);
+    (top, bottom)
+}
+
+/// layout_spaced, and the place of the small copy of the top screen Hybrid shows.
+fn layout_copied(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_w: f32, integer: bool, spacing: ScreenSpacing) -> (Option<Viewport>, Option<Viewport>, Option<Viewport>) {
     let (layout_width, layout_height) = arrangement.size_f(top_w, spacing);
     let (total_width, total_height) = if matches!(orientation, ScreenOrientation::East | ScreenOrientation::West) {
         (layout_height, layout_width)
@@ -332,10 +342,20 @@ fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayou
 
     let top = (arrangement != ScreenLayout::BottomOnly).then_some(Viewport {
         x: 0.0,
-        y: 0.0,
+        // centred beside a hybrid column taller than it
+        y: if arrangement == ScreenLayout::Hybrid { (layout_height - 240.0) / 2.0 * scale } else { 0.0 },
         width: top_w * scale,
         height: 240.0 * scale,
     });
+    // the hybrid column: the small screens' scale, as large top sizes its one
+    let small = if integer && spacing.small * scale >= 1.0 { (spacing.small * scale).floor() } else { spacing.small * scale };
+    let column = |width: f32, below: f32| Viewport {
+        x: top_w * scale + (top_w.max(320.0) - width) * small / 2.0,
+        y: (layout_height * scale - 480.0 * small) / 2.0 + below * small,
+        width: width * small,
+        height: 240.0 * small,
+    };
+    let copy = (arrangement == ScreenLayout::Hybrid).then(|| column(top_w, 0.0));
     let bottom = match arrangement {
         // the bottom screen is narrower, so it is centered under the top one.
         ScreenLayout::Stacked => Some(Viewport {
@@ -362,6 +382,7 @@ fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayou
                 height: 240.0 * small,
             })
         }
+        ScreenLayout::Hybrid => Some(column(320.0, 240.0)),
         ScreenLayout::TopOnly => None,
         ScreenLayout::BottomOnly => Some(Viewport {
             x: 0.0,
@@ -383,7 +404,7 @@ fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayou
         };
         Viewport { x, y, width, height }
     };
-    let (top, bottom) = (top.map(rotate), bottom.map(rotate));
+    let (top, bottom, copy) = (top.map(rotate), bottom.map(rotate), copy.map(rotate));
 
     let mut offset_x = (window_width as f32 - total_width * scale) / 2.0;
     let mut offset_y = (window_height as f32 - total_height * scale) / 2.0;
@@ -397,7 +418,7 @@ fn layout_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayou
         y: offset_y + viewport.y,
         ..viewport
     };
-    (top.map(offset), bottom.map(offset))
+    (top.map(offset), bottom.map(offset), copy.map(offset))
 }
 
 /// how the top screen's two pictures, one for each eye, are shown when the
@@ -447,9 +468,9 @@ pub fn place(window_width: u32, window_height: u32, arrangement: ScreenLayout, o
 }
 
 fn place_spaced(window_width: u32, window_height: u32, arrangement: ScreenLayout, orientation: ScreenOrientation, top_width: f32, integer: bool, stereo: Stereo, right: bool, spacing: ScreenSpacing) -> Vec<(Viewport, Shown)> {
-    let layout = |width, height| layout_spaced(width, height, arrangement, orientation, top_width, integer, spacing);
-    let screens = |(top, bottom): (Option<Viewport>, Option<Viewport>), eye: Shown| {
-        top.map(|viewport| (viewport, eye)).into_iter().chain(bottom.map(|viewport| (viewport, Shown::Bottom)))
+    let layout = |width, height| layout_copied(width, height, arrangement, orientation, top_width, integer, spacing);
+    let screens = |(top, bottom, copy): (Option<Viewport>, Option<Viewport>, Option<Viewport>), eye: Shown| {
+        top.map(|viewport| (viewport, eye)).into_iter().chain(copy.map(|viewport| (viewport, eye))).chain(bottom.map(|viewport| (viewport, Shown::Bottom)))
     };
     let (first, second) = match (right, stereo.swap) {
         (false, _) => (Shown::Top, Shown::Top),
@@ -671,6 +692,33 @@ mod tests {
         assert_eq!((bottom.x, bottom.y, bottom.width, bottom.height), (800.0, 240.0, 320.0, 240.0));
     }
 
+    /// hybrid draws the top screen big, its small copy over the small bottom
+    /// screen in a column beside it, each keeping its shape.
+    #[test]
+    fn hybrid_puts_a_small_top_copy_over_the_bottom_screen() {
+        // 600x240 at scale 3.2, centred in 1920x1080
+        let places = place(1920, 1080, ScreenLayout::Hybrid, ScreenOrientation::North, TOP_WIDTH, false, Stereo::default(), false);
+        let got: Vec<_> = places.iter().map(|&(v, shown)| (bounds(v), shown)).collect();
+        assert_eq!(got, [
+            ((0.0, 156.0, 1280.0, 768.0), Shown::Top),
+            ((1280.0, 156.0, 640.0, 384.0), Shown::Top),
+            ((1344.0, 540.0, 512.0, 384.0), Shown::Bottom),
+        ]);
+        for (i, (a, _)) in places.iter().enumerate() {
+            let shape = if i == 2 { 320.0 / 240.0 } else { 400.0 / 240.0 };
+            assert!((a.width / a.height - shape).abs() < 1e-4);
+            for (b, _) in &places[i + 1..] {
+                assert!(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y, "{a:?} {b:?}");
+            }
+        }
+        // a bigger small screen makes the column taller than the top screen,
+        // which is centred beside it
+        let (top, bottom, copy) = layout_copied(800, 480, ScreenLayout::Hybrid, ScreenOrientation::North, TOP_WIDTH, false, ScreenSpacing { gap: 0.0, small: 1.0 });
+        assert_eq!(bounds(top.unwrap()), (0.0, 120.0, 400.0, 240.0));
+        assert_eq!(bounds(copy.unwrap()), (400.0, 0.0, 400.0, 240.0));
+        assert_eq!(bounds(bottom.unwrap()), (440.0, 240.0, 320.0, 240.0));
+    }
+
     /// a gap moves the bottom screen away by it and widens the whole, and the
     /// small screen at 100% is the console's size.
     #[test]
@@ -836,7 +884,7 @@ mod tests {
 
     #[test]
     fn configured_geometry_stays_inside_the_window_for_all_arrangements() {
-        for arrangement in [ScreenLayout::Stacked, ScreenLayout::SideBySide, ScreenLayout::LargeTop, ScreenLayout::TopOnly, ScreenLayout::BottomOnly] {
+        for arrangement in [ScreenLayout::Stacked, ScreenLayout::SideBySide, ScreenLayout::LargeTop, ScreenLayout::Hybrid, ScreenLayout::TopOnly, ScreenLayout::BottomOnly] {
             for mode in [StereoMode::Off, StereoMode::Anaglyph, StereoMode::SideBySide, StereoMode::HalfSideBySide, StereoMode::Interlaced] {
                 for swap in [false, true] { for stretch in [false, true] {
                     let places = place_configured(1280, 720, arrangement, ScreenOrientation::North, 560.0, true, Stereo { mode, swap: true }, true, stretch, swap, ScreenSpacing::default());

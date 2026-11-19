@@ -49,7 +49,7 @@ final class GameSettings {
     }
     static final Setting[] ALL = {
         flag("Display", "dual_display", "Bottom screen on second display", false, "Top screen on this display, bottom screen on a connected presentation display. Disconnecting restores the selected layout. Swap screens reverses the routing."),
-        choice("Display", "layout", "Screen layout", "stacked", "stacked|side_by_side|large_top|top_only|bottom_only", "Choose how the two screens share the display."),
+        choice("Display", "layout", "Screen layout", "stacked", "stacked|side_by_side|large_top|hybrid|top_only|bottom_only", "Choose how the two screens share the display."),
         flag("Display", "swap_screens", "Swap top and bottom screens", false, "Exchange their positions in the selected layout."),
         flag("Display", "external_stretch", "Fill second display", false, "Fill the physical second display independently of the main display. Can change the picture proportions."),
         choice("Display", "orientation", "Display orientation", "landscape", "auto|landscape|portrait", "Automatic follows device rotation. Landscape and Portrait follow the sensor within the selected orientation."),
@@ -59,7 +59,7 @@ final class GameSettings {
         text("Display", "custom_shader", "Custom shader file", "For Custom shader: a .glsl file name in Android/data/io.github.zakuro.android/files/shaders. If it does not compile, the normal picture shows and a message says why."),
         number("Display", "top_width", "Top screen shape", 400f, 320, 800, "Original 5:3, 16:9 or 21:9. Wide shapes stretch the picture unless the game has a matching widescreen code."),
         number("Display", "screen_gap", "Screen gap", 0, 0, 40, "Space between the two screens, in console pixels, in Stacked and Side by side."),
-        number("Display", "small_screen", "Small screen size (%)", 50, 25, 100, "Size of the small screen in Large top, in percent."),
+        number("Display", "small_screen", "Small screen size (%)", 50, 25, 100, "Size of the small screens in Large top and Hybrid, in percent."),
         flag("Display", "stretch", "Fill the available screen area", false, "Changes the picture's proportions to fill its area."),
         flag("Display", "integer_scale", "Whole-pixel scaling", false, "Use whole scaling steps where the layout allows."),
         flag("Display", "show_fps", "Show FPS", false, "Updates the in-game status overlay once a second."),
@@ -161,7 +161,7 @@ final class GameSettings {
         return -1;
     }
     static final String[] BINDING_TARGETS = {"fast_forward","a","b","x","y","l","r","zl","zr","start","select","up","down","left","right","none","motion_gate","quick_save","quick_load","swap_screens","screenshot","pause_menu","cycle_layout",
-        "circle_up","circle_down","circle_left","circle_right","c_up","c_down","c_left","c_right","turbo","blow"};
+        "circle_up","circle_down","circle_left","circle_right","c_up","c_down","c_left","c_right","turbo","blow","fast_forward_toggle"};
     final String id;
     String name;
     String driver = "";

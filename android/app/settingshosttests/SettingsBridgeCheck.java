@@ -32,6 +32,11 @@ public final class SettingsBridgeCheck {
             throw new AssertionError("Runtime does not give dump_textures' folder to the texture dump");
         if(!runtime.contains("geometry::spacing(settings)") || !settings.contains("self.screen_gap.clamp(0, 40)") || !settings.contains("self.small_screen.clamp(25, 100)"))
             throw new AssertionError("screen_gap/small_screen are not clamped like the Java ranges or not given to the presenter");
+        // screen layout: the Java choices are the Rust Layout, each with a label
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("layout") && !String.join("|",setting.choices).equals("stacked|side_by_side|large_top|hybrid|top_only|bottom_only"))
+            throw new AssertionError("layout choices differ from Rust Layout");
+        if(!settings.contains("choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid);") || !settings.contains("Self::Hybrid => \"Hybrid\","))
+            throw new AssertionError("Layout is not the Java layout choices or Hybrid has no label");
         // picture effect: the Java choices are the Rust PictureEffect, strength clamped like the Java range and given to the presenter
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("picture_effect") && !String.join("|",setting.choices).equals("none|sharpen|vivid_colours|scanlines|smooth_edges|custom"))
             throw new AssertionError("picture_effect choices differ from Rust PictureEffect");

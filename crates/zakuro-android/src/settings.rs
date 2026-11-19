@@ -8,7 +8,7 @@ macro_rules! choice {
         impl Default for $name { fn default() -> Self { Self::$default } }
     };
 }
-choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop);
+choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop, Hybrid);
 choice!(Filter, Smooth, Smooth, Sharp, Pixels);
 choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges, Custom);
 choice!(ButtonMapping, Nintendo, Nintendo, Xbox);
@@ -26,7 +26,8 @@ impl Layout {
         match self {
             Self::Stacked => Self::SideBySide,
             Self::SideBySide => Self::LargeTop,
-            Self::LargeTop => Self::TopOnly,
+            Self::LargeTop => Self::Hybrid,
+            Self::Hybrid => Self::TopOnly,
             Self::TopOnly => Self::BottomOnly,
             Self::BottomOnly => Self::Stacked,
         }
@@ -37,6 +38,7 @@ impl Layout {
             Self::Stacked => "Top over bottom",
             Self::SideBySide => "Side by side",
             Self::LargeTop => "Large top, small bottom",
+            Self::Hybrid => "Hybrid",
             Self::TopOnly => "Top screen only",
             Self::BottomOnly => "Bottom screen only",
         }
@@ -77,7 +79,7 @@ choice!(
 choice!(
     Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward,
     QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu, CycleLayout, CircleUp, CircleDown, CircleLeft, CircleRight, CUp, CDown,
-    CLeft, CRight, Turbo, Blow
+    CLeft, CRight, Turbo, Blow, FastForwardToggle
 );
 
 impl Binding {
@@ -498,13 +500,15 @@ impl Advanced {
 mod tests {
     use super::*;
     #[test]
-    fn cycle_layout_visits_all_five_and_wraps() {
+    fn cycle_layout_visits_all_six_and_wraps() {
         let mut seen = vec![Layout::Stacked];
-        for _ in 0..5 {
+        for _ in 0..6 {
             seen.push(seen.last().unwrap().next());
         }
         use Layout::*;
-        assert_eq!(seen, [Stacked, SideBySide, LargeTop, TopOnly, BottomOnly, Stacked]);
+        assert_eq!(seen, [Stacked, SideBySide, LargeTop, Hybrid, TopOnly, BottomOnly, Stacked]);
+        assert_eq!(Advanced::parse(r#"{"layout":"hybrid"}"#).unwrap().layout, Hybrid);
+        assert_eq!(Hybrid.label(), "Hybrid");
     }
     #[test]
     fn resolution_extra_clamps_to_1_through_5() {
@@ -702,6 +706,9 @@ mod tests {
             assert_eq!(serde_json::to_string(&binding).unwrap(), format!("\"{name}\""));
         }
         assert_eq!(Binding::FastForward.hotkey(), None);
+        let toggle = Advanced::parse(r#"{"controller_bindings":{"3":"fast_forward_toggle"}}"#).unwrap();
+        assert_eq!(toggle.binding(3), Some(Binding::FastForwardToggle));
+        assert_eq!((Binding::FastForwardToggle.bits(), Binding::FastForwardToggle.hotkey()), (0, None));
         let held = Advanced::parse(r#"{"controller_bindings":{"1":"turbo","2":"blow"}}"#).unwrap();
         assert_eq!((held.binding(1), held.binding(2)), (Some(Binding::Turbo), Some(Binding::Blow)));
         assert_eq!((Binding::Turbo.bits(), Binding::Blow.hotkey()), (0, None));

@@ -1063,6 +1063,9 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
         for hotkey in input.hotkeys(&settings, &virtual_input) {
             platform::hotkey(app, hotkey);
         }
+        if let Some(on) = input.toggle_fast_forward(&settings, &virtual_input) {
+            platform::message(app, if on { "Fast-forward on" } else { "Fast-forward off" });
+        }
         let speed = if input.fast_forward(&settings, &virtual_input) { settings.fast_forward_speed } else { settings.speed_limit };
         if speed != effective_speed {
             effective_speed = speed;

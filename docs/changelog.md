@@ -2,12 +2,14 @@
 
 ## Unreleased
 
+- **Hybrid screen layout (host-checked, not run on device):** Display → Screen layout → Hybrid shows the top screen large with a small copy of it above the small bottom screen in a column beside it; touch uses the small bottom screen, Small screen size sets the column, and Cycle layout includes it after Large top.
+- **Fast-forward toggle button (host-checked, not run on device):** Button mapping can bind Fast-forward (toggle): one press turns fast-forward on, the next turns it off; the hold-to-run Fast-forward button works as before.
 - **Library sorting (host-checked, not run on device):** Menu → Sort switches the library between Last played (default, as before), Name and Play time, and remembers the choice.
 - **Turbo and Blow into microphone (host-checked, not run on device):** Button mapping can bind Turbo (held, it repeats the A, B, X and Y you hold about 15 times a second) and Blow into microphone (held, the game hears blowing, for games that ask you to blow).
 - **Less work per draw on the CPU vertex path (host-measured, not run on device):** each worker thread reuses its vertex input buffer instead of allocating about 1 MB per large draw; on a PC a 4096-vertex draw's copy and decode went from 172 to 46 µs.
 - **Clearer feedback (host-checked, not run on device):** pressing Play or another import while an import runs says why nothing happens; the progress line says to keep the app open and its numbers no longer jitter; on the Storage screen a failed delete is shown in a dialog, Cancel returns to the list without scanning again, and small items show their size in KB.
 - **Games start only from the app, frontends and shortcuts (host-checked):** a `zakuro://game/…` link in a web page no longer opens Zakuroishi; frontends and home-screen shortcuts are unaffected.
-- **Cycle layout button (host-checked, not run on device):** Button mapping can bind Cycle layout, which switches between the five screen layouts while playing (not with two displays); the saved layout is unchanged.
+- **Cycle layout button (host-checked, not run on device):** Button mapping can bind Cycle layout, which switches between the screen layouts while playing (not with two displays); the saved layout is unchanged.
 - **Faster HD-pack lookups (host-measured, not run on device):** a texture whose size and format no pack picture is named for skips both pack hashes (on a PC 45-820 µs to 0 per miss); matches are unchanged. Turning off Fast texture decoding also turns this filter off.
 - **Easier to read on a handheld (host-checked, not run on device):** setting descriptions are 16sp instead of 14sp, and at large font the library's details line keeps two lines so the game name is not cut.
 - **4× and 5× rendering resolution (host-checked, not run on device):** the Rendering resolution setting offers 4× and 5× besides 1× to 3×; they need much more GPU memory and can slow the game.

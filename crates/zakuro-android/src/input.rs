@@ -63,6 +63,31 @@ mod tests {
         assert!(!input.fast_forward(&settings,&virtual_input));
     }
     #[test]
+    fn fast_forward_toggle_flips_on_press_edges_only_and_combines_with_hold() {
+        let settings=Advanced::parse(r#"{"controller_bindings":{"106":"fast_forward_toggle","107":"fast_forward"}}"#).unwrap();
+        let mut input=Input::default();
+        let virtual_input=VirtualInput::default();
+        assert_eq!(input.toggle_fast_forward(&settings,&virtual_input),None);
+        input.keys.insert(106);
+        assert_eq!(input.toggle_fast_forward(&settings,&virtual_input),Some(true));
+        for _ in 0..5 { assert_eq!(input.toggle_fast_forward(&settings,&virtual_input),None); }
+        assert!(input.fast_forward(&settings,&virtual_input));
+        input.keys.clear();
+        assert_eq!(input.toggle_fast_forward(&settings,&virtual_input),None);
+        assert!(input.fast_forward(&settings,&virtual_input));
+        // held fast-forward and the toggle together: off only when both are off
+        input.keys.insert(107);
+        assert_eq!(input.toggle_fast_forward(&settings,&virtual_input),None);
+        input.keys.insert(106);
+        assert_eq!(input.toggle_fast_forward(&settings,&virtual_input),Some(false));
+        assert!(input.fast_forward(&settings,&virtual_input));
+        input.keys.clear();
+        assert!(!input.fast_forward(&settings,&virtual_input));
+        // the toggle key never reaches the guest
+        input.keys.insert(106);
+        assert!(input.configured(&settings,&virtual_input,None).buttons.is_empty());
+    }
+    #[test]
     fn hotkeys_fire_once_per_press_and_never_reach_the_guest() {
         // 106 is also the default tilt gate: a hotkey there must not gate stick motion either
         let settings=Advanced::parse(r#"{"stick_motion":true,"controller_bindings":{"106":"quick_save","104":"pause_menu","99":"screenshot"}}"#).unwrap();
@@ -306,6 +331,10 @@ pub struct Input {
     pub short_presses: u32,
     /// Hotkeys down at the last `hotkeys` call, so holding one does not repeat it.
     held_hotkeys: BTreeSet<i32>,
+    /// Fast-forward toggle keys down at the last `toggle_fast_forward` call.
+    held_toggles: BTreeSet<i32>,
+    /// Fast-forward switched on by the toggle binding.
+    toggled: bool,
     /// `configured` calls, one an emulation frame, for the turbo pulse.
     frame: u32,
     #[cfg(target_os = "android")]
@@ -322,6 +351,8 @@ impl Default for Input {
             latched_touch: None,
             short_presses: 0,
             held_hotkeys: BTreeSet::new(),
+            held_toggles: BTreeSet::new(),
+            toggled: false,
             frame: 0,
             #[cfg(target_os = "android")]
             finger: None,
@@ -330,8 +361,19 @@ impl Default for Input {
     }
 }
 impl Input {
+    /// Fast-forward is on while its key is held or after the toggle key was pressed an odd number of times.
     pub fn fast_forward(&self, settings: &Advanced, virtual_input: &VirtualInput) -> bool {
-        self.held(settings, virtual_input, Binding::FastForward)
+        self.toggled || self.held(settings, virtual_input, Binding::FastForward)
+    }
+    /// Flips the fast-forward toggle once per press of its key, however long held; call once a frame
+    /// before `configured`. Returns the new state when it changed.
+    pub fn toggle_fast_forward(&mut self, settings: &Advanced, virtual_input: &VirtualInput) -> Option<bool> {
+        let held: BTreeSet<i32> = self.keys.union(&virtual_input.keys).chain(&self.axes)
+            .filter(|code| settings.binding(**code) == Some(Binding::FastForwardToggle)).copied().collect();
+        let pressed = held.iter().chain(&self.latched)
+            .any(|code| settings.binding(*code) == Some(Binding::FastForwardToggle) && !self.held_toggles.contains(code));
+        self.held_toggles = held;
+        if pressed { self.toggled = !self.toggled; Some(self.toggled) } else { None }
     }
     /// Whether a key bound to `binding` is down.
     pub fn held(&self, settings: &Advanced, virtual_input: &VirtualInput, binding: Binding) -> bool {
@@ -371,7 +413,7 @@ impl Input {
         // keys bound to a stick direction, summed per stick; opposite keys cancel
         let mut pushed = [[0.0f32; 2]; 2];
         for code in self.keys.union(&virtual_input.keys).chain(&self.axes).chain(&short) {
-            let gate_key = settings.binding(*code).is_none_or(|b| !matches!(b, Binding::FastForward | Binding::Turbo | Binding::Blow) && b.hotkey().is_none())
+            let gate_key = settings.binding(*code).is_none_or(|b| !matches!(b, Binding::FastForward | Binding::FastForwardToggle | Binding::Turbo | Binding::Blow) && b.hotkey().is_none())
                 && (selected_gate == Some(*code)
                     || settings.controller_bindings.get(code) == Some(&Binding::MotionGate));
             motion_gate |= gate_key;

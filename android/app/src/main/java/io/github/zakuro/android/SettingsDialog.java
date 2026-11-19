@@ -576,6 +576,7 @@ final class SettingsDialog {
     private static String label(String value) {
         switch (value) {
             case "fast_forward": return "Fast-forward (hold)";
+            case "fast_forward_toggle": return "Fast-forward (toggle)";
             case "gpu": return "GPU";
             case "cpu": return "CPU";
             case "async": return "Asynchronous";
@@ -583,6 +584,7 @@ final class SettingsDialog {
             case "stacked": return "Top over bottom";
             case "side_by_side": return "Side by side";
             case "large_top": return "Large top, small bottom";
+            case "hybrid": return "Hybrid";
             case "top_only": return "Top screen only";
             case "bottom_only": return "Bottom screen only";
             case "circle_pad": return "Circle Pad";
