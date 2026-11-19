@@ -275,6 +275,21 @@ and settings still requiring a port.
 - **Dump textures** (Advanced, default off): saves each new texture the game uses as a PNG, named as a texture pack names it (`tex1_WxH_HASH_FORMAT_mip0.png`), in `Android/data/io.github.zakuro.android/files/dump/textures/<title id>/`, which a computer reaches over USB. A start for making a pack; it uses storage and can slow the game. Host-checked, not run on device.
 - **Small screen size** (Display, 25-100%, default 50): size of the bottom screen in Large top; 100% is the console's 320x240. Host-checked, not run on device.
 - **Picture effect** (Display, default None) and **Effect strength** (0-100%, default 50): Sharpen, Vivid colours, Scanlines or Smooth edges over the final picture, in the present shader's single pass; None leaves the picture as before. Host-checked, not run on device.
+- **Custom picture shaders** (Picture effect → Custom shader, plus **Custom shader file**): draws the screens with your own GLSL picture shader. Put a `.glsl` file in `Android/data/io.github.zakuro.android/files/shaders/` (reachable over USB) and type its file name (letters, digits, spaces, `.`, `-`, `_`, up to 64 characters, no folders) in Custom shader file. The file (up to 64 KiB) holds one function, with no `#version` line and no `main`:
+
+  ```glsl
+  // uv: 0,0 top left to 1,1 bottom right of the screen; texel: one screen pixel in uv;
+  // strength: Effect strength, 0 to 1. screen_at(uv) reads the screen. Return RGB, 0 to 1.
+  vec3 picture(vec2 uv, vec2 texel, float strength) {
+      vec3 c = screen_at(uv);
+      vec3 sepia = vec3(dot(c, vec3(0.393, 0.769, 0.189)),
+                        dot(c, vec3(0.349, 0.686, 0.168)),
+                        dot(c, vec3(0.272, 0.534, 0.131)));
+      return mix(c, sepia, strength);
+  }
+  ```
+
+  It is compiled when the game's window opens. If the file is missing, too large or does not compile, the normal picture shows and a message names the file and the first error with its line. The shader applies in 2D only: with 3D on, the 3D picture shows without it. The Picture filter setting does not apply to it (screen_at is plain bilinear). Host-checked (the example compiles to SPIR-V; broken and oversized files are refused), not run on device.
 
 A selects and B cancels in the library. In play, open the pause menu for resume,
 save and load states (quick slot and slots 1-9; X quick-saves and Y quick-loads),

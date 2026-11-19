@@ -10,7 +10,7 @@ macro_rules! choice {
 }
 choice!(Layout, Stacked, Stacked, SideBySide, TopOnly, BottomOnly, LargeTop);
 choice!(Filter, Smooth, Smooth, Sharp, Pixels);
-choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges);
+choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges, Custom);
 choice!(ButtonMapping, Nintendo, Nintendo, Xbox);
 choice!(LeftStick, CirclePad, CirclePad, Dpad);
 choice!(RightStick, CStick, CStick, Cursor);
@@ -151,6 +151,8 @@ pub struct Advanced {
     /// the picture effect over the screens, and its strength in percent.
     pub picture_effect: PictureEffect,
     pub effect_strength: i32,
+    /// the picture shader file in the shaders folder that Custom draws with.
+    pub custom_shader: String,
     pub stretch: bool,
     pub swap_screens: bool,
     pub dual_display: bool,
@@ -268,6 +270,7 @@ impl Default for Advanced {
             small_screen: 50,
             picture_effect: PictureEffect::None,
             effect_strength: 50,
+            custom_shader: String::new(),
             stretch: false,
             swap_screens: false,
             dual_display: false,
@@ -405,6 +408,11 @@ impl Advanced {
         self.screen_gap = self.screen_gap.clamp(0, 40);
         self.small_screen = self.small_screen.clamp(25, 100);
         self.effect_strength = self.effect_strength.clamp(0, 100);
+        // a file name in the shaders folder, as picture_shader::valid_name allows: no path
+        let name = &self.custom_shader;
+        if name.len() > 64 || name.starts_with('.') || !name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '-' | '_')) {
+            self.custom_shader.clear();
+        }
         self.gyro_sensitivity = bounded(self.gyro_sensitivity, 0.0, 5.0, 1.0);
         self.stick_motion_sensitivity = bounded(self.stick_motion_sensitivity, 0.0, 5.0, 1.0);
         self.cursor_speed = bounded(self.cursor_speed, 0.1, 5.0, 1.0);
@@ -643,6 +651,18 @@ mod tests {
         assert_eq!(Advanced::parse(r#"{"effect_strength":150}"#).unwrap().effect_strength, 100);
         assert_eq!(Advanced::parse(r#"{"effect_strength":-5}"#).unwrap().effect_strength, 0);
         assert!(Advanced::parse(r#"{"picture_effect":"blur"}"#).is_err());
+    }
+    #[test]
+    fn custom_shader_parses_and_refuses_paths() {
+        let settings = Advanced::parse("{}").unwrap();
+        assert_eq!(settings.custom_shader, "");
+        let settings = Advanced::parse(r#"{"picture_effect":"custom","custom_shader":"sepia 2.glsl"}"#).unwrap();
+        assert_eq!((settings.picture_effect, settings.custom_shader.as_str()), (PictureEffect::Custom, "sepia 2.glsl"));
+        let long = "a".repeat(65);
+        for name in ["../x.glsl", "a/b.glsl", "a\\\\b.glsl", ".hidden", "c:x", long.as_str()] {
+            let json = format!(r#"{{"custom_shader":"{name}"}}"#);
+            assert_eq!(Advanced::parse(&json).unwrap().custom_shader, "", "{name}");
+        }
     }
     #[test]
     fn room_settings_default_off_and_parse() {

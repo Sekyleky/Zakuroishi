@@ -595,6 +595,7 @@ final class SettingsDialog {
             case "cursor": return "Touch cursor";
             case "half_side_by_side": return "Side by side, half width";
             case "anaglyph": return "Red/cyan glasses";
+            case "custom": return "Custom shader (shaders folder)";
             default: return Character.toUpperCase(value.charAt(0)) + value.substring(1).replace('_', ' ');
         }
     }

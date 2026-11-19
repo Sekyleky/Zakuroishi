@@ -49,6 +49,7 @@ pub fn effect(settings: &Advanced) -> (zakuro_gpu::PictureEffect, f32) {
         PictureEffect::VividColours => Effect::Vivid,
         PictureEffect::Scanlines => Effect::Scanlines,
         PictureEffect::SmoothEdges => Effect::Smooth,
+        PictureEffect::Custom => Effect::Custom,
     };
     (effect, settings.effect_strength as f32 / 100.0)
 }

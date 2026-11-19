@@ -81,6 +81,8 @@ pub mod vulkan;
 mod vulkan_overlay;
 #[cfg(feature = "vulkan")]
 pub mod framegen;
+#[cfg(feature = "vulkan")]
+pub mod picture_shader;
 
 /// one screen's pixels, already converted to straight RGBA8, or where they
 /// are on the GPU, for a presenter sharing the renderer's device.
@@ -249,13 +251,16 @@ pub enum PictureEffect {
     Scanlines,
     /// light edge smoothing.
     Smooth,
+    /// the user's picture shader, set apart from this, or the picture as it
+    /// is without one and in 3D.
+    Custom,
 }
 
 impl PictureEffect {
     /// the number the present shaders know it by.
     pub(crate) fn mode(self) -> i32 {
         match self {
-            PictureEffect::None => 0,
+            PictureEffect::None | PictureEffect::Custom => 0,
             PictureEffect::Sharpen => 1,
             PictureEffect::Vivid => 2,
             PictureEffect::Scanlines => 3,

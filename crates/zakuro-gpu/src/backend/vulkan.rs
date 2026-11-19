@@ -181,6 +181,9 @@ pub struct VulkanPresenter {
     integer: bool,
     effect: PictureEffect,
     effect_strength: f32,
+    /// the user's picture shader, drawn with for PictureEffect::Custom in
+    /// place of pipeline, on its own layout made like pipeline's.
+    custom: Option<(vk::PipelineLayout, vk::Pipeline)>,
     stereo: Stereo,
     stretch: bool,
     swap_screens: bool,
@@ -206,6 +209,27 @@ impl VulkanPresenter {
     pub fn set_picture_effect(&mut self, effect: PictureEffect, strength: f32) {
         self.effect = effect;
         self.effect_strength = if strength.is_finite() { strength.clamp(0.0, 1.0) } else { 0.0 };
+    }
+    /// draws PictureEffect::Custom with a picture shader picture_shader
+    /// compiled, or with the built-in shader again for none. on an error
+    /// the built-in one stays.
+    pub fn set_custom_shader(&mut self, spirv: Option<&[u32]>) -> Result<(), PresentError> {
+        let custom = match spirv {
+            Some(words) => {
+                let bytes: Vec<u8> = words.iter().flat_map(|word| word.to_le_bytes()).collect();
+                Some(create_pipeline(&self.device, self.render_pass, self.descriptor_layout, &bytes, CONSTANTS)?)
+            }
+            None => None,
+        };
+        if let Some((layout, pipeline)) = std::mem::replace(&mut self.custom, custom) {
+            unsafe {
+                // frames in flight may still draw with it
+                let _ = self.device.device_wait_idle();
+                self.device.destroy_pipeline(pipeline, None);
+                self.device.destroy_pipeline_layout(layout, None);
+            }
+        }
+        Ok(())
     }
     pub fn new(
         window: &(impl HasDisplayHandle + HasWindowHandle),
@@ -498,6 +522,7 @@ impl VulkanPresenter {
             integer: false,
             effect: PictureEffect::None,
             effect_strength: 0.0,
+            custom: None,
             stereo: Stereo::default(),
             stretch: false,
             swap_screens: false,
@@ -1045,6 +1070,9 @@ impl VulkanPresenter {
                     }
                     constants.extend(right.iter().flat_map(|c| c.to_le_bytes()));
                     (self.stereo_pipeline, self.stereo_pipeline_layout, self.stereo_sets[self.frame])
+                } else if let (PictureEffect::Custom, Some((layout, pipeline))) = (self.effect, self.custom) {
+                    // the user's picture shader, in 2D only
+                    (pipeline, layout, descriptor)
                 } else {
                     (self.pipeline, self.pipeline_layout, descriptor)
                 };
@@ -1291,6 +1319,10 @@ impl Drop for VulkanPresenter {
             self.device.destroy_sampler(self.sampler, None);
             self.device.destroy_pipeline(self.pipeline, None);
             self.device.destroy_pipeline_layout(self.pipeline_layout, None);
+            if let Some((layout, pipeline)) = self.custom.take() {
+                self.device.destroy_pipeline(pipeline, None);
+                self.device.destroy_pipeline_layout(layout, None);
+            }
             self.device.destroy_pipeline(self.stereo_pipeline, None);
             self.device.destroy_pipeline_layout(self.stereo_pipeline_layout, None);
             self.device.destroy_descriptor_set_layout(self.stereo_layout, None);

@@ -109,6 +109,23 @@ impl Surface {
         let (effect, strength) = geometry::effect(settings);
         self.presenter.set_picture_effect(effect, strength);
     }
+    /// the Custom picture effect's shader from the app's shaders folder, compiled once per
+    /// presenter; on any error the normal picture shows and the message names the file.
+    fn load_picture_shader(&mut self, app: &AndroidApp) {
+        if self.settings.picture_effect != crate::settings::PictureEffect::Custom {
+            return;
+        }
+        let name = &self.settings.custom_shader;
+        let result = match app.external_data_path() {
+            _ if name.is_empty() => Err("no Custom shader file is set".to_owned()),
+            Some(base) => zakuro_gpu::backend::picture_shader::load(&base.join("shaders"), name)
+                .and_then(|spirv| self.presenter.set_custom_shader(Some(&spirv)).map_err(|e| format!("{name}: {e}"))),
+            None => Err("the shaders folder is unavailable".to_owned()),
+        };
+        if let Err(error) = result {
+            platform::message(app, &format!("Picture shader not used, {error}"));
+        }
+    }
     fn resize(&mut self) {
         self.presenter.resize(
             self.window.0.width().max(1) as u32,
@@ -568,7 +585,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                     };
                     if let (false, Some(window)) = (reattached, app.native_window()) {
                         match Surface::new(window, &geometry::display(&settings, false, second.is_some()), driver.entry.clone()) {
-                            Ok(s) => {
+                            Ok(mut s) => {
+                                s.load_picture_shader(app);
                                 // Keep the default mailbox path at every speed; the guest timer controls game speed.
                                 if system.is_some() {
                                     // Only when reattaching failed: the renderer keeps its device, so screens are read back.
@@ -844,7 +862,10 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
                         &geometry::display(&settings, true, true),
                         driver.entry.clone(),
                     ) {
-                        Ok(external) => second = Some(external),
+                        Ok(mut external) => {
+                            external.load_picture_shader(app);
+                            second = Some(external);
+                        }
                         Err(error) => {
                             platform::message(app, &format!("Second display unavailable: {error}"));
                             platform::close_second_display(app);

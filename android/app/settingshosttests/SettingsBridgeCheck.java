@@ -33,11 +33,16 @@ public final class SettingsBridgeCheck {
         if(!runtime.contains("geometry::spacing(settings)") || !settings.contains("self.screen_gap.clamp(0, 40)") || !settings.contains("self.small_screen.clamp(25, 100)"))
             throw new AssertionError("screen_gap/small_screen are not clamped like the Java ranges or not given to the presenter");
         // picture effect: the Java choices are the Rust PictureEffect, strength clamped like the Java range and given to the presenter
-        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("picture_effect") && !String.join("|",setting.choices).equals("none|sharpen|vivid_colours|scanlines|smooth_edges"))
+        for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("picture_effect") && !String.join("|",setting.choices).equals("none|sharpen|vivid_colours|scanlines|smooth_edges|custom"))
             throw new AssertionError("picture_effect choices differ from Rust PictureEffect");
-        if(!settings.contains("choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges);") || !settings.contains("self.effect_strength.clamp(0, 100)")
+        if(!settings.contains("choice!(PictureEffect, None, None, Sharpen, VividColours, Scanlines, SmoothEdges, Custom);") || !settings.contains("self.effect_strength.clamp(0, 100)")
                 || !runtime.contains("set_picture_effect(effect, strength)"))
             throw new AssertionError("Picture effect settings are not wired: PictureEffect, strength clamp or the presenter");
+        // custom picture shader: a file name only, read from the shaders folder and given to the presenter
+        if(!settings.contains("pub custom_shader: String,") || !settings.contains("self.custom_shader.clear();")
+                || !runtime.contains("picture_shader::load(&base.join(\"shaders\"), name)") || !runtime.contains("set_custom_shader(Some(&spirv))")
+                || !runtime.contains("s.load_picture_shader(app);") || !runtime.contains("external.load_picture_shader(app);"))
+            throw new AssertionError("custom_shader is not validated, loaded from the shaders folder or given to the presenter");
         // rendering resolution: the Intent extra is clamped to the Java range
         if(!settings.contains("pub const MAX_RESOLUTION: u32 = "+GameSettings.MAX_RESOLUTION+";") || !platform.contains("crate::settings::resolution(resolution)"))
             throw new AssertionError("The resolution extra is not clamped to GameSettings.MAX_RESOLUTION");
