@@ -5861,6 +5861,68 @@ mod tests {
         }
     }
 
+    /// how long a draw's vertex work on the CPU takes, shading and then
+    /// placing (clip, cull, to the screen), for 4096 vertices an index
+    /// buffer names 9216 times as a mesh does, its triangles facing the
+    /// viewer. a measurement, run on its own with --release --ignored --nocapture.
+    #[test]
+    #[ignore]
+    fn vertex_work_speed() {
+        // the position from v0 and the color from v1
+        const IDENTITY: u32 = 0x1B << 5 | 0x1B << 14 | 0x1B << 23;
+        let mut unit = ShaderUnit::new();
+        unit.descriptors[0] = 0xF | IDENTITY;
+        let mov = |destination: u32, source: u32| 0x13 << 26 | destination << 21 | source << 12;
+        unit.program[..3].copy_from_slice(&[mov(0, 0x00), mov(1, 0x01), 0x22 << 26]);
+        unit.prepare();
+        let mut registers = target_registers();
+        registers[REG_SHADER_OUTPUT_TOTAL] = 2;
+        registers[REG_SHADER_OUTPUT_MAP] = 0x0302_0100;
+        registers[REG_SHADER_OUTPUT_MAP + 1] = 0x0B0A_0908;
+        registers[REG_VS_OUTPUT_MASK] = 0b11;
+        // culling the triangles facing away, which the grid's are not
+        registers[REG_FACE_CULLING] = 2;
+        let mut seed = 7u32;
+        let mut next = || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1 << 24) as f32 * 2.4 - 1.2
+        };
+        let inputs: Vec<[Vec4; shader::INPUT_REGISTERS]> = (0..4096)
+            .map(|k| {
+                let mut input = [shader::ZERO; shader::INPUT_REGISTERS];
+                // the grid's vertices a little off their places, over the whole volume
+                let (x, y) = ((k % 64) as f32 / 31.5 - 1.0, (k / 64) as f32 / 31.5 - 1.0);
+                input[0] = [x + next() * 0.004, y + next() * 0.004, next() * 0.4 - 0.5, 1.0];
+                input[1] = [0.5, 0.25, 1.0, 1.0];
+                input
+            })
+            .collect();
+        // the first 1536 squares of a grid of 64 by 64 vertices as a mesh
+        // names them, two triangles a square
+        let order: Vec<usize> = (0..1536)
+            .map(|k| k / 63 * 64 + k % 63)
+            .flat_map(|v| [v, v + 1, v + 64, v + 1, v + 65, v + 64])
+            .collect();
+        let viewport = viewport(&registers).expect("a viewport");
+        let median = |run: &mut dyn FnMut()| {
+            let mut times: Vec<_> = (0..5)
+                .map(|_| {
+                    let start = std::time::Instant::now();
+                    for _ in 0..200 {
+                        run();
+                    }
+                    start.elapsed() / 200
+                })
+                .collect();
+            times.sort();
+            times[2]
+        };
+        let shaded = process_vertices(&registers, &unit, &unit, &inputs, Some(&order)).0;
+        let shade = median(&mut || _ = std::hint::black_box(process_vertices(&registers, &unit, &unit, &inputs, Some(&order))));
+        let place = median(&mut || _ = std::hint::black_box(place(&registers, &shaded, Some(&order), viewport)));
+        eprintln!("vertex_work_speed 4096 vertices: shade {shade:?}, place {place:?} a draw, median of 5");
+    }
+
     /// a random number generator for the translation tests, the same
     /// numbers every run.
     #[cfg(feature = "vulkan")]
@@ -6871,13 +6933,14 @@ mod tests {
         use crate::format::ColorFormat::Rgba8;
         const SIZE: u32 = 32;
         const OUTPUT: u32 = 0x10_0000;
-        for scale in [1, 3] {
+        // 0 is 0.5x
+        for scale in [1, 3, 0] {
             let Ok(copied) = hardware::Hardware::new() else { return };
             let device = hardware::own_device().unwrap();
             let direct = hardware::Hardware::with_device(std::sync::Arc::new(device), true, None).unwrap();
             let mut pictures = Vec::new();
             for mut hardware in [copied, direct] {
-                let scale = hardware.set_scale(scale);
+                let scale2 = hardware.set_scale(scale);
                 let mut resources = Resources { hardware: Some(hardware), ..Default::default() };
                 let mut registers = target_registers();
                 registers[REG_VIEWPORT_WIDTH] = float24(SIZE as f32 / 2.0);
@@ -6938,7 +7001,7 @@ mod tests {
                     }
                     None => hardware.picture(screen).unwrap().expect("copied").0.to_vec(),
                 };
-                assert_eq!(picture.len(), (20 * 24 * 4 * scale * scale) as usize);
+                assert_eq!(picture.len(), (20 * 24 * scale2 * scale2) as usize);
                 pictures.push(picture);
             }
             let colors: std::collections::HashSet<&[u8]> = pictures[0].chunks(4).collect();

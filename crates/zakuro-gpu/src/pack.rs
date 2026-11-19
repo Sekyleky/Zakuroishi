@@ -579,14 +579,16 @@ fn untile_etc1(data: &[u8], rows: &mut [u8], sizes: (usize, usize), alpha: bool)
         let (alphas, color) = if alpha { (word(&block[..8]), word(&block[8..])) } else { (u64::MAX, word(block)) };
         let colors = etc1_colors(color);
         let flip = color >> 32 & 1 != 0;
-        for x in 0..4 {
-            for y in 0..4 {
+        // a row at a time, each a slice of 4 texels, so one bounds check a row
+        for y in 0..4 {
+            let row = &mut rows[start - y * sizes.0..][..4];
+            for (x, out) in row.iter_mut().enumerate() {
                 // a texel's two bits are 16 apart, numbered down the columns
                 let texel = 4 * x + y;
                 let second = usize::from(if flip { y >= 2 } else { x >= 2 });
                 let pick = ((color >> (16 + texel) & 1) << 1 | color >> texel & 1) as usize;
                 let [r, g, b] = colors[second][pick];
-                rows[start - y * sizes.0 + x] = [r, g, b, expand4((alphas >> (4 * texel)) as u8)];
+                *out = [r, g, b, expand4((alphas >> (4 * texel)) as u8)];
             }
         }
     }
@@ -886,6 +888,19 @@ mod tests {
             let data: Vec<u8> = (0..size).map(|_| next_byte(&mut state)).collect();
             assert_eq!(hash(Hashing::Bytes, &data, format, width, height, &mut rows), Some(bytes), "{width}x{height} {format:?} by bytes");
             assert_eq!(hash(Hashing::Rows, &data, format, width, height, &mut rows), Some(laid_out), "{width}x{height} {format:?} laid out");
+        }
+    }
+
+    /// ETC1 and ETC1A4 of several tiles, wider than high, hash as uploaded as
+    /// the column-by-column layout of before did.
+    #[test]
+    fn etc1_of_many_tiles_hashes_as_before() {
+        let mut state = 0x0F1E_2D3C_4B5A_6978;
+        let mut rows = Vec::new();
+        for (number, before) in [(12, 0xD787_B288_6C7B_75D3u64), (13, 0x3D6A_3C1A_863E_B504)] {
+            let format = TextureFormat::from_raw(number);
+            let data: Vec<u8> = (0..64 * 48 * format.bits_per_pixel() as usize / 8).map(|_| next_byte(&mut state)).collect();
+            assert_eq!(hash(Hashing::Rows, &data, format, 64, 48, &mut rows), Some(before), "64x48 {format:?}");
         }
     }
 
