@@ -72,6 +72,9 @@ public final class SettingsBridgeCheck {
         // rendering resolution: the Intent extra is clamped to the Java range
         if(!settings.contains("pub const MAX_RESOLUTION: u32 = "+GameSettings.MAX_RESOLUTION+";") || !platform.contains("crate::settings::resolution(resolution)"))
             throw new AssertionError("The resolution extra is not clamped to GameSettings.MAX_RESOLUTION");
+        // 0.5x: the extra 0, as GameSettings.resolution keeps it
+        if(!settings.contains("if extra == 0 { 0 } else { extra.clamp(1, MAX_RESOLUTION as i32) as u32 }") || GameSettings.resolution(0)!=0 || GameSettings.resolution(-1)!=1)
+            throw new AssertionError("The resolution extra does not keep 0 as 0.5x like GameSettings.resolution");
         // local wireless: the Java choices are the Rust RoomMode, the runtime gives the game the room, stable never asks for one
         String launch=Files.readString(root.resolve("android/app/src/main/java/io/github/zakuro/android/GameLaunch.java"));
         for(GameSettings.Setting setting:GameSettings.ALL) if(setting.key.equals("room_mode") && !String.join("|",setting.choices).equals("off|join|host"))

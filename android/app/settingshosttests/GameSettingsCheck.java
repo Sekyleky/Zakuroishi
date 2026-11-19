@@ -50,6 +50,9 @@ public final class GameSettingsCheck {
         Map<String,Object> scaled = new HashMap<>(); scaled.put(id + ".resolution", 5);
         require(GameSettings.from(scaled, id).resolution == 5);
         scaled.put(id + ".resolution", 9); require(GameSettings.from(scaled, id).resolution == GameSettings.MAX_RESOLUTION);
+        // 0 is 0.5x, below it is 1x as settings.rs reads the extra
+        scaled.put(id + ".resolution", 0); require(GameSettings.from(scaled, id).resolution == 0 && GameSettings.resolutionName(0).equals("0.5×"));
+        scaled.put(id + ".resolution", -2); require(GameSettings.from(scaled, id).resolution == 1 && GameSettings.resolutionName(3).equals("3×"));
         require(original.values.get("shader_mode").equals("auto") && original.values.get("shader_execution").equals("compiled"));
         require(original.values.get("shader_compilation").equals("async"));
         require(original.flag("cpu_shader_jit") && original.flag("depth_blits") && !original.flag("generic_shaders") && !original.flag("float_depth") && !original.flag("static_blend"));

@@ -167,7 +167,8 @@ struct Immediate {
     vertices: Vec<[shader::Vec4; 16]>,
 }
 
-/// a screen's picture, upright RGBA, and the scale it is at.
+/// a screen's picture, upright RGBA, and twice the scale it is at, see
+/// Gpu::scaled.
 pub type Picture = (std::sync::Arc<Vec<u8>>, u32);
 
 /// the picture a display transfer left for a screen, drawn scaled by the
@@ -702,7 +703,7 @@ impl Gpu {
             Some(device) => raster::hardware::Hardware::with_device(device, true, kept)?,
             None => raster::hardware::Hardware::with_device(std::sync::Arc::new(raster::hardware::own_device()?), false, kept)?,
         };
-        let scale = hardware.set_scale(scale);
+        let scale = hardware.set_scale(scale) as f32 / 2.0;
         let shaded = if hardware.shades() { "" } else { ", vertices shaded on the CPU," };
         let direct = if hardware.direct() { ", shown straight from the GPU," } else { "" };
         let name = format!("{} at {scale}x{shaded}{direct}", hardware.name());
@@ -830,13 +831,23 @@ impl Gpu {
     }
 
     /// how many times the console's resolution the host's GPU draws at, 1
-    /// when drawing in software.
+    /// when drawing in software or at half of it.
     pub fn scale(&self) -> u32 {
+        (self.scale2() / 2).max(1)
+    }
+
+    /// a size in console pixels as the host's GPU draws it, half of it
+    /// rounded down at 0.5x.
+    pub fn scaled(&self, size: u32) -> u32 {
+        size * self.scale2() / 2
+    }
+
+    fn scale2(&self) -> u32 {
         #[cfg(feature = "vulkan")]
         if let Some(hardware) = self.resources.hardware.as_ref() {
-            return hardware.scale();
+            return hardware.scale2();
         }
-        1
+        2
     }
 
     /// the newest picture the host's GPU drew for a screen's buffer, at the

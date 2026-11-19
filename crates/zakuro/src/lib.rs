@@ -1828,8 +1828,8 @@ fn download_play_view(guest: &zakuro_core::download_play::Guest, members: &[zaku
 /// pixels.
 fn shown(system: &mut System, screen: Screen) -> (zakuro_core::Screen, Option<GpuScreen>) {
     if let Some(gpu) = system.gpu_screen(screen) {
-        let scale = system.gpu.scale();
-        return ((std::sync::Arc::new(Vec::new()), screen.width() * scale, screen.height() * scale), Some(gpu));
+        let gpu_size = |size| system.gpu.scaled(size);
+        return ((std::sync::Arc::new(Vec::new()), gpu_size(screen.width()), gpu_size(screen.height())), Some(gpu));
     }
     (system.read_screen_scaled(screen), None)
 }
@@ -1838,8 +1838,8 @@ fn shown(system: &mut System, screen: Screen) -> (zakuro_core::Screen, Option<Gp
 /// when the game draws in 3D.
 fn shown_right(system: &mut System) -> Option<(zakuro_core::Screen, Option<GpuScreen>)> {
     if let Some(gpu) = system.gpu_right_eye() {
-        let scale = system.gpu.scale();
-        return Some(((std::sync::Arc::new(Vec::new()), Screen::Top.width() * scale, Screen::Top.height() * scale), Some(gpu)));
+        let gpu_size = |size| system.gpu.scaled(size);
+        return Some(((std::sync::Arc::new(Vec::new()), gpu_size(Screen::Top.width()), gpu_size(Screen::Top.height())), Some(gpu)));
     }
     system.read_right_eye_scaled().map(|screen| (screen, None))
 }

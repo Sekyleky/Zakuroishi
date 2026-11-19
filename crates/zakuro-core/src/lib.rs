@@ -1392,8 +1392,8 @@ impl System {
     /// it waits for the GPU.
     pub fn upright_screen(&mut self, screen: zakuro_common::Screen, between: bool) -> Option<Screen> {
         let now = self.screen_ref(screen, false)?;
-        let (image, scale) = self.gpu.upright_picture(now, between)?;
-        Some((image, screen.width() * scale, screen.height() * scale))
+        let (image, scale2) = self.gpu.upright_picture(now, between)?;
+        Some((image, screen.width() * scale2 / 2, screen.height() * scale2 / 2))
     }
 
     /// the picture the host's GPU drew scaled for a screen, when it is still
@@ -1412,11 +1412,11 @@ impl System {
         // what the screen had a presentation ago goes up now, always that
         // one, so each picture stays up as long as the title kept it
         let show = self.showing[index].replace(now).unwrap_or(now);
-        let (image, scale) = self.gpu.scaled_picture(show).or_else(|| self.gpu.scaled_picture(now))?;
+        let (image, scale2) = self.gpu.scaled_picture(show).or_else(|| self.gpu.scaled_picture(now))?;
         if index == 0 && is_new(&mut self.pacing.put_up, (now, false)) {
             DISTINCT_PICTURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        Some((image, width * scale, height * scale))
+        Some((image, width * scale2 / 2, height * scale2 / 2))
     }
 
     /// the picture the host's GPU drew for a screen, when it is still what

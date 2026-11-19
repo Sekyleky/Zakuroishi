@@ -192,7 +192,7 @@ Reference mechanisms: PN `Settings`, `GameSettings`, `menu::sections/change`,
 | `smooth` | **Wired**: `filter=smooth/sharp/pixels`, S/G and presenter scaling. |
 | `stretched` | **Wired equivalent**: `stretch` fills main layout areas and `external_stretch` independently fills the physical external display. These are per-display booleans rather than PN's guest-top/bottom enum; screen swapping changes routing. |
 | `aspect` | **Partial**: `top_width`, `integer_scale`, `stretch`; original and wide shapes. No PN six-value enum/preset equivalence. |
-| `resolution` | **Partial**: J/P `resolution` Intent → R `Config.resolution`, integer 1–5 (4× and 5× need much more GPU memory). 0.5× and the quarter steps PN offers are not supported: the renderer scale is a whole number. Host-checked, not run on device. |
+| `resolution` | **Partial**: J/P `resolution` Intent → R `Config.resolution`, 0.5× (Intent value 0) or integer 1–5 (4× and 5× need much more GPU memory); the renderer keeps twice the scale, so 0.5× draws at half and whole scales are unchanged. The quarter steps PN offers are not supported. 0.5× falls back to 1× on a GPU that can't blit depth buffers (logged). 0.5× host-checked (including a draw on a desktop GPU), not run on device. |
 | `vulkan` | **Fixed presentation backend**: Vulkan presenter with hardware or software 3D selected by `hardware_renderer`; no Android OpenGL ES selector. R fails explicitly when selected hardware Vulkan cannot start. |
 | `custom_driver` | **Wired code**: same key, J selected driver/Intent paths, `DriverSpec::validate`, `Driver::load`, adrenotools and `VulkanPresenter::with_entry`. Packaged hooks and compatible hardware require separate verification. |
 | `interpolate_to` | **Partial**: `interpolate` → R `Config.interpolate`, `System::set_interpolation(true)`; upstream shared-GPU interpolation, no PN target-30/60 selector. Failure is surfaced. |
@@ -283,7 +283,7 @@ not to a claim that the desktop settings file is read on Android.
 | `language` | **Wired**: `language`, J/R. |
 | `renderer` | **Fixed** Vulkan; desktop Vulkan/OpenGL selection absent. |
 | `hardware_rasterizer` | **Wired** `hardware_renderer`, R Config; real software 3D fallback selectable while Vulkan remains the presenter. |
-| `resolution` | **Wired** 1–5 integer J/P/R resolution; 0.5× not supported (whole-number renderer scale). Host-checked, not run on device. |
+| `resolution` | **Wired** 0.5× (value 0) and 1–5 integer J/P/R resolution. Host-checked, not run on device. |
 | `texture_packs` | **Wired** J textures toggle, P/R and ImportPlan; optional original-texture game works. **Host passed** planner checks. |
 | `frame_interpolation` | **Wired** `interpolate`, R; shared GPU prerequisite, not universal title compatibility. |
 | `recompiled` | **Wired** `aot`, R strict required AOT; interpreter troubleshooting when false. |

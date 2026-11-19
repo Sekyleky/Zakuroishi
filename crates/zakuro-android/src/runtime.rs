@@ -268,9 +268,8 @@ fn right_picture(
 ) -> Option<(zakuro_core::Screen, Option<GpuScreen>)> {
     if shared {
         if let Some(gpu) = system.gpu_right_eye() {
-            let scale = system.gpu.scale();
             return Some((
-                (std::sync::Arc::new(Vec::new()), 400 * scale, 240 * scale),
+                (std::sync::Arc::new(Vec::new()), system.gpu.scaled(400), system.gpu.scaled(240)),
                 Some(gpu),
             ));
         }
@@ -284,12 +283,11 @@ fn picture(
 ) -> (zakuro_core::Screen, Option<GpuScreen>) {
     if shared {
         if let Some(gpu) = system.gpu_screen(screen) {
-            let scale = system.gpu.scale();
             return (
                 (
                     std::sync::Arc::new(Vec::new()),
-                    screen.width() * scale,
-                    screen.height() * scale,
+                    system.gpu.scaled(screen.width()),
+                    system.gpu.scaled(screen.height()),
                 ),
                 Some(gpu),
             );
@@ -1023,8 +1021,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             // ponytail: stereo 3D is not known at load time, so a 3D game may still prebuild a graph it never uses.
             if settings.frame_generation && settings.frame_generation_prebuild && display_paced && s.shared && settings.frame_cap == 60 && loaded.gpu.draws_on_gpu() {
                 if let Some(options) = &frame_generation {
-                    let scale = loaded.gpu.scale();
-                    s.presenter.prebuild_frame_generation(options, Screen::Top.width() * scale, Screen::Top.height() * scale);
+                    s.presenter.prebuild_frame_generation(options, loaded.gpu.scaled(Screen::Top.width()), loaded.gpu.scaled(Screen::Top.height()));
                 }
             }
             system = Some(loaded);

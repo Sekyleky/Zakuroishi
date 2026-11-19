@@ -442,8 +442,8 @@ final class SettingsDialog {
     private static String resolutionLabel(GameSettings draft) { return "Rendering resolution" + (draft.changedResolution() ? " · changed" : ""); }
     /** Resolution and the HD pack switch; the pack is per game, so All games has no switch. */
     private void picture(LinearLayout content, GameSettings draft) {
-        Button resolution = button(resolutionLabel(draft) + " · " + draft.resolution + "×"); resolution.setTag("resolution");
-        resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{1, 2, 3, 4, 5}, new String[]{"1× · Best performance", "2× · Sharper picture", "3× · Highest detail", "4× · Needs a strong GPU", "5× · Needs a strong GPU"}));
+        Button resolution = button(resolutionLabel(draft) + " · " + GameSettings.resolutionName(draft.resolution)); resolution.setTag("resolution");
+        resolution.setOnClickListener(v -> numbers(draft, resolution, null, "Rendering resolution", new float[]{0, 1, 2, 3, 4, 5}, new String[]{"0.5× · Lowest GPU load, blurrier", "1× · Best performance", "2× · Sharper picture", "3× · Highest detail", "4× · Needs a strong GPU", "5× · Needs a strong GPU"}));
         addButton(content, resolution);
         content.addView(text("4× and 5× need much more GPU memory and can slow the game.", true));
         if (defaults) return;
@@ -696,7 +696,7 @@ final class SettingsDialog {
         for (int i = 0; i < 3; i++) {
             int channel = i; TextView caption = text(names[i] + " · " + rgb[i], false); box.addView(caption);
             SeekBar slider = new SeekBar(activity); slider.setMax(255); slider.setProgress(rgb[i]); slider.setKeyProgressIncrement(1);
-            slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setContentDescription(names[i]);
+            slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setContentDescription(names[i]); if (i == 0) slider.setTag("red");
             slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border)); slider.setThumbTintList(ColorStateList.valueOf(p.accent));
             slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
                 public void onProgressChanged(SeekBar bar, int progress, boolean user) { rgb[channel] = progress; caption.setText(names[channel] + " · " + progress); paint.run(); }
@@ -707,7 +707,7 @@ final class SettingsDialog {
         ScrollView scroll = new ScrollView(activity); scroll.addView(box);
         AlertDialog dialog = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Background colour").setView(scroll)
             .setPositiveButton("OK", (d, w) -> field.setText(GameSettings.rgbHex(rgb[0], rgb[1], rgb[2]))).setNegativeButton("Cancel", null).create();
-        show(dialog);
+        show(dialog); box.findViewWithTag("red").post(() -> box.findViewWithTag("red").requestFocusFromTouch());
     }
     private boolean interpreterOnly(GameSettings.Setting setting) { return setting.key.equals("aot") && version != null && !GameSettings.hasNativeCode(version); }
     private static String format(GameSettings.Setting setting, float value) {

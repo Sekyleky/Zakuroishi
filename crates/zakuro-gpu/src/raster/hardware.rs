@@ -2055,8 +2055,9 @@ pub struct Hardware {
     twinned_inputs: Option<(u64, Staged, Staged, bool)>,
     batch: u64,
     name: String,
-    /// how many times the console's resolution surfaces are drawn at.
-    scale: u32,
+    /// twice how many times the console's resolution surfaces are drawn
+    /// at, so 1 is half of it. see scaled.
+    scale2: u32,
     /// what depth buffers are drawn into, DEPTH_FORMAT, or where the GPU
     /// can't, FLOAT_DEPTH_FORMAT.
     depth_format: vk::Format,
@@ -2307,7 +2308,7 @@ impl Hardware {
                 twinned_inputs: None,
                 batch: 0,
                 name,
-                scale: 1,
+                scale2: 2,
                 depth_format,
                 blits,
                 depth_blits,
@@ -2388,20 +2389,19 @@ impl Hardware {
         self.shades
     }
 
-    /// how many times the console's resolution it draws at.
-    pub fn scale(&self) -> u32 {
-        self.scale
+    /// twice how many times the console's resolution it draws at, 1 for half.
+    pub fn scale2(&self) -> u32 {
+        self.scale2
     }
 
-    /// draws at a multiple of the console's resolution, before anything is
-    /// drawn, when the GPU can scale surfaces, and says the one it took.
+    /// draws at a multiple of the console's resolution, 0 for half of it,
+    /// before anything is drawn, when the GPU can scale surfaces, and says
+    /// the one it took, twice over as scale2.
     pub fn set_scale(&mut self, scale: u32) -> u32 {
         if self.surfaces.is_empty() && self.blits {
-            // up to 8, and no more than keeps the largest buffers, 1024
-            // pixels across, within what the GPU makes
-            self.scale = scale.clamp(1, 8).min((self.max_image_size / 1024).max(1));
+            self.scale2 = scale2_for(scale, self.depth_blits, self.max_image_size);
         }
-        self.scale
+        self.scale2
     }
 
     /// a host visible buffer, mapped for as long as it lives. one the host
@@ -2931,14 +2931,14 @@ impl Hardware {
     fn clear_rows_of(&mut self, index: usize, view: vk::ImageView, rows: (u32, u32), pixel: &[u8]) {
         let surface = &self.surfaces[index];
         let (width, height, kind) = (surface.width, surface.height, surface.kind);
-        let scale = self.scale;
+        let scale2 = self.scale2;
         self.renderings += 1;
         let attachment = [vk::RenderingAttachmentInfo::default()
             .image_view(view)
             .image_layout(vk::ImageLayout::GENERAL)
             .load_op(vk::AttachmentLoadOp::LOAD)
             .store_op(vk::AttachmentStoreOp::STORE)];
-        let area = vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: width * scale, height: height * scale } };
+        let area = vk::Rect2D { offset: vk::Offset2D { x: 0, y: 0 }, extent: vk::Extent2D { width: scaled(width, scale2), height: scaled(height, scale2) } };
         let info = vk::RenderingInfo::default().render_area(area).layer_count(1);
         let (info, clear) = match kind {
             Kind::Color(format) => {
@@ -2966,8 +2966,8 @@ impl Hardware {
         // image's last row
         let rect = [vk::ClearRect::default()
             .rect(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: ((height - rows.1) * scale) as i32 },
-                extent: vk::Extent2D { width: width * scale, height: (rows.1 - rows.0) * scale },
+                offset: vk::Offset2D { x: 0, y: scaled(height - rows.1, scale2) as i32 },
+                extent: vk::Extent2D { width: scaled(width, scale2), height: scaled(height - rows.0, scale2) - scaled(height - rows.1, scale2) },
             })
             .layer_count(1)];
         // SAFETY: recording, outside rendering, on an image in the general
@@ -3007,9 +3007,9 @@ impl Hardware {
             Some(index) => index,
             None => {
                 let (format, usage, aspect) = surface_image(kind, self.depth_format);
-                let image = self.image(width * self.scale, height * self.scale, format, usage, aspect)?;
-                let native = match self.scale {
-                    1 => None,
+                let image = self.image(scaled(width, self.scale2), scaled(height, self.scale2), format, usage, aspect)?;
+                let native = match self.scale2 {
+                    2 => None,
                     // scaled on the CPU on its way to and from memory
                     _ if matches!(kind, Kind::Depth(_)) && !self.depth_blits => None,
                     _ => {
@@ -3165,7 +3165,7 @@ impl Hardware {
         self.end_rendering();
         let (width, height, kind) = {
             let s = &self.surfaces[index];
-            (s.width * self.scale, s.height * self.scale, s.kind)
+            (scaled(s.width, self.scale2), scaled(s.height, self.scale2), s.kind)
         };
         if self.surfaces[index].twin.is_none() {
             let (format, usage, aspect) = surface_image(kind, self.depth_format);
@@ -3263,7 +3263,7 @@ impl Hardware {
                 // goes straight to its scaled one, scaled here the way a blit
                 // up scales, through a buffer of its own when that is more
                 // than the ring takes
-                let n = if self.surfaces[index].native.is_some() { 1 } else { self.scale };
+                let n = if self.surfaces[index].native.is_some() { 1 } else { self.scale2 / 2 };
                 if n > 1 {
                     values = scale_up(&values, width, height, n);
                     stencil = scale_up(&stencil, width, height, n);
@@ -3304,7 +3304,7 @@ impl Hardware {
                 }
             }
         }
-        if self.scale > 1 {
+        if self.scale2 != 2 {
             self.barrier();
             self.blit(index, true);
         }
@@ -3329,7 +3329,7 @@ impl Hardware {
         let layers = vk::ImageSubresourceLayers::default().aspect_mask(aspect).layer_count(1);
         let corner = |width: u32, height: u32| [vk::Offset3D::default(), vk::Offset3D { x: width as i32, y: height as i32, z: 1 }];
         let small = corner(s.width, s.height);
-        let big = corner(s.width * self.scale, s.height * self.scale);
+        let big = corner(scaled(s.width, self.scale2), scaled(s.height, self.scale2));
         let (from, to, from_corner, to_corner) =
             if up { (native.image, s.image.image, small, big) } else { (s.image.image, native.image, big, small) };
         let region = [vk::ImageBlit::default()
@@ -3424,7 +3424,7 @@ impl Hardware {
         // read meanwhile, uploaded in a batch with room for it
         self.waiting.entry(hash).or_insert_with(|| (material.clone(), batch)).1 = batch;
         // as fine as the GPU draws the largest textures, 1024 texels across
-        let kept = (1024 * self.scale).next_power_of_two().max(4096).min(self.max_image_size);
+        let kept = scaled(1024, self.scale2).next_power_of_two().max(4096).min(self.max_image_size);
         let picture = material.picture(kept)?;
         let bytes = picture.texels.len() as u64;
         let (width, height) = (picture.width, picture.height);
@@ -4745,22 +4745,23 @@ impl Hardware {
             Geometry::Shaded(shading) if shading.cull != 0 => vk::CullModeFlags::FRONT,
             _ => vk::CullModeFlags::NONE,
         };
-        let scale = self.scale;
+        let scale = self.scale2 as f32 / 2.0;
+        let scale2 = self.scale2;
         let recorded = Recorded {
             color,
             depth,
             pipeline,
             viewport: vk::Viewport {
-                x: x * scale as f32,
-                y: y * scale as f32,
-                width: viewport_width * scale as f32,
-                height: viewport_height * scale as f32,
+                x: x * scale,
+                y: y * scale,
+                width: viewport_width * scale,
+                height: viewport_height * scale,
                 min_depth: depth_range.0,
                 max_depth: depth_range.1,
             },
             scissor: vk::Rect2D {
-                offset: vk::Offset2D { x: left * scale as i32, y: bottom * scale as i32 },
-                extent: vk::Extent2D { width: (right - left) as u32 * scale, height: (top - bottom) as u32 * scale },
+                offset: vk::Offset2D { x: left * scale2 as i32 / 2, y: bottom * scale2 as i32 / 2 },
+                extent: vk::Extent2D { width: scaled((right - left) as u32, scale2), height: scaled((top - bottom) as u32, scale2) },
             },
             cull,
             // with the test off the PICA still writes depth, which Vulkan
@@ -4956,7 +4957,7 @@ impl Hardware {
         let surface = &self.surfaces[color];
         let area = vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
-            extent: vk::Extent2D { width: surface.width * self.scale, height: surface.height * self.scale },
+            extent: vk::Extent2D { width: scaled(surface.width, self.scale2), height: scaled(surface.height, self.scale2) },
         };
         let attachment = |view: vk::ImageView| {
             vk::RenderingAttachmentInfo::default()
@@ -5109,20 +5110,21 @@ impl Hardware {
         };
         // drawn scaled, every size and row is that many times more, and the
         // pixels averaged stay as many
-        let n = self.scale as i32;
+        let scale2 = self.scale2;
+        let n = move |size: u32| scaled(size, scale2) as i32;
         let constants: [i32; 11] = [
-            t.copy.0 as i32 * n,
-            t.copy.1 as i32 * n,
+            n(t.copy.0),
+            n(t.copy.1),
             // a flip turns the rows read over, not the whole input
-            rows as i32 * n,
-            t.output_height as i32 * n,
+            n(rows),
+            n(t.output_height),
             t.scale.0 as i32,
             t.scale.1 as i32,
             t.flip as i32,
             format_index(t.input_format),
             format_index(t.output_format),
-            row as i32 * n,
-            input_size.1 as i32 * n,
+            n(row),
+            n(input_size.1),
         ];
         // and in between, from the input's twin into the output's, which
         // holds what the output did before
@@ -5137,7 +5139,7 @@ impl Hardware {
                 }
             };
         let views = (self.surfaces[source].image.view, self.surfaces[target].image.view);
-        let size = (t.copy.0 * self.scale, t.copy.1 * self.scale);
+        let size = (scaled(t.copy.0, self.scale2), scaled(t.copy.1, self.scale2));
         self.dispatch_transfer(views, constants, size)?;
         if twinned {
             self.dispatch_transfer((self.surface_view(source, true), self.surface_view(target, true)), constants, size)?;
@@ -5310,7 +5312,7 @@ impl Hardware {
         if !self.copies(twin).contains_key(texture) {
             let usage = vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST;
             self.end_rendering();
-            let image = self.image(texture.width * self.scale, texture.height * self.scale, COLOR_FORMAT, usage, vk::ImageAspectFlags::COLOR)?;
+            let image = self.image(scaled(texture.width, self.scale2), scaled(texture.height, self.scale2), COLOR_FORMAT, usage, vk::ImageAspectFlags::COLOR)?;
             self.copies(twin).insert(*texture, Copied { image, surface: source, generation, memory: None, used: batch });
         }
         let (view, image) = (self.copies(twin)[texture].image.view, self.copies(twin)[texture].image.image);
@@ -5322,13 +5324,13 @@ impl Hardware {
             let from = self.textures.get(&key).ok_or("a texture reaching past the buffer drawn into it was not uploaded")?.image.image;
             self.end_rendering();
             self.barrier();
-            let n = self.scale;
+            let n = self.scale2;
             let rect = |n: u32| {
-                let (width, top, bottom) = ((texture.width * n) as i32, (rows * n) as i32, (texture.height * n) as i32);
+                let (width, top, bottom) = (scaled(texture.width, n) as i32, scaled(rows, n) as i32, scaled(texture.height, n) as i32);
                 [vk::Offset3D { x: 0, y: top, z: 0 }, vk::Offset3D { x: width, y: bottom, z: 1 }]
             };
             let layers = vk::ImageSubresourceLayers::default().aspect_mask(vk::ImageAspectFlags::COLOR).layer_count(1);
-            let region = [vk::ImageBlit::default().src_subresource(layers).src_offsets(rect(1)).dst_subresource(layers).dst_offsets(rect(n))];
+            let region = [vk::ImageBlit::default().src_subresource(layers).src_offsets(rect(2)).dst_subresource(layers).dst_offsets(rect(n))];
             // SAFETY: recording, outside rendering, between two color images
             // in the general layout made for transfers, both their size
             unsafe {
@@ -5351,12 +5353,12 @@ impl Hardware {
             // so the copy flips them, and its pixels round to the format as
             // memory would have them
             let format = format_index(texture.format);
-            let n = self.scale;
-            let (width, height) = ((texture.width * n) as i32, (rows * n) as i32);
-            let (row, source_height) = ((row * n) as i32, (self.surfaces[source].height * n) as i32);
+            let n = { let scale2 = self.scale2; move |size: u32| scaled(size, scale2) };
+            let (width, height) = (n(texture.width) as i32, n(rows) as i32);
+            let (row, source_height) = (n(row) as i32, n(self.surfaces[source].height) as i32);
             let constants = [width, height, height, height, 1, 1, 1, format, format, row, source_height];
             let from = self.surface_view(source, twin);
-            self.dispatch_transfer((from, view), constants, (texture.width * n, rows * n))?;
+            self.dispatch_transfer((from, view), constants, (n(texture.width), n(rows)))?;
         }
         self.uploads = true;
         if let Some(copy) = self.copies(twin).get_mut(texture) {
@@ -5390,8 +5392,8 @@ impl Hardware {
     /// as, or out of its twin.
     #[allow(clippy::too_many_arguments)]
     fn copy_depth(&mut self, source: usize, row: u32, bytes: u32, view: vk::ImageView, texture: &DrawnTexture, twin: bool) -> Result<(), String> {
-        let n = self.scale;
-        let (width, height) = (self.surfaces[source].width * n, self.surfaces[source].height * n);
+        let n = { let scale2 = self.scale2; move |size: u32| scaled(size, scale2) };
+        let (width, height) = (n(self.surfaces[source].width), n(self.surfaces[source].height));
         let pixels = (width * height) as u64;
         let samples = self.samples(pixels * 5)?;
         let (layout, pipeline) = self.depth_pipeline()?;
@@ -5422,9 +5424,9 @@ impl Hardware {
                 .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                 .image_info(&target),
         ];
-        let (texture_width, texture_height) = (texture.width * n, texture.height * n);
+        let (texture_width, texture_height) = (n(texture.width), n(texture.height));
         let floats = self.depth_format == FLOAT_DEPTH_FORMAT;
-        let constants = [texture_width as i32, texture_height as i32, width as i32, height as i32, (row * n) as i32, (bytes == 4) as i32, floats as i32];
+        let constants = [texture_width as i32, texture_height as i32, width as i32, height as i32, n(row) as i32, (bytes == 4) as i32, floats as i32];
         let constants: Vec<u8> = constants.iter().flat_map(|c| c.to_le_bytes()).collect();
         // SAFETY: recording, outside rendering, from a depth image in the
         // general layout into a buffer big enough for both aspects, then a
@@ -5458,7 +5460,7 @@ impl Hardware {
         }
         self.end_rendering();
         self.barrier();
-        if self.scale > 1 {
+        if self.scale2 != 2 {
             self.blit(index, false);
             self.barrier();
         }
@@ -5493,7 +5495,7 @@ impl Hardware {
         }
         self.mark(Work::Capture, false);
         // a row of the surface is a column of the screen
-        let (width, height) = (self.surfaces[index].height * self.scale, self.surfaces[index].width * self.scale);
+        let (width, height) = (scaled(self.surfaces[index].height, self.scale2), scaled(self.surfaces[index].width, self.scale2));
         let size = (width * height * 4) as u64;
         if self.surfaces[index].screen.is_none() {
             let buffer = self.buffer(size, vk::BufferUsageFlags::STORAGE_BUFFER, true)?;
@@ -5546,7 +5548,7 @@ impl Hardware {
     fn upright_image(&mut self, index: usize, twin: bool) -> Result<(), String> {
         self.mark(Work::Capture, false);
         // a row of the surface is a column of the screen
-        let (width, height) = (self.surfaces[index].height * self.scale, self.surfaces[index].width * self.scale);
+        let (width, height) = (scaled(self.surfaces[index].height, self.scale2), scaled(self.surfaces[index].width, self.scale2));
         let made = match twin {
             true => self.surfaces[index].twin_upright.is_some(),
             false => self.surfaces[index].upright.is_some(),
@@ -5618,7 +5620,7 @@ impl Hardware {
             false => self.surfaces[index].upright.as_ref(),
         };
         let image = upright.ok_or("nothing upright")?.image.image;
-        let (width, height) = (rows * self.scale, row_pixels * self.scale);
+        let (width, height) = (scaled(rows, self.scale2), scaled(row_pixels, self.scale2));
         let buffer = self.buffer(u64::from(width * height * 4), vk::BufferUsageFlags::TRANSFER_DST, true)?;
         self.begin()?;
         self.end_rendering();
@@ -5666,7 +5668,7 @@ impl Hardware {
     /// which it waits for.
     pub(crate) fn upright_picture(&mut self, screen: ScreenRef, between: bool) -> Option<Picture> {
         let (pixels, _) = self.upright_pixels(screen, between).ok()?;
-        Some((crop(Arc::new(pixels), screen, self.scale), self.scale))
+        Some((crop(Arc::new(pixels), screen, self.scale2), self.scale2))
     }
 
     /// the image the picture in between a screen's picture and the one
@@ -5698,15 +5700,15 @@ impl Hardware {
         }
         // the rows of the surface the screen shows are columns of the upright
         // picture, the pixels of each run down it from the bottom of a row
-        let scale = self.scale;
+        let scale = { let scale2 = self.scale2; move |size: u32| scaled(size, scale2) };
         let (first, count) = screen.rows;
-        let (width, height) = ((rows * scale) as f32, (row_pixels * scale) as f32);
-        let (left, right) = ((first * scale) as f32, ((first + count) * scale) as f32);
-        let (top, bottom) = (((row_pixels - screen.columns) * scale) as f32, (row_pixels * scale) as f32);
+        let (width, height) = (scale(rows) as f32, scale(row_pixels) as f32);
+        let (left, right) = (scale(first) as f32, scale(first + count) as f32);
+        let (top, bottom) = (scale(row_pixels - screen.columns) as f32, scale(row_pixels) as f32);
         Ok(Some(crate::GpuScreen {
             view,
             image,
-            rect: [first * scale, (row_pixels - screen.columns) * scale, count * scale, screen.columns * scale],
+            rect: [scale(first), scale(row_pixels - screen.columns), scale(first + count) - scale(first), scale(row_pixels) - scale(row_pixels - screen.columns)],
             batch: screen.batch,
             area: [left / width, top / height, (right - left) / width, (bottom - top) / height],
             bounds: [(left + 0.5) / width, (top + 0.5) / height, (right - 0.5) / width, (bottom - 0.5) / height],
@@ -5766,8 +5768,8 @@ impl Hardware {
             capture.pictures.iter().find(|(batch, _)| *batch == screen.batch).map(|(_, image)| image.clone())
         };
         let Some(index) = find(&self.surfaces) else { return Ok(None) };
-        let scale = self.scale;
-        let crop = |image: Arc<Vec<u8>>| Some((crop(image, screen, scale), scale));
+        let scale2 = self.scale2;
+        let crop = |image: Arc<Vec<u8>>| Some((crop(image, screen, scale2), scale2));
         if let Some(image) = picture(&self.surfaces, index) {
             return Ok(crop(image));
         }
@@ -6181,7 +6183,8 @@ impl Hardware {
         // word and stencil as a byte per sample. one with no image at the
         // console's resolution, a depth buffer on a GPU that can't blit them,
         // comes back at its scaled size and is scaled down here
-        let scale = self.scale;
+        // only whole scales come without a native depth image: set_scale keeps half off then
+        let scale = self.scale2 / 2;
         let factor = move |s: &Surface| if scale > 1 && s.native.is_none() && matches!(s.kind, Kind::Depth(_)) { scale } else { 1 };
         let size_of = |s: &Surface| {
             let pixels = (s.width * s.height * factor(s) * factor(s)) as u64;
@@ -6205,7 +6208,7 @@ impl Hardware {
 
         let mut offsets = Vec::with_capacity(dirty.len());
         self.barrier();
-        if self.scale > 1 {
+        if self.scale2 != 2 {
             for &i in &dirty {
                 self.blit(i, false);
             }
@@ -6492,15 +6495,16 @@ unsafe impl Send for Hardware {}
 /// the part of a buffer's upright picture a screen shows. a row of the
 /// buffer is a column of the picture, and a row's first pixels are the
 /// bottom of the screen, a longer row reaches past its top.
-fn crop(image: Arc<Vec<u8>>, screen: ScreenRef, scale: u32) -> Arc<Vec<u8>> {
+fn crop(image: Arc<Vec<u8>>, screen: ScreenRef, scale2: u32) -> Arc<Vec<u8>> {
     let (row_pixels, rows) = screen.size;
     let (first, count) = screen.rows;
     if first == 0 && count == rows && screen.columns == row_pixels {
         return image;
     }
-    let width = (rows * scale) as usize;
-    let (left, right) = ((first * scale) as usize, ((first + count) * scale) as usize);
-    let (top, bottom) = (((row_pixels - screen.columns) * scale) as usize, (row_pixels * scale) as usize);
+    let scale = |size: u32| scaled(size, scale2) as usize;
+    let width = scale(rows);
+    let (left, right) = (scale(first), scale(first + count));
+    let (top, bottom) = (scale(row_pixels - screen.columns), scale(row_pixels));
     let mut out = Vec::with_capacity((right - left) * (bottom - top) * 4);
     for y in top..bottom {
         out.extend_from_slice(&image[(y * width + left) * 4..(y * width + right) * 4]);
@@ -6532,6 +6536,30 @@ fn logic_op(op: LogicOp) -> vk::LogicOp {
 
 /// texels, rows of width, at n times their size each way, each the square
 /// of them that a nearest blit up makes of it.
+/// set_scale's scale2 for a scale asked, 0 for half.
+fn scale2_for(scale: u32, depth_blits: bool, max_image_size: u32) -> u32 {
+    // half needs depth buffers blitted down and up: the CPU's way scales by
+    // whole numbers only
+    if scale == 0 && depth_blits {
+        return 1;
+    }
+    if scale == 0 {
+        log::warn!("0.5x resolution needs a GPU that blits depth buffers, drawing at 1x");
+    }
+    // up to 8, and no more than keeps the largest buffers, 1024 pixels
+    // across, within what the GPU makes
+    scale.clamp(1, 8).min((max_image_size / 1024).max(1)) * 2
+}
+
+/// a size or offset in console pixels as drawn at scale2, twice the scale.
+/// at half an odd one rounds down: an edge at an odd console pixel moves half
+/// a console pixel up or left, and an odd-sized rectangle is measured between
+/// its rounded edges (scaled(end) - scaled(start)), not its size rounded, so
+/// neighbouring ones still meet.
+pub(crate) fn scaled(size: u32, scale2: u32) -> u32 {
+    size * scale2 / 2
+}
+
 fn scale_up<T: Copy>(texels: &[T], width: u32, height: u32, n: u32) -> Vec<T> {
     let (width, height, n) = (width as usize, height as usize, n as usize);
     let mut scaled = Vec::with_capacity(texels.len() * n * n);
@@ -6772,6 +6800,55 @@ fn pick(instance: &ash::Instance) -> Result<(vk::PhysicalDevice, u32), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// whole scales size everything as the integer code did, and half
+    /// halves the screens, odd sizes rounding down.
+    #[test]
+    fn scaled_sizes_match_whole_scales_and_halve_at_half() {
+        for scale in 1..=5u32 {
+            for size in [0, 1, 7, 8, 120, 239, 240, 320, 400, 1024, 4096] {
+                assert_eq!(scaled(size, scale * 2), size * scale, "{size} at {scale}x");
+            }
+            // a viewport's float scale is exact too
+            assert_eq!(399.5 * (scale * 2) as f32 / 2.0, 399.5 * scale as f32);
+            // a scissor's signed offset
+            assert_eq!(37 * (scale * 2) as i32 / 2, 37 * scale as i32);
+        }
+        // the screens at half: 400x240 top, 320x240 bottom, 3D's right eye the top's
+        assert_eq!((scaled(400, 1), scaled(240, 1)), (200, 120));
+        assert_eq!((scaled(320, 1), scaled(240, 1)), (160, 120));
+        // odd sizes round down, odd edges measured between rounded edges meet
+        assert_eq!([1, 3, 5, 239].map(|size| scaled(size, 1)), [0, 1, 2, 119]);
+        let (first, count) = (3, 5);
+        assert_eq!(scaled(first + count, 1) - scaled(first, 1), 3);
+        assert_eq!(scaled(first, 1) + (scaled(first + count, 1) - scaled(first, 1)) + (scaled(240, 1) - scaled(first + count, 1)), 120);
+        // the cache of pack pictures keeps its floor
+        assert_eq!(scaled(1024, 1).next_power_of_two().max(4096), 4096);
+    }
+
+    /// half asks for depth blits, else draws at 1x; whole scales are as before.
+    #[test]
+    fn half_needs_depth_blits_and_whole_scales_are_unchanged() {
+        assert_eq!(scale2_for(0, true, 16384), 1);
+        assert_eq!(scale2_for(0, false, 16384), 2);
+        for scale in 1..=10u32 {
+            assert_eq!(scale2_for(scale, true, 16384), scale.clamp(1, 8).min(16) * 2);
+            assert_eq!(scale2_for(scale, false, 4096), scale.clamp(1, 8).min(4) * 2);
+        }
+    }
+
+    /// a crop at half takes the rows between the halved edges.
+    #[test]
+    fn crop_at_half_takes_the_halved_rect() {
+        // a 4x2-pixel picture of a 8 pixel wide, 4 row surface (upright: 4 wide, 8 tall at 1x)
+        let screen = ScreenRef { addr: 0, size: (8, 4), format: crate::format::ColorFormat::Rgba8, batch: 0, rows: (2, 2), columns: 6 };
+        let image: Vec<u8> = (0..(2 * 4 * 4) as u8).collect();
+        // upright 2 wide (rows 4 / 2), 4 tall (row_pixels 8 / 2): columns 1..2, rows 1..4
+        let cropped = crop(Arc::new(image.clone()), screen, 1);
+        let pixel = |x: usize, y: usize| image[(y * 2 + x) * 4..(y * 2 + x) * 4 + 4].to_vec();
+        let expected: Vec<u8> = (1..4).flat_map(|y| pixel(1, y)).collect();
+        assert_eq!(*cropped, expected);
+    }
 
     #[test]
     fn pooled_ranges_are_carved_and_joined() {

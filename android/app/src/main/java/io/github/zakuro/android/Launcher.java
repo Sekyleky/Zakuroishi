@@ -542,7 +542,7 @@ public final class Launcher extends Activity {
         View tile = keep == null ? null : list.findViewWithTag(keep + ".play"); if (tile != null) tile.requestFocus();
     }
     private String summary(String id, boolean second) {
-        String summary = Math.max(1, Math.min(GameSettings.MAX_RESOLUTION, GameSettings.load(this, id).resolution)) + "× resolution";
+        String summary = GameSettings.resolutionName(GameSettings.resolution(GameSettings.load(this, id).resolution)) + " resolution";
         try { if (new File(GameImport.active(this, id), "data/mods/" + id + "/textures").isDirectory()) summary += settings().getBoolean(id + ".textures", true) ? "  ·  HD textures on" : "  ·  HD textures off";
             else summary += "  ·  Original textures";
         } catch (Exception e) { return "Files unavailable. Add this game again to repair it."; }

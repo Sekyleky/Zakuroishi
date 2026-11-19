@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **0.5× rendering resolution (host-checked, not run on device):** Rendering resolution offers 0.5× below 1×, drawing the screens at half the console's size for the lowest GPU load; a GPU that can't blit depth buffers draws at 1× instead and logs it. 1× to 5× draw exactly as before.
 - **Display settings are easier on a gamepad (host-checked, not run on device):** percent and gap sliders move one unit per D-pad press instead of a quarter; Background colour and the Custom layout numbers have their own headings
 - **D-pad mode (host-checked, not run on device):** Controls → D-pad mode → Circle Pad makes the D-pad drive the Circle Pad at full tilt, for games that only read the stick
 - **Swap screens with a sideways screen rotation (host-checked, not run on device):** with Screen rotation set upright (clockwise or counter-clockwise), swapped screens are no longer squashed to a landscape shape; each keeps its own shape on its side, in every layout.

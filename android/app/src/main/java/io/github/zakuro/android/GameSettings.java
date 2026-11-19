@@ -178,6 +178,10 @@ final class GameSettings {
     String driver = "";
     /** Highest rendering resolution, times the console's; settings.rs MAX_RESOLUTION clamps the launch extra to the same. */
     static final int MAX_RESOLUTION = 5;
+    /** A stored resolution as one the app offers: 0 is 0.5×, else 1 to MAX_RESOLUTION, as settings.rs resolution() reads the extra. */
+    static int resolution(int value) { return value == 0 ? 0 : Math.max(1, Math.min(MAX_RESOLUTION, value)); }
+    /** How a resolution reads, 0 as 0.5×. */
+    static String resolutionName(int value) { return value == 0 ? "0.5×" : value + "×"; }
     int resolution;
     boolean textures;
     final Map<String, Object> values = new LinkedHashMap<>();
@@ -214,7 +218,7 @@ final class GameSettings {
         Object selectedDriver = prefs.get(id + ".driver");
         if (selectedDriver instanceof String && ((String)selectedDriver).matches("[0-9a-fA-F-]{36}")) settings.driver = (String)selectedDriver;
         Object scale = prefs.get(id + ".resolution");
-        settings.resolution = scale instanceof Integer ? Math.max(1, Math.min(MAX_RESOLUTION, (Integer) scale)) : settings.inheritedResolution();
+        settings.resolution = scale instanceof Integer ? resolution((Integer) scale) : settings.inheritedResolution();
         Object texture = prefs.get(id + ".textures"); settings.textures = !(texture instanceof Boolean) || (Boolean) texture;
         for (Setting setting : ALL) {
             Object own = prefs.get(id + ".advanced." + setting.key);
