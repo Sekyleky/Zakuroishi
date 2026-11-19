@@ -322,6 +322,55 @@ mod tests {
             assert_eq!(touch(&settings, 1920, 1080, v.x - 1.0, v.y), None, "{rotation:?}");
         }
     }
+    /// every layout, swap, turn and scaling mode, in landscape and portrait windows: the middle of the drawn bottom
+    /// screen is the console's middle, its corners are the console's turned corners and nothing outside it is touch.
+    #[test]
+    fn touch_maps_every_layout_swap_turn_and_scaling_through_the_drawn_bottom_screen() {
+        let layouts = [Layout::Stacked, Layout::SideBySide, Layout::TopOnly, Layout::BottomOnly, Layout::LargeTop, Layout::Hybrid, Layout::Custom];
+        let turns = [ScreenRotation::Normal, ScreenRotation::Clockwise, ScreenRotation::UpsideDown, ScreenRotation::Counterclockwise];
+        let mut checked = 0;
+        for layout in layouts {
+            // Hybrid and Large top place the small screens by size: the three ends of its range
+            for small_screen in if matches!(layout, Layout::Hybrid | Layout::LargeTop) { [25, 50, 100] } else { [50, 50, 50] } {
+                for swap_screens in [false, true] {
+                    for screen_rotation in turns {
+                        for integer_scale in [false, true] {
+                            for (width, height) in [(1920u32, 1080u32), (1080, 1920)] {
+                                let settings = Advanced { layout, small_screen, swap_screens, screen_rotation, integer_scale, ..Advanced::default() };
+                                let name = format!("{layout:?} small {small_screen} swap {swap_screens} {screen_rotation:?} integer {integer_scale} {width}x{height}");
+                                let touch_at = |x: f32, y: f32| touch(&settings, width, height, x, y);
+                                let Some((v, _)) = places(&settings, width, height, true).into_iter().find(|(_, shown)| *shown == Shown::Bottom) else {
+                                    assert_eq!(touch_at(width as f32 / 2.0, height as f32 / 2.0), None, "{name}");
+                                    continue;
+                                };
+                                checked += 1;
+                                let (x, y) = point(&settings, v, [160.0, 120.0]);
+                                let hit = touch_at(x, y).unwrap_or_else(|| panic!("{name}: the middle is not touch"));
+                                assert!((i32::from(hit.0) - 160).abs() <= 1 && (i32::from(hit.1) - 120).abs() <= 1, "{name}: middle {hit:?}");
+                                // window pixels a console pixel spans: the corners 5 window pixels in are about 5 / scale console pixels in
+                                let scale = if orientation(&settings).is_portrait() { v.width / 240.0 } else { v.width / 320.0 };
+                                let reach = (5.0 / scale).ceil() as i32 + 1;
+                                for (cx, cy) in [(0.0f32, 0.0f32), (320.0, 0.0), (0.0, 240.0), (320.0, 240.0)] {
+                                    let (corner_x, corner_y) = point(&settings, v, [cx, cy]);
+                                    let (middle_x, middle_y) = point(&settings, v, [160.0, 120.0]);
+                                    // 5 window pixels from the corner towards the middle, along each axis
+                                    let (x, y) = (corner_x + (middle_x - corner_x).signum() * 5.0, corner_y + (middle_y - corner_y).signum() * 5.0);
+                                    let hit = touch_at(x, y).unwrap_or_else(|| panic!("{name}: corner ({cx}, {cy}) is not touch"));
+                                    assert!(hit.0 < 320 && hit.1 < 240, "{name}: {hit:?}");
+                                    let near = |value: u16, edge: f32| (i32::from(value) - edge as i32).abs() <= reach;
+                                    assert!(near(hit.0, cx.min(319.0)) && near(hit.1, cy.min(239.0)), "{name}: corner ({cx}, {cy}) gave {hit:?}");
+                                }
+                                for (x, y) in [(v.x - 1.0, v.y + v.height / 2.0), (v.x + v.width + 1.0, v.y + v.height / 2.0), (v.x + v.width / 2.0, v.y - 1.0), (v.x + v.width / 2.0, v.y + v.height + 1.0)] {
+                                    assert_eq!(touch_at(x, y), None, "{name}: ({x}, {y}) is outside the bottom screen");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 300, "{checked}");
+    }
     #[test]
     fn stretch_fills_display_and_stereo_bottoms_both_accept_touch() {
         let settings = Advanced {
