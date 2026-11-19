@@ -311,6 +311,14 @@ final class GameSettings {
         }
         intent.putExtra("advanced", json(hasNativeCode(version)));
     }
+    /** "#RRGGBB" as {r, g, b}; anything else (also a short or signed form) is black, like the native side. */
+    static int[] hexRgb(String hex) {
+        if (hex == null || !hex.matches("#[0-9a-fA-F]{6}")) return new int[]{0, 0, 0};
+        return new int[]{Integer.parseInt(hex.substring(1, 3), 16), Integer.parseInt(hex.substring(3, 5), 16), Integer.parseInt(hex.substring(5, 7), 16)};
+    }
+    static String rgbHex(int r, int g, int b) {
+        return String.format(Locale.ROOT, "#%02X%02X%02X", Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b)));
+    }
     /** A ROM-only import has no title.so; such a game runs in the interpreter whatever the aot switch says. */
     static boolean hasNativeCode(File version) { return version != null && new File(version, "code/title.so").isFile(); }
     static String driverLibrary(File folder) throws java.io.IOException, org.json.JSONException {

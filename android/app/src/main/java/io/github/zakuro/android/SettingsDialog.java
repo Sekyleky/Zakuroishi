@@ -664,6 +664,9 @@ final class SettingsDialog {
                 public void onTextChanged(CharSequence text, int start, int before, int count) {}
                 public void afterTextChanged(android.text.Editable text) { draft.values.put(setting.key, text.toString()); }
             }); content.addView(field);
+            if (setting.key.equals("background_hex")) {
+                Button pick = button("Pick colour"); pick.setOnClickListener(v -> pickColour(field)); addButton(content, pick);
+            }
         } else {
             // whole steps for wide ranges (percent, gap): a D-pad press moves one unit, not a quarter
             float step = setting.max <= 1 ? 0.05f : setting.max - setting.min >= 10 ? 1f : setting.key.equals("cursor_speed") ? 0.1f : 0.25f;
@@ -682,6 +685,29 @@ final class SettingsDialog {
             }); content.addView(slider, new LinearLayout.LayoutParams(-1, -2));
         }
         content.addView(text(interpreterOnly(setting) ? "This game has no native code, so it runs in the interpreter. Add native code under Game files to run it at full speed." : setting.help, true));
+    }
+    /** Red, green and blue sliders for a "#RRGGBB" field, so a D-pad can set it; OK writes the field (and so the draft). */
+    private void pickColour(EditText field) {
+        int[] rgb = GameSettings.hexRgb(field.getText().toString().trim());
+        LinearLayout box = column(); View swatch = new View(activity); box.addView(swatch, new LinearLayout.LayoutParams(-1, dp(48)));
+        String[] names = {"Red", "Green", "Blue"};
+        Runnable paint = () -> swatch.setBackgroundColor(android.graphics.Color.rgb(rgb[0], rgb[1], rgb[2]));
+        paint.run();
+        for (int i = 0; i < 3; i++) {
+            int channel = i; TextView caption = text(names[i] + " · " + rgb[i], false); box.addView(caption);
+            SeekBar slider = new SeekBar(activity); slider.setMax(255); slider.setProgress(rgb[i]); slider.setKeyProgressIncrement(1);
+            slider.setMinHeight(dp(48)); slider.setPadding(dp(16), 0, dp(16), 0); focusRing(slider); slider.setContentDescription(names[i]);
+            slider.setProgressTintList(ColorStateList.valueOf(p.accent)); slider.setProgressBackgroundTintList(ColorStateList.valueOf(p.border)); slider.setThumbTintList(ColorStateList.valueOf(p.accent));
+            slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                public void onProgressChanged(SeekBar bar, int progress, boolean user) { rgb[channel] = progress; caption.setText(names[channel] + " · " + progress); paint.run(); }
+                public void onStartTrackingTouch(SeekBar bar) {}
+                public void onStopTrackingTouch(SeekBar bar) {}
+            }); box.addView(slider, new LinearLayout.LayoutParams(-1, -2));
+        }
+        ScrollView scroll = new ScrollView(activity); scroll.addView(box);
+        AlertDialog dialog = new AlertDialog.Builder(activity, p.dialogTheme()).setTitle("Background colour").setView(scroll)
+            .setPositiveButton("OK", (d, w) -> field.setText(GameSettings.rgbHex(rgb[0], rgb[1], rgb[2]))).setNegativeButton("Cancel", null).create();
+        show(dialog);
     }
     private boolean interpreterOnly(GameSettings.Setting setting) { return setting.key.equals("aot") && version != null && !GameSettings.hasNativeCode(version); }
     private static String format(GameSettings.Setting setting, float value) {

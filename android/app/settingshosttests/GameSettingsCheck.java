@@ -34,6 +34,9 @@ public final class GameSettingsCheck {
         }
     }
     public static void main(String[] args) throws Exception {
+        require(Arrays.equals(GameSettings.hexRgb("#203040"), new int[]{32, 48, 64}) && GameSettings.rgbHex(32, 48, 64).equals("#203040"));
+        require(GameSettings.rgbHex(255, 0, 171).equals("#FF00AB") && Arrays.equals(GameSettings.hexRgb("#ff00ab"), new int[]{255, 0, 171}));
+        for (String bad : new String[]{null, "", "203040", "#20304", "#2030400", "#20304g", " #203040", "#+20304"}) require(Arrays.equals(GameSettings.hexRgb(bad), new int[]{0, 0, 0}));
         byte[] pe = new byte[128]; pe[0] = 'M'; pe[1] = 'Z'; pe[60] = 64; pe[64] = 'P'; pe[65] = 'E';
         require(LosslessImport.looksLikePe(pe, pe.length) && !LosslessImport.looksLikePe(pe, 66) && !LosslessImport.looksLikePe(new byte[128], 128));
         pe[60] = -1; pe[63] = -1; require(!LosslessImport.looksLikePe(pe, pe.length));
