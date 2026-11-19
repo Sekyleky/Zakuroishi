@@ -77,7 +77,7 @@ choice!(
 choice!(
     Binding, None, None, A, B, X, Y, L, R, Zl, Zr, Start, Select, Up, Down, Left, Right, MotionGate, FastForward,
     QuickSave, QuickLoad, SwapScreens, Screenshot, PauseMenu, CycleLayout, CircleUp, CircleDown, CircleLeft, CircleRight, CUp, CDown,
-    CLeft, CRight
+    CLeft, CRight, Turbo, Blow
 );
 
 impl Binding {
@@ -682,6 +682,9 @@ mod tests {
             assert_eq!(serde_json::to_string(&binding).unwrap(), format!("\"{name}\""));
         }
         assert_eq!(Binding::FastForward.hotkey(), None);
+        let held = Advanced::parse(r#"{"controller_bindings":{"1":"turbo","2":"blow"}}"#).unwrap();
+        assert_eq!((held.binding(1), held.binding(2)), (Some(Binding::Turbo), Some(Binding::Blow)));
+        assert_eq!((Binding::Turbo.bits(), Binding::Blow.hotkey()), (0, None));
         assert_eq!(Advanced::default().binding(96), Some(Binding::A));
         assert_eq!(
             Advanced::default().presentation_interval(),

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Turbo and Blow into microphone (host-checked, not run on device):** Button mapping can bind Turbo (held, it repeats the A, B, X and Y you hold about 15 times a second) and Blow into microphone (held, the game hears blowing, for games that ask you to blow).
 - **Less work per draw on the CPU vertex path (host-measured, not run on device):** each worker thread reuses its vertex input buffer instead of allocating about 1 MB per large draw; on a PC a 4096-vertex draw's copy and decode went from 172 to 46 µs.
 - **Clearer feedback (host-checked, not run on device):** pressing Play or another import while an import runs says why nothing happens; the progress line says to keep the app open and its numbers no longer jitter; on the Storage screen a failed delete is shown in a dialog, Cancel returns to the list without scanning again, and small items show their size in KB.
 - **Games start only from the app, frontends and shortcuts (host-checked):** a `zakuro://game/…` link in a web page no longer opens Zakuroishi; frontends and home-screen shortcuts are unaffected.

@@ -7,7 +7,7 @@ use crate::{
     presentation::cpu_pixels,
     platform,
     sensors::Sensors,
-    settings::{Advanced, RightStick},
+    settings::{Advanced, Binding, RightStick},
 };
 use android_activity::{
     input::{Axis, InputEvent, KeyAction, MotionAction, Source},
@@ -489,6 +489,8 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
     let mut audio: Option<Audio> = None;
     let mut sensors = Sensors::new();
     let mut input = Input::default();
+    // held while the Blow binding is: the game's microphone hears noise
+    let blowing = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (mut resumed, mut focused, mut destroy) = (false, false, false);
     let mut rotation = platform::rotation(app).unwrap_or(0);
     let mut failure = None;
@@ -917,6 +919,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             if let Some(room) = &room {
                 link_room(&mut loaded, room, &room_settings, &launch);
             }
+            loaded.microphone = Some(Box::new(crate::input::BlowMicrophone::new(blowing.clone())));
             // without a picture the cameras see black, as before
             if let Some(path) = &launch.camera {
                 match crate::camera::load(path) {
@@ -1051,6 +1054,7 @@ pub fn run(app: &AndroidApp) -> Result<(), String> {
             platform::start_performance_hints(app, target.as_nanos() as i64);
             log::info!("Fast-forward speed changed: {}%", speed);
         }
+        blowing.store(input.held(&settings, &virtual_input, Binding::Blow), std::sync::atomic::Ordering::Relaxed);
         let mut configured = input.configured(&settings, &virtual_input, motion);
         if let (Some(external), Some((x, y, width, height))) = (&second, bridge::second_touch()) {
             configured.touch =

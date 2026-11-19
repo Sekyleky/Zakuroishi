@@ -1,7 +1,33 @@
 //! Platform-independent controller mapping and motion/cursor configuration.
 use crate::settings::{Advanced, Binding, LeftStick, RightStick};
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use zakuro_core::microphone::{Microphone, Noise};
 use zakuro_core::services::hid::{InputState, MotionSample, PadState};
+
+/// With the Turbo key held, A, B, X and Y pulse 2 frames down, 2 up: 15 presses a second at 60 fps.
+pub fn turbo(buttons: PadState, held: bool, frame: u32) -> PadState {
+    if held && frame % 4 >= 2 { buttons - (PadState::A | PadState::B | PadState::X | PadState::Y) } else { buttons }
+}
+
+/// The game's microphone on Android: silence, and noise while the Blow key is held. ponytail: no host microphone.
+pub struct BlowMicrophone {
+    blowing: Arc<AtomicBool>,
+    noise: Noise,
+}
+impl BlowMicrophone {
+    pub fn new(blowing: Arc<AtomicBool>) -> Self {
+        // a breath on a microphone is about as loud as it gets, as the desktop's
+        Self { blowing, noise: Noise::new(0.8) }
+    }
+}
+impl Microphone for BlowMicrophone {
+    fn sampling(&mut self, _on: bool) {}
+    fn read(&mut self, rate: f64, out: &mut [f32]) {
+        if self.blowing.load(Ordering::Relaxed) { self.noise.read(rate, out) } else { out.fill(0.0) }
+    }
+}
 
 #[derive(Clone, Default)]
 pub struct VirtualInput {
@@ -210,6 +236,44 @@ mod tests {
     }
 
     #[test]
+    fn turbo_pulses_held_face_buttons_only_while_turbo_is_held() {
+        let held = PadState::A | PadState::Y | PadState::L | PadState::UP;
+        let pattern: Vec<PadState> = (0..8).map(|frame| turbo(held, true, frame)).collect();
+        let face_down: Vec<bool> = pattern.iter().map(|b| b.contains(PadState::A | PadState::Y)).collect();
+        assert_eq!(face_down, [true, true, false, false, true, true, false, false]);
+        assert!(pattern.iter().all(|b| b.contains(PadState::L | PadState::UP)), "other buttons stay held");
+        assert!((0..8).all(|frame| turbo(held, false, frame) == held), "no turbo, no pulse");
+        assert!((0..8).all(|frame| turbo(PadState::L, true, frame) == PadState::L), "turbo alone does nothing");
+        // through configured: the frame counter drives it
+        let settings = Advanced::parse(r#"{"controller_bindings":{"1":"turbo"}}"#).unwrap();
+        let mut input = Input::default();
+        input.keys.extend([96, 1]);
+        let a: Vec<bool> = (0..4).map(|_| input.configured(&settings, &VirtualInput::default(), None).buttons.contains(PadState::A)).collect();
+        assert_eq!(a.iter().filter(|down| **down).count(), 2);
+    }
+
+    #[test]
+    fn blowing_is_heard_only_while_held() {
+        let settings = Advanced::parse(r#"{"controller_bindings":{"2":"blow"}}"#).unwrap();
+        let mut input = Input::default();
+        let blowing = Arc::new(AtomicBool::new(false));
+        let mut microphone = BlowMicrophone::new(blowing.clone());
+        let mut out = [1.0; 256];
+        microphone.sampling(true);
+        microphone.read(16364.0, &mut out);
+        assert!(out.iter().all(|sample| *sample == 0.0));
+        input.keys.insert(2);
+        blowing.store(input.held(&settings, &VirtualInput::default(), Binding::Blow), Ordering::Relaxed);
+        microphone.read(16364.0, &mut out);
+        assert!(out.iter().any(|sample| *sample != 0.0) && out.iter().all(|sample| sample.abs() <= 0.8));
+        assert_eq!(input.configured(&settings, &VirtualInput::default(), None).buttons, PadState::empty(), "blow never reaches the pad");
+        input.keys.clear();
+        blowing.store(input.held(&settings, &VirtualInput::default(), Binding::Blow), Ordering::Relaxed);
+        microphone.read(16364.0, &mut out);
+        assert!(out.iter().all(|sample| *sample == 0.0));
+    }
+
+    #[test]
     fn cursor_click_release_and_stick_release_do_not_leave_stale_input() {
         let settings = Advanced {
             right_stick: RightStick::Cursor,
@@ -242,6 +306,8 @@ pub struct Input {
     pub short_presses: u32,
     /// Hotkeys down at the last `hotkeys` call, so holding one does not repeat it.
     held_hotkeys: BTreeSet<i32>,
+    /// `configured` calls, one an emulation frame, for the turbo pulse.
+    frame: u32,
     #[cfg(target_os = "android")]
     pub finger: Option<i32>,
     pub cursor: [f32; 2],
@@ -256,6 +322,7 @@ impl Default for Input {
             latched_touch: None,
             short_presses: 0,
             held_hotkeys: BTreeSet::new(),
+            frame: 0,
             #[cfg(target_os = "android")]
             finger: None,
             cursor: [160.0, 120.0],
@@ -264,8 +331,12 @@ impl Default for Input {
 }
 impl Input {
     pub fn fast_forward(&self, settings: &Advanced, virtual_input: &VirtualInput) -> bool {
+        self.held(settings, virtual_input, Binding::FastForward)
+    }
+    /// Whether a key bound to `binding` is down.
+    pub fn held(&self, settings: &Advanced, virtual_input: &VirtualInput, binding: Binding) -> bool {
         self.keys.union(&virtual_input.keys).chain(&self.axes)
-            .any(|code| settings.binding(*code) == Some(Binding::FastForward))
+            .any(|code| settings.binding(*code) == Some(binding))
     }
     /// Hotkeys that went down since the last call, each once per press however long it is held;
     /// call before `configured`, which forgets the presses already released.
@@ -285,6 +356,8 @@ impl Input {
         motion: Option<MotionSample>,
     ) -> InputState {
         let mut input = self.state;
+        self.frame = self.frame.wrapping_add(1);
+        let turbo_held = self.held(settings, virtual_input, Binding::Turbo);
         let short: Vec<i32> = self.latched.iter().filter(|code| !self.keys.contains(code) && !self.axes.contains(code)).copied().collect();
         self.short_presses += short.len() as u32;
         let latched_touch = self.latched_touch.take();
@@ -298,7 +371,7 @@ impl Input {
         // keys bound to a stick direction, summed per stick; opposite keys cancel
         let mut pushed = [[0.0f32; 2]; 2];
         for code in self.keys.union(&virtual_input.keys).chain(&self.axes).chain(&short) {
-            let gate_key = settings.binding(*code).is_none_or(|b| b != Binding::FastForward && b.hotkey().is_none())
+            let gate_key = settings.binding(*code).is_none_or(|b| !matches!(b, Binding::FastForward | Binding::Turbo | Binding::Blow) && b.hotkey().is_none())
                 && (selected_gate == Some(*code)
                     || settings.controller_bindings.get(code) == Some(&Binding::MotionGate));
             motion_gate |= gate_key;
@@ -342,6 +415,7 @@ impl Input {
             input.circle_x = 0.0;
             input.circle_y = 0.0;
         }
+        input.buttons = turbo(input.buttons, turbo_held, self.frame);
         input.touch = virtual_input.touch.or(input.touch).or(latched_touch.filter(|_| settings.latch_short_presses));
         input.motion = motion
             .filter(|_| settings.motion_enabled)

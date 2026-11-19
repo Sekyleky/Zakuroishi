@@ -590,6 +590,7 @@ final class SettingsDialog {
             case "circle_left": return "Circle Pad left"; case "circle_right": return "Circle Pad right";
             case "c_up": return "C-stick up"; case "c_down": return "C-stick down";
             case "c_left": return "C-stick left"; case "c_right": return "C-stick right";
+            case "turbo": return "Turbo A/B/X/Y (hold)"; case "blow": return "Blow into microphone (hold)";
             case "c_stick": return "C-stick";
             case "cursor": return "Touch cursor";
             case "half_side_by_side": return "Side by side, half width";
