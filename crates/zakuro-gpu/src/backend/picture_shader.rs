@@ -22,6 +22,9 @@ use std::path::Path;
 /// the largest picture shader file read.
 pub const LIMIT: u64 = 64 * 1024;
 
+/// the stack the compiler gets, mostly address space: only what a file's nesting uses is touched.
+const STACK: usize = 64 * 1024 * 1024;
+
 /// what goes before the user's code: present.frag's interface. naga takes
 /// no combined sampler2D, so the screen is an image and a sampler, which
 /// compile moves to the image's binding, where a combined image sampler
@@ -130,7 +133,17 @@ pub fn compile(code: &str) -> Result<Vec<u32>, String> {
         let pipeline = spv::PipelineOptions { shader_stage: naga::ShaderStage::Fragment, entry_point: "main".into() };
         spv::write_vec(&module, &info, &options, Some(&pipeline)).map_err(|error| error.to_string())
     };
-    std::panic::catch_unwind(run).unwrap_or_else(|_| Err("the compiler failed on it".to_owned()))
+    // the parser recurses on nesting, which a 64 KiB file can make deep enough to overflow a normal stack and
+    // abort the app: a thread with room for it, which a panic ends as an error too
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("picture shader compile".into())
+            .stack_size(STACK)
+            .spawn_scoped(scope, run)
+            .ok()
+            .and_then(|thread| thread.join().ok())
+            .unwrap_or_else(|| Err("the compiler failed on it".to_owned()))
+    })
 }
 
 #[cfg(test)]
@@ -207,5 +220,16 @@ mod tests {
         }
         assert!(valid_name("My shader-2_v1.glsl"));
         std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    /// a file that is nothing but nesting or a long chain is an answer, not an abort of the app.
+    #[test]
+    fn deeply_nested_files_do_not_overflow_the_stack() {
+        let wrap = |body: String| format!("vec3 picture(vec2 uv, vec2 texel, float strength) {{ return vec3({body}); }}");
+        let n = 30000;
+        let _ = compile(&wrap("(".repeat(n) + "1.0" + &")".repeat(n)));
+        let _ = compile(&format!("vec3 picture(vec2 uv, vec2 texel, float strength) {{ {} return vec3(1.0); {} }}", "{".repeat(n), "}".repeat(n)));
+        let _ = compile(&wrap("1.0+".repeat(15000) + "1.0"));
+        let _ = compile(&wrap("-".repeat(30000) + "1.0"));
     }
 }
