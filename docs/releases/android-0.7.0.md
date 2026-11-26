@@ -4,7 +4,7 @@ New screen layouts, screen rotation, the handheld microphone, picture effects an
 shaders, 0.5× to 5× rendering resolution, more button bindings, updates and DLC, and three upstream
 Zakuro fixes for Pokémon Ultra Moon. It installs over 0.6.1 and keeps games, settings and saves.
 
-Release smoke test: TODO (lead).
+Release smoke test: **not run on a device.** The test handheld was not available for this release. Every change passed the PC checks (Rust tests, including GPU tests that draw on a desktop Vulkan GPU, the ARM64 build check and the Java settings checks). The features marked "not run on device" in the changelog have not been tried on a handheld yet.
 
 ## Before you update
 
