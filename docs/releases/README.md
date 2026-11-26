@@ -1,5 +1,7 @@
 # Release notes
 
+- [Zakuroishi 0.7.0](android-0.7.0.md) (local wireless rooms only in the nightly build)
+- [Zakuroishi 0.6.1](android-0.6.1.md)
 - [Zakuroishi 0.6.0](android-0.6.0.md) (two features only in the nightly build, see the notes)
 - [Zakuroishi 0.5.0](android-0.5.0.md)
 - [Zakuroishi 0.4.0](android-0.4.0.md)

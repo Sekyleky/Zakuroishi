@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.7.0 — Custom and Hybrid layouts, screen rotation, microphone, picture effects, 0.5× to 5× resolution (2026-11-26)
+
+Release notes: [0.7.0](releases/android-0.7.0.md). It installs over 0.6.1 and keeps games, settings
+and saves. Items marked "host-checked, not run on device" were checked on a PC only.
+
+- **Characters no longer tear with frame interpolation (upstream Zakuro, not run on device):** when a bone turned fast or the camera slowed down, the pictures in between tore characters and their outlines, as seen in Pokémon Ultra Moon. Each part now moves as one.
+- **Bloom glows when drawn scaled up (upstream Zakuro, not run on device):** above 1×, Ultra Moon's bloom showed copies next to bright things instead of a glow. It now glows; 1× is unchanged.
+- **Faster copies out of drawn pictures (upstream Zakuro, not run on device):** a game that copies a texture out of a drawn picture now does it on the GPU, so games that do this every frame run faster.
+- **Pick colour (host-checked, not run on device):** Background colour → Custom has a Pick colour button with Red, Green and Blue sliders and a swatch, so the colour can be set with the D-pad, without a keyboard.
+- **Faster ETC1 HD-pack hashing (host-measured, not run on device):** looking up an ETC1 texture in an HD pack is about 18% faster; on a PC a 512×512 lookup went from 737 to 611 µs. Matches are unchanged.
+- **Desktop build:** rustix updated to 1.1.6. The Android app does not use it.
 - **Settings that depend on another choice hide until it applies (host-checked, not run on device):** the Custom layout numbers show only for Screen layout Custom, the custom colour only for Background Custom, the shader file only for Custom shader and Effect strength only with an effect; hidden values are kept
 - **0.5× rendering resolution (host-checked, not run on device):** Rendering resolution offers 0.5× below 1×, drawing the screens at half the console's size for the lowest GPU load; a GPU that can't blit depth buffers draws at 1× instead and logs it. 1× to 5× draw exactly as before.
 - **Display settings are easier on a gamepad (host-checked, not run on device):** percent and gap sliders move one unit per D-pad press instead of a quarter; Background colour and the Custom layout numbers have their own headings

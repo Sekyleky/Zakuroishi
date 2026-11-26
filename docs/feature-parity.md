@@ -141,7 +141,7 @@ production code. Runtime/UI agents were notified of these gaps.
    panel rotation override remain absent. Drivers, dual-display routing,
    independent main/external stretch and auto/landscape/portrait preference are
    now implemented; final native packaging and physical-device validation remain.
-2. **Runtime + UI, controls:** D-pad Circle Pad/touch modes; R3 right-stick mode toggle
+2. **Runtime + UI, controls:** D-pad touch mode (the Circle Pad mode is now implemented as `dpad_mode`); R3 right-stick mode toggle
    and PN layout/D-pad shortcut chords; move/resize/reset touch-layout editor,
    saved layouts per orientation. Independent tilt X/Y inversion, seven-choice
    gate and automatic gamepad hiding are now implemented. Existing analog
@@ -187,7 +187,7 @@ Reference mechanisms: PN `Settings`, `GameSettings`, `menu::sections/change`,
 
 | PN key | Android key / method and CodeSupport |
 |---|---|
-| `layout` | **Partial**: `layout`, G/R; stacked, side-by-side, large-top, top-only, bottom-only. PN `BigBeside` and `Original` geometries do not have exact Android layout equivalents. |
+| `layout` | **Partial**: `layout`, G/R; stacked, side-by-side, large-top, hybrid, custom, top-only, bottom-only. Custom places each screen by six percent settings (host-checked, not run on device). PN `BigBeside` and `Original` geometries do not have exact Android layout equivalents. |
 | `swapped` | **Wired**: `swap_screens`, G/R; in-game `Command::Swap` updates geometry and clears touch. |
 | `smooth` | **Wired**: `filter=smooth/sharp/pixels`, S/G and presenter scaling. |
 | `stretched` | **Wired equivalent**: `stretch` fills main layout areas and `external_stretch` independently fills the physical external display. These are per-display booleans rather than PN's guest-top/bottom enum; screen swapping changes routing. |
@@ -198,7 +198,7 @@ Reference mechanisms: PN `Settings`, `GameSettings`, `menu::sections/change`,
 | `interpolate_to` | **Partial**: `interpolate` → R `Config.interpolate`, `System::set_interpolation(true)`; upstream shared-GPU interpolation, no PN target-30/60 selector. Failure is surfaced. |
 | `show_fps` | **Wired**: R statistics → P `stats` → Game `updateNativeStats`; counts presented frames, not a benchmark claim. |
 | `show_clock` | **Wired**: Java `show_clock`, Game `clock`; local time. `show_battery` separately adds percentage/charging from battery broadcasts. |
-| `rotation` | **Partial**: Java `orientation=auto/landscape/portrait` calls `setRequestedOrientation`, while P `rotation` → M `display_vector` remaps motion. No PN direct clockwise/counterclockwise/off panel override. |
+| `rotation` | **Partial**: Java `orientation=auto/landscape/portrait` calls `setRequestedOrientation`, while P `rotation` → M `display_vector` remaps motion. No PN direct clockwise/counterclockwise/off panel override. Display → Screen rotation (`screen_rotation`) turns both screens inside the display, with touch (host-checked, not run on device). |
 | `frame_cap` | **Wired**: `frame_cap`, S `presentation_interval`, R presentation deadline; 0 unlimited, 1–240. Guest frame clock remains paced separately. |
 | `power` | **Unsupported**: no Saver/Balanced/Performance hardware policy or PN `POCKET_NATIVE_POWER` helper. |
 | `touch_speed` | **Wired equivalent**: `cursor_speed`, I right-stick cursor update; numeric gain instead of Slow/Normal/Fast. |
@@ -288,11 +288,12 @@ not to a claim that the desktop settings file is read on Android.
 | `frame_interpolation` | **Wired** `interpolate`, R; shared GPU prerequisite, not universal title compatibility. |
 | `recompiled` | **Wired** `aot`, R strict required AOT; interpreter troubleshooting when false. |
 | `scale` | **Unsupported** desktop initial window pixel scale; Android uses its window size. |
-| `layout` | **Wired** `layout`, all five desktop layouts in G; Button mapping can bind **Cycle layout** (not with two displays). Host-checked, not run on device. |
+| `layout` | **Wired** `layout`, all five desktop layouts in G, plus the Android Hybrid and Custom layouts; Button mapping can bind **Cycle layout** (not with two displays). Host-checked, not run on device. |
 | `filter` | **Wired** same key, G smooth/sharp/pixels. |
 | `integer_scale` | **Wired** same key, G/presenter. |
 | `screen_gap`, small-screen size | **Android additions** Display settings: space between the screens in Stacked and Side by side, and the size of the small screen in Large top (G). Thor: gap seen; Large top sizes and touch not run on device. |
-| Picture effect (post-process) | **Android addition** Display → Picture effect: Sharpen, Vivid colours, Scanlines or Smooth edges with a strength setting, applied to the screens; off by default and costs nothing when off. Built-in effects only, no user shader files. Host-checked, not run on device. |
+| Picture effect (post-process) | **Android addition** Display → Picture effect: Sharpen, Vivid colours, Scanlines or Smooth edges with a strength setting, applied to the screens; off by default and costs nothing when off. Custom shader uses the player's own GLSL file from the app's `shaders` folder, 2D only. Host-checked, not run on device. |
+| Background colour | **Android addition** Display → Background colour (`background`, `background_hex`): black, dark grey, grey, white or a custom #RRGGBB around the screens; Pick colour sets it with the D-pad. Host-checked, not run on device. |
 | `top_shape` | **Wired equivalent** `top_width` numeric 320–800; picture stretching alone is not a widescreen game patch. |
 | `stereo` | **Wired** same key, G/R right-eye presentation: off, anaglyph, side-by-side, half-side-by-side, interlaced. |
 | `depth_3d` | **Wired equivalent** `slider_3d` 0–1 → guest `Config.slider_3d`. |
@@ -389,6 +390,7 @@ Intent extras decoded by P. New3DS details are in
 | Desktop `Settings` | **Wired equivalent** J per-title typed editor, persisted before handing off to separate `:game` process. | Tests present; UI owner verifies. |
 | Updates and DLC discovery | **Wired**: Game files → Import update or DLC… copies one `.cia` into `files/addons/<id>/`; at start R pairs them as the desktop pairs siblings (newest update, DLC, Download Play child) into `Config.update/dlc/dlp_child`. | Host-checked, not run on device: discovery with built CIA fixtures, name and header checks, aliased-path test in Docker. |
 | Audio output | **Wired** AAudio negotiated stereo float, bounded queue, sample-rate conversion, gain/mute, disconnect retry. PN's WSOLA time-stretch pacer is not ported. | Source only; no audio quality/latency measurement here. |
+| Microphone input | **Wired (opt-in)** Audio → Microphone → Handheld microphone (`microphone=device`) lets a game that samples hear the handheld's microphone; Android asks for permission the first time. Off, the default, gives silence. Blow into microphone works with both. | Host-checked, not run on device. |
 | Lifecycle, pause, focus loss, errors | **Wired** R keeps event loop active, drops audio/clears input and gates sensors; Java menu/error UI and separate game process. | Source only; device recovery needs runtime testing. |
 | PN launcher `pin/shortcut/playShortcut` | **Unsupported** home-screen game shortcut integration; Android library launch remains available. | Source only. |
 | PN launcher `play/start/playAgain` held-game task orchestration | **Partial** Android separate `:game` activity/process and pause/resume exist; no equivalent PN running-title discovery and cross-game task selection protocol. | Source only. |
